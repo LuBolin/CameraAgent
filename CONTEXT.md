@@ -84,13 +84,13 @@ _Avoid_: Editor, unsaved preview, keep
 The actual captured pixels and available capture settings used to interpret a Complaint and plan the next capture.
 _Avoid_: Preview frame, live baseline, edit state
 
-**Remote Coaching Consent**:
-The photographer's explicit choice to send a complete comment, coarse scalar scene measurements, and a random resettable app ID through the disclosed Cloudflare/OpenAI path; camera pixels and audio are never included.
-_Avoid_: Internet permission, image consent, comment submission
+**Observation Image**:
+A reduced, metadata-free rendering of the current live or captured view sent to the configured visual model to interpret one eligible visually ambiguous Complaint.
+_Avoid_: Photo upload, raw frame, full-resolution capture
 
-**Client Instance ID**:
-A random resettable UUID created only for advanced coaching and used as an abuse-control signal; it is not an account, credential, hardware ID, or recognized identity.
-_Avoid_: User ID, device ID, advertising ID
+**Visual Hint**:
+A fixed, family-limited semantic interpretation returned from an Observation Image. It is input to fresh local evidence and capability checks, never a Recommendation or camera command by itself.
+_Avoid_: Model answer, camera plan, executable action
 
 **Control Baseline**:
 The complete camera-control state observed before the first coached Apply in the current keyed camera session and restored by Reset across chained adjustments.

@@ -1,23 +1,29 @@
 # Photo Helper — Android Technical Architecture
 
 Status: implementation-ready draft  
-Last reviewed: 2026-08-03  
+Last reviewed: 2026-08-04
 Audience: Android engineers, backend engineers, hackathon judges, and technical reviewers
 
 Companion document: [Android Product and Interaction Design](ANDROID_PRODUCT_DESIGN.md)
 
 ## 1. Executive decision
 
-Build a native Android camera app in Kotlin. Use CameraX for preview, capture, exposure compensation, focus, and zoom; use Camera2 interop only for capability-gated ISO, shutter, and white-balance controls. Run frame measurements, face detection, and device-attitude tracking locally. Use a small remote agent endpoint only to translate ambiguous comments into a fixed intent vocabulary. The Android app—not the model—computes, validates, applies, and verifies camera changes.
+Build one native Android camera app in Kotlin. Use CameraX for preview, capture, exposure compensation, focus, and zoom; use Camera2 interop only for capability-gated ISO, shutter, and white-balance controls. Run speech recognition, frame measurements, face detection, intent parsing, planning, camera control, and verification locally. For two visually ambiguous complaint families, the app sends one reduced Observation Image directly to Z.AI `glm-4.6v-flash` using a disposable API key entered on the operator's own device.
+
+There is no owned backend, public account system, or provider abstraction. This is deliberately a private single-device hackathon architecture, not a production credential-distribution design. The model returns only a fixed Visual Hint; the Android app—not the model—computes, validates, applies, and verifies every camera change. If the key, network, or model is unavailable, the same local clarification remains usable.
 
 The product loop is:
 
 ```text
-observe → hear/read complaint → interpret → propose → obtain consent
+observe → hear/read complaint → interpret → propose → obtain action approval
         → act through camera controls → observe again → confirm or recover
 ```
 
 This is an agent because it closes the observe–act–verify loop. A chat response without execution or verification is not considered successful.
+
+Judge-facing disclosure:
+
+> This private demo uses Android on-device speech and face/frame analysis plus Z.AI GLM-4.6V-Flash for selected visual interpretation. It sends one reduced current frame for an eligible comment. Z.AI returns a fixed semantic label; camera decisions and verification stay on this phone.
 
 ### Selected stack
 
@@ -32,10 +38,10 @@ This is an agent because it closes the observe–act–verify loop. A chat respo
 | Orientation | Android rotation-vector/gravity sensors |
 | Voice input | Push-to-talk on-device `SpeechRecognizer` only; typed input always available |
 | Voice output | Android `TextToSpeech`, plus matching on-screen text and haptics |
-| Agent reasoning | Hybrid local intent rules plus one remote structured-output endpoint |
-| Persistence | No coaching/history database; photos use `MediaStore`, while native `SharedPreferences` stores remote-coaching consent, a resettable random client ID, and small accessibility/settings flags |
+| Agent reasoning | Deterministic local parser/planner plus a direct Z.AI visual-only enum hint for two families |
+| Persistence | No coaching/history database; photos use `MediaStore`; settings store accessibility flags and an Android-Keystore-encrypted demo API key |
 | Dependency injection | Manual constructor wiring; no Hilt for one screen |
-| Gradle structure | One `:app` module; packages provide locality |
+| Gradle structure | One `:app` module and one demo artifact; packages provide locality |
 | Minimum Android version | API 31 (Android 12), enabling explicit on-device speech and scoped-storage-only support |
 | Target/compile SDK | Latest stable SDK installed when implementation begins; do not freeze this architecture document to a Play-policy date |
 
@@ -45,7 +51,7 @@ This is an agent because it closes the observe–act–verify loop. A chat respo
 
 - Rear-camera capture; person-specific coaching requires exactly one stable detected face as the Coaching Subject, while exposure/color capture does not require a face.
 - Live preview and still photo capture.
-- Typed comments and push-to-talk comments.
+- Typed comments on every device; push-to-talk when an installed on-device English recognizer is available.
 - Four locally understood complaint families:
   - too bright / too dark;
   - too blue / too yellow;
@@ -55,7 +61,7 @@ This is an agent because it closes the observe–act–verify loop. A chat respo
 - Spoken, visual, and haptic positional guidance.
 - Verification after the setting or position changes.
 - Offline behavior for the common, measurable intents.
-- Remote interpretation for ambiguous or novel wording.
+- Local clarification for ambiguous, unsupported, or novel wording.
 
 Across supported devices, the executable baseline is exposure compensation, face-size guidance, and phone/subject-position guidance. Color comments are always understood locally, but warm/cool application is capability-gated; an unsupported camera receives an honest advisory recommendation rather than a fake Apply action.
 
@@ -81,28 +87,28 @@ These are product targets, not claims about every Android device.
 |---|---:|
 | Camera preview visible after permission grant | under 1.5 s on the demo device |
 | Local comment-to-recommendation latency | under 300 ms |
-| Remote comment-to-recommendation latency | p50 under 2 s; hard timeout at 5 s |
+| Visual request latency | target p50 under 2 s; hard timeout at 5 s |
 | Setting application visible in preview | under 500 ms after tap |
 | Guidance measurement rate | 4 Hz, independent of display frame rate |
 | Spoken-instruction rate | no more than one instruction every 1.5 s |
-| Analysis resolution | 640–720 px long edge unless detection confidence is insufficient |
-| Remote request body | at most 8 KiB; comment at most 300 characters; no image or audio fields |
+| Analysis resolution | 640–720 px long edge; face-eligible frames require a detected box at least 100×100 analysis pixels |
+| Conditional visual request body | at most 450 KiB JSON; comment at most 300 characters; decoded JPEG at most 300 KiB |
 | Crashes or blocked shutter after analysis failure | zero tolerated |
 
 ## 4. System context
 
 ```mermaid
 flowchart LR
-    U["Photographer"] -->|"preview, comment, consent, movement"| A["Installed Android app"]
+    U["Photographer"] -->|"preview, comment, action approval, movement"| A["Installed Android app"]
     A -->|"preview and capture controls"| C["Android camera hardware"]
     C -->|"frames and capture results"| A
-    A -->|"comment, coarse metrics, random app ID"| G["Owned agent gateway"]
-    G -->|"structured intent only"| A
+    A -.->|"eligible Complaint + reduced Observation Image + operator API key"| Z["Z.AI GLM-4.6V-Flash API"]
+    Z -.->|"fixed visual outcome only"| A
     A -->|"saved JPEG/HEIC"| M["Android MediaStore"]
     A -->|"spoken guidance"| U
 ```
 
-The app remains usable when the gateway is unavailable. Only phrasing outside the local intent vocabulary degrades.
+The app remains usable when Z.AI is unavailable: the same local clarification stays on screen and the shutter remains usable.
 
 ## 5. In-app architecture
 
@@ -121,8 +127,9 @@ flowchart TD
 
     CE --> LI["Local intent parser"]
     CE --> AP["AdjustmentPlanner"]
-    CE --> AG["AgentGateway interface"]
-    AG --> HTTP["HTTP agent-gateway adapter"]
+    CE --> LO["Visual eligibility decision"]
+    LO -.-> ZC["Concrete ZaiVisualClient"]
+    ZC -.-> CE
 
     VO --> AV["Android speech/TTS adapter"]
 ```
@@ -131,7 +138,7 @@ flowchart TD
 
 - `CaptureHardware` has a CameraX adapter for production and a deterministic fake for state-machine tests. It hides device fragmentation and asynchronous camera operations behind one interface.
 - `CoachEngine` is the main deep module. One call covers language interpretation, evidence checks, capability-aware planning, explanation, and a verification target.
-- `AgentGateway` is a real remote seam. Production uses HTTP; tests use an in-memory adapter. The app owns all camera logic even though language interpretation may be remote.
+- `CoachEngine` cannot perform network I/O. It can return local clarification plus visual eligibility metadata; the ViewModel may then call the single concrete `ZaiVisualClient` when the operator has configured the demo key.
 - `VoiceIo` isolates Android speech lifecycles and provides a fake for ViewModel tests.
 - `FrameAnalyzer`, capability reading, sensor fusion, and action planning are implementation details. They are not exposed to the UI as independent shallow interfaces.
 
@@ -169,7 +176,13 @@ Interface invariants:
 
 ```kotlin
 interface CoachEngine {
-    suspend fun recommend(input: CoachingInput): CoachRecommendation
+    fun evaluateLocal(input: CoachingInput): LocalDecision
+    fun continueWithVisualHint(
+        complaintId: ComplaintId,
+        family: VisualFamily,
+        hint: VisualHint,
+        freshInput: CoachingInput
+    ): LocalDecision
     fun verify(
         target: VerificationTarget,
         current: FrameObservation
@@ -187,16 +200,25 @@ Interface invariants:
 - `verify` is pure and deterministic.
 - A clear-direction complaint may express a `UserPreference` even when defect evidence is absent. In that case the recommendation labels the mismatch and offers a reversible directional change; it does not claim a `MeasuredDiagnosis`.
 - A diagnosis uses `DefectVerification`. A preference uses `EffectVerification` followed by user confirmation; applying the requested effect is not presented as objective quality improvement.
+- `evaluateLocal` performs no network I/O. It may return `Clarification(question, chips, visualEligibility)` only when a configured visual interpretation could change a useful result.
+- `continueWithVisualHint` treats the hint as semantic input, checks Complaint/provenance identity, and reruns the ordinary polarity, evidence, capability, planning, and verification rules.
 
-### 6.3 Agent gateway
+### 6.3 Direct Z.AI visual boundary
 
 ```kotlin
-interface AgentGateway {
-    suspend fun classify(request: AgentRequest): AgentIntentResult
+data class VisualEligibility(
+    val complaintId: ComplaintId,
+    val family: VisualFamily,
+    val origin: ObservationOrigin,
+    val eligibilitySnapshotId: ObservationId
+)
+
+class ZaiVisualClient {
+    suspend fun interpret(request: VisualRequest, apiKey: CharArray): VisualResult
 }
 ```
 
-The gateway may interpret language and scene context. It cannot call Android controls directly. A fake adapter returns fixture responses for tests.
+The local parser—not Z.AI—classifies wording. `VisualEligibility` contains no pixels and causes no I/O. When the operator has entered and enabled a demo API key, the ViewModel freezes one qualifying image and calls the concrete `ZaiVisualClient` directly. The client has one hard-coded provider/model contract and cannot call Android controls. Clear the temporary key character buffer after request construction.
 
 ### 6.4 Voice I/O
 
@@ -209,7 +231,7 @@ interface VoiceIo {
 }
 ```
 
-Push-to-talk is required. On microphone tap, call `isOnDeviceRecognitionAvailable` and use `createOnDeviceSpeechRecognizer` only. Cloud-backed default speech recognition is not allowed in the MVP. Before first use, disclose: `Android transcribes voice on this device. Photo Helper does not store or send your audio.` If the on-device model or requested language is unavailable, disable voice for that session and retain typed input; never fall back silently to a network recognizer.
+Push-to-talk is capability-dependent rather than a release gate. On microphone tap, call `isOnDeviceRecognitionAvailable` and use `createOnDeviceSpeechRecognizer` only. Cloud-backed default speech recognition is not allowed in the MVP. Before first use, disclose: `Android transcribes voice on this device. Photo Helper does not store or send your audio.` If the on-device model or requested language is unavailable, disable voice for that session and retain typed input; never fall back silently to a network recognizer.
 
 ## 7. Domain data
 
@@ -232,7 +254,7 @@ data class FrameObservation(
 )
 ```
 
-Coordinates are normalized to the displayed preview after rotation and crop. Detector-probability fields are `0.0..1.0`; they are unrelated to remote model authority. Measurements derived from stale frames older than 750 ms are not executable evidence.
+Coordinates are normalized to the displayed preview after rotation and crop. The selected ML Kit Face API exposes no overall detection score; smile/eye-open probabilities, when enabled, are expression classifications and are not eligibility evidence. Measurements derived from stale frames older than 750 ms are not executable evidence.
 
 ### 7.2 Camera capabilities and telemetry
 
@@ -263,7 +285,7 @@ Manual controls are enabled only when the request keys, ranges, and hardware lev
 
 ### 7.3 Intent vocabulary
 
-The remote model and local parser may return only:
+The local parser/planner uses this broader semantic vocabulary:
 
 ```text
 EXPOSURE_DARKER      EXPOSURE_BRIGHTER
@@ -272,10 +294,10 @@ WHITE_BALANCE_WARMER WHITE_BALANCE_COOLER RESET_WHITE_BALANCE
 FACE_OCCUPANCY_LOWER FACE_OCCUPANCY_HIGHER
 PLACE_SUBJECT_FRAME_LEFT PLACE_SUBJECT_FRAME_RIGHT
 FRAME_HIGHER             FRAME_LOWER        LEVEL_FRAME
-FULL_BODY_TALLER     CLARIFY                UNSUPPORTED
+CLARIFY              UNSUPPORTED
 ```
 
-This vocabulary is intentionally semantic. The model does not select an arbitrary ISO, nanosecond shutter value, or sensor gain.
+The conditional VLM has a much smaller visual-only vocabulary defined in section 10. It does not select arbitrary ISO, shutter, white-balance, zoom, or movement values.
 
 These values are `FrameGoal`s in unmirrored saved-image coordinates, not movement instructions. The MVP planner emits only photographer/camera actions:
 
@@ -340,7 +362,7 @@ Apply preconditions:
 - `REDUCE_NOISE`: lower ISO only when a longer shutter is safe according to `motionScore`; otherwise explain the tradeoff instead of applying a lossy change.
 - `WHITE_BALANCE_WARMER`: use a tested AWB preset or calibrated color gains only if the active camera supports them; otherwise offer Reset AWB.
 
-For the required demo-device `FREEZE_MOTION` plan, target a bounded two-stop shutter improvement:
+For the capability-gated manual-exposure showcase, a `FREEZE_MOTION` plan targets a bounded two-stop shutter improvement:
 
 ```text
 idealExposureTime = currentExposureTime / 4
@@ -352,7 +374,7 @@ targetISO = quantizeToSupported(
 
 Clamp ISO to both the reported sensor range and a calibrated demo-device noise ceiling. From 1/120 s at ISO 400, this yields approximately 1/500 s at ISO 1600. If the full compensation exceeds the ceiling, compute the fastest shutter that preserves brightness at that ceiling. Offer Apply only when the result is at least one stop faster and quantization predicts no more than 0.3 EV brightness loss; show the exact before/after values and `Freezes more motion; adds noise.` Otherwise return `Add light or ask the subject to slow down` advice without Apply.
 
-The judged comparison begins from a deliberately blurry saved photo in Capture Review, not a preview frame. `Apply for retake` uses its actual capture telemetry, revalidates the same camera, and acknowledges the new settings in the repeating capture result. After the retake is saved, decode both saved images, require the same lens/subject/region and the comparability bounds below, align the subject crop, and compare a simple on-device gradient-sharpness score. A 15% or greater improvement permits `Subject detail is sharper.` This metric cannot distinguish motion blur from missed focus, so the app never claims `motion blur fixed`. A live-preview complaint can authorize the preference and verify only that faster settings became active; visual improvement remains unknown until a comparable retake exists.
+When the manual showcase passes its device gate, the comparison begins from a deliberately blurry saved photo in Capture Review, not a preview frame. `Apply for retake` uses its actual capture telemetry, revalidates the same camera, and acknowledges the new settings in the repeating capture result. After the retake is saved, decode both saved images, require the same lens/subject/region and the comparability bounds below, align the subject crop, and compare a simple on-device gradient-sharpness score. A 15% or greater improvement permits `Subject detail is sharper.` This metric cannot distinguish motion blur from missed focus, so the app never claims `motion blur fixed`. Failure of the manual gate hides this optional feature; it does not fail the core demo.
 
 Verification reports three separate outcomes:
 
@@ -379,6 +401,7 @@ enum class CoachingPhase {
     IDLE,
     LISTENING,
     INTERPRETING,
+    REQUESTING_VISUAL_INTERPRETATION,
     RECOMMENDATION,
     APPLYING,
     GUIDING,
@@ -395,13 +418,16 @@ The shutter is enabled only when `cameraPhase == READY` and `coachingPhase != AP
 |---|---|
 | `IDLE` | Capture directly |
 | `LISTENING` | Stop recognizer and discard partial speech |
-| `INTERPRETING` | Cancel local/network work and invalidate its request ID |
+| `INTERPRETING` | Cancel local work and invalidate its request ID |
+| `REQUESTING_VISUAL_INTERPRETATION` | Cancel the Z.AI call, release the Observation Image, then capture |
 | `RECOMMENDATION` | Clear the unapplied recommendation |
 | `GUIDING` / `VERIFYING` | Stop TTS/haptics, release Subject Lock, and end verification |
 | `TRANSIENT_ERROR` | Clear the error |
 | `APPLYING` | Shutter disabled until camera acknowledgement or failure; do not queue a press |
 
 Capture takes priority over cancellable coaching. `STARTING`, `CAPTURING`, `REVIEWING`, and `BLOCKED` camera phases disable the shutter. Coaching work never survives into a new capture implicitly.
+
+`REQUESTING_VISUAL_INTERPRETATION` owns one closeable Observation Image and request job under `try/finally`. A shutter press, Back, a new Complaint, lifecycle stop, timeout, or process death cancels the call, releases the image, and returns to the same local clarification; the shutter is never queued. Late callbacks must match request ID, Complaint lifecycle, provenance, and current state or are discarded.
 
 `REVIEWING` owns a `SavedCapture` containing the MediaStore URI, review image, actual-capture observation, captured telemetry, and applied baseline. The camera remains lifecycle-bound for a quick retake, but the review obscures preview, pauses live analysis, and hides the shutter. A review-origin recommendation retains its origin until Apply or dismissal.
 
@@ -444,11 +470,11 @@ Regional exposure is outside the MVP. `EXPOSURE_DARKER` and `EXPOSURE_BRIGHTER` 
 ### 9.4 Coaching Subject qualification
 
 - Never treat `faces[0]`, the largest face, or the closest face as a stable subject.
-- With one detected face, create a session-local Subject Lock from the ML Kit tracking ID and normalized box.
+- With one detected face, keep it as a candidate until three consecutive analyzed samples span at least 500 ms, every box is at least 100×100 analysis pixels, and consecutive boxes satisfy IoU/center/scale continuity. Then create a session-local Subject Lock; require the same ML Kit tracking ID when it is present, but do not require the optional ID.
 - With zero faces, withhold person-specific coaching and ask the photographer to point at the person.
 - With multiple faces, pause or withhold person-specific coaching and say `I see more than one person. Frame only the person you want help with.` There is no tap-to-select UI in the MVP.
 - A newly entering face never inherits an existing lock.
-- Use geometric continuity only to bridge a brief missing tracking ID; it is not identity recognition.
+- Use the same geometric continuity to bridge a missing optional tracking ID; it is not identity recognition.
 - If the locked face is missing for more than 750 ms, pause speech and verification.
 - Resume only if the same track or one unambiguous geometric continuation returns within three seconds.
 - After three seconds, or whenever a second candidate is present, abort guidance and require exactly one stable face again.
@@ -491,100 +517,107 @@ Android Camera2 does not expose one universal “set Kelvin” control. Warm/coo
 
 After a successful save, decode the actual saved pixels at analysis resolution and enter `ReviewingCapture`; do not use the last preview frame as capture truth. Capture telemetry comes from the still-capture result or EXIF and is marked unknown when unavailable. `Done` dismisses review, while `Retake` returns unchanged to preview. Both retain the already-saved original and perform no second write or deletion. Review copy states `Original remains saved`. A post-capture comment uses actual captured pixels and available telemetry as its `RetakeBaseline`. `Apply for retake` revalidates the active camera, applies a plan relative to that baseline, returns to live preview, and verifies against fresh observations. A lens or capability change invalidates the old plan and forces recomputation.
 
-## 10. Agent pipeline
+## 10. Local coaching and direct Z.AI interpretation
 
-### 10.1 Local-first decision
+### 10.1 Local decision first
 
-The local parser handles synonyms for the MVP intents, for example:
+The Android parser owns wording classification:
 
 ```text
 "too bright", "washed out", "highlights gone" → EXPOSURE_DARKER
-"too blue", "cold", "icy skin"              → WHITE_BALANCE_WARMER
-"face occupies too much frame"              → FACE_OCCUPANCY_LOWER
-"face too big", "too close"                 → FACE_SIZE_MEANING_UNCLEAR
-"crooked", "not straight"                  → LEVEL_FRAME
+"too blue", "cold", "looks cool"             → COLOR_CAST / WARMER preference
+"face occupies too much frame"               → FACE_OCCUPANCY_LOWER
+"face too big", "too close"                  → FACE_SIZE_AMBIGUOUS
+"crooked", "not straight"                    → LEVEL_FRAME
 ```
 
-It may execute only when an exact normalized phrase family has an unambiguous direction, the on-device negation/polarity guard agrees, and local evidence/capabilities authorize the action. Otherwise it asks an app-owned clarification or, with Remote Coaching Consent, calls the gateway. Model-reported confidence is not accepted or used.
+Unknown, elliptical, negated, unsupported, or novel wording produces app-owned clarification chips and no request. Z.AI is a visual disambiguator, not a language fallback. One complete Complaint replaces the prior lifecycle; literal Reset remains local.
 
-The MVP is one-Complaint-at-a-time, not conversational memory. A new complete comment cancels and replaces the prior recommendation; shutter, capture completion, or camera-session change ends the lifecycle. Only clarification chips carry explicit machine context. Literal `reset` or `undo last camera adjustment` is a local command when the current `ControlBaseline` is valid. Detect elliptical free text such as `a little more`, `do the opposite`, or `no, the background` locally and request a complete complaint; never send it as an executable remote request.
+When a demo API key is configured, `CoachEngine.evaluateLocal` may mark only `COLOR_CAST` or `FACE_SIZE_AMBIGUOUS` as visually eligible. `Person looks short` remains local clarification/advice until a later pose-backed phase.
 
-### 10.2 Gateway request
+| Family | Required before a request | Returned result and authority |
+|---|---|---|
+| `COLOR_CAST` | Exact whole-frame warm/cool phrase and polarity; current color metric; at least 30% usable pixels; mean luma `0.10..0.90`; highlight/shadow clipping each below `0.15`; chroma bias between calibrated weak/strong thresholds. | `WHITE_BALANCE_WARMER` or `WHITE_BALANCE_COOLER`. Apply still requires fresh comparable color evidence and tested WB capability; otherwise advice only. |
+| `FACE_SIZE_AMBIGUOUS` | Exactly one geometrically stable Subject Lock across three samples/500 ms; face box at least 100×100 analysis pixels and 90% visible; occupancy `0.25..0.70`. | `FACE_OCCUPANCY_LOWER` may start one-step guidance only after fresh matching occupancy evidence; `CLOSE_PERSPECTIVE_ADVISORY` is advice only. |
 
-`POST /v1/coach/classify`
+### 10.2 Demo API key
 
-This request is permitted only after Remote Coaching Consent. Local-only mode never calls the endpoint.
+Settings contains a password-style `Z.AI API key` field, `Test key`, `Visual AI enabled`, and `Clear key`. The field does not use autofill, does not enter `SavedStateHandle`, and never logs or displays the full saved value. Generate a non-exportable AES/GCM key in `AndroidKeyStore`; store only the encrypted API key ciphertext and IV in private `SharedPreferences`, and set `android:allowBackup="false"`. Clear removes ciphertext and the Keystore alias. This reduces accidental disclosure but is not production-grade protection against a compromised device or runtime instrumentation.
+
+Use a disposable Z.AI key with a low account quota, keep the APK on the operator's device, and revoke/rotate the key after the demo. The direct-call risk is deliberate and recorded in ADR 0003.
+
+Before the Android key-entry screen exists, fixture/evaluation scripts read `ZAI_API_KEY` from the host environment. Do not commit `.env`, print the key, or copy the environment value into Android `BuildConfig`, resources, source, or the APK; a desktop environment variable is unavailable to an installed app at runtime.
+
+### 10.3 Observation Image lifecycle
+
+After the final text/voice Complaint passes visual eligibility, the app automatically freezes the newest live analysis frame no older than 500 ms, or uses the exact saved pixels in Capture Review. Normalize to the visible saved-image orientation/crop, cap the long edge at 768 px, encode JPEG at quality 70, and require at most 300 KiB. Close `ImageProxy` immediately.
+
+The reduced bitmap/JPEG/base64 exists only in memory and never enters MediaStore, app files/cache, a database, saved state, analytics, crash reporting, or logs. One request coroutine owns all buffers under `try/finally`; cancellation, timeout, result/failure, backgrounding, or process death releases them. No continuous preview streaming occurs.
+
+### 10.4 Direct API contract
+
+`ZaiVisualClient` calls `POST https://api.z.ai/api/paas/v4/chat/completions` with `Authorization: Bearer <operator-entered-key>` and one JSON body:
 
 ```json
 {
-  "schemaVersion": 1,
-  "clientInstanceId": "random-resettable-uuid-v4",
-  "sessionId": "ephemeral-uuid",
-  "comment": "the whole shot is washed out",
-  "locale": "en-SG",
-  "observation": {
-    "meanLuma": 0.84,
-    "highlightClipFraction": 0.12,
-    "faceCount": 0
-  },
-  "availableIntents": ["EXPOSURE_DARKER", "CLARIFY"]
+  "model": "glm-4.6v-flash",
+  "request_id": "uuid-v4",
+  "messages": [{
+    "role": "user",
+    "content": [
+      {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}},
+      {"type": "text", "text": "Prompt v1: family=FACE_SIZE_AMBIGUOUS; comment=face looks too big; return the required JSON union only"}
+    ]
+  }],
+  "thinking": {"type": "disabled"},
+  "do_sample": false,
+  "stream": false,
+  "max_tokens": 80,
+  "response_format": {"type": "json_object"}
 }
 ```
 
-The body is strict JSON, at most 8 KiB, and `comment` is at most 300 characters. It has no image, audio, EXIF, URI, face-landmark, tracking-ID, or Android hardware-ID field. The random client ID is created only when advanced coaching is enabled, stored in `SharedPreferences`, regenerated by `Reset advanced-coaching ID`, and reset by uninstall/reinstall.
+The first integration task is a real-key 12-call smoke test proving that GLM-4.6V-Flash accepts the inline Base64 data URL with this exact option combination. Official examples clearly document `image_url` but do not clearly document inline data URLs for this chat path; if the smoke test fails, stop and reassess rather than adding image hosting.
 
-### 10.3 Gateway response
+Abort after five seconds and never retry automatically. Allow at most six visual calls per minute in the app and rely on the Z.AI account quota for cost control. Accept one choice only, `finish_reason == stop`, returned `request_id` equal to the locally generated ID, exact model identifier, no tool calls, absent/empty reasoning content, and content at most 512 bytes. Trim surrounding whitespace only; reject fences, trailing prose, unknown keys, and partial JSON.
+
+The provider content is exactly one disjoint union:
 
 ```json
-{
-  "schemaVersion": 1,
-  "intent": "EXPOSURE_DARKER",
-  "ambiguityCode": "NONE"
-}
+{"schemaVersion":2,"outcome":"INTENT","intent":"FACE_OCCUPANCY_LOWER"}
 ```
 
-The response is semantic data only. Allowed ambiguity codes are fixed enums such as `NONE`, `REGION_UNCLEAR`, `FACE_SIZE_MEANING_UNCLEAR`, `SUBJECT_UNCLEAR`, `TRADEOFF_REQUIRED`, and `UNSUPPORTED`. The installed app owns every diagnosis sentence, explanation, safety preamble, instruction, TTS utterance, clarification question, and chip label through reviewed templates. Model output is never rendered.
+or:
 
-Validation rules:
+```json
+{"schemaVersion":2,"outcome":"CLARIFY","reason":"SUBJECT_UNCLEAR"}
+```
 
-- reject unknown keys if strict decoding is available;
-- reject unknown intent values;
-- reject all free-text response fields;
-- require `ambiguityCode == NONE` before an intent is eligible for planning;
-- require the on-device negation/polarity guard to agree with the returned direction;
-- never translate model output directly into Camera2 keys;
-- fall back to an app-owned clarification template after timeout, malformed JSON, polarity conflict, or insufficient evidence.
+For `INTENT`, `intent` is required and `reason` forbidden. Color allows `WHITE_BALANCE_WARMER|WHITE_BALANCE_COOLER`; face size allows `FACE_OCCUPANCY_LOWER|CLOSE_PERSPECTIVE_ADVISORY`. For `CLARIFY`, `reason` is required and `intent` forbidden; reasons are `VISUAL_INSUFFICIENT|SUBJECT_UNCLEAR|SCENE_CONFOUND`. Refusal, timeout, malformed output, or model mismatch is unavailable, not `CLARIFY`. No provider prose is rendered.
 
-### 10.4 Concrete hackathon backend
+Every card derived from an accepted Visual Hint displays `AI-interpreted by Z.AI; camera controls checked on device`. The label persists after loading and is announced after the card headline. Local-only cards never show it.
 
-Deploy one Cloudflare Worker with one public route, `POST /v1/coach/classify`; do not add a web framework, database, accounts, or provider abstraction. The APK receives the public HTTPS URL through `BuildConfig.COACH_ENDPOINT` per build type. `OPENAI_API_KEY` is a Cloudflare Worker secret and never enters source control, Gradle properties, or the APK.
+### 10.5 Provider processing and scope
 
-The Worker calls the OpenAI Responses API with:
+The operator explicitly enables direct Z.AI processing by entering the key and turning on `Visual AI enabled`. Each eligible request then runs automatically; Z.AI caching is disclosed but is not a launch blocker for this private demo. The app sends no audio, EXIF, content URI, face landmarks, tracking ID, or hardware ID, and makes no zero-retention claim. The operator controls the staged device and is responsible for what appears in its camera frame.
 
-- selected moving model alias `gpt-5.6-luna`—not an immutable snapshot;
-- `reasoning.effort: "none"`;
-- Structured Outputs with strict `schemaVersion = 1` enums;
-- `store: false`, no background mode, tools, files, image, or audio;
-- independently fixed `promptVersion = 1` and `schemaVersion = 1`.
+This is not a public-app security/privacy design. Before wider distribution, move the key behind an authenticated backend or use an on-device model, add a proper consent/bystander policy, and perform security/privacy review.
 
-The model alias, prompt, and schema are server-owned; the client cannot select them. The 240-utterance classifier corpus must pass immediately before each manual Worker deployment and again during the same-day demo rehearsal. The Worker requires the upstream Responses `model` field to equal `gpt-5.6-luna`; another value fails closed. Because the alias can drift without a deploy, a Worker environment kill switch disables remote classification when rehearsal fails. Local coaching remains available.
+### 10.6 Provenance and stale results
 
-Boundary controls:
+`PendingVisualRequest` keeps request ID, exact Complaint ID/text digest, origin, camera session/lens, Observation Image ID/time, preview crop/transform, Subject Lock generation/face box, and relevant luma/chroma/face/attitude snapshot locally.
 
-- accept only HTTPS `POST` with `Content-Type: application/json`;
-- reject bodies over 8 KiB with 413, comments over 300 characters or invalid schema with 400, and unknown response fields/enums with a typed unavailable response;
-- abort the OpenAI fetch after five seconds and never retry automatically;
-- use a Cloudflare Rate Limiting binding keyed by the random client ID for 10 requests per minute, with a separate IP-based edge rule where the account plan supports it; return 429 when limited;
-- document that the rate limiter is location-local, permissive, and eventually consistent; the OpenAI project spend cap, remote kill switch, and post-hackathon shutdown are the hard cost limits;
-- log only request ID, latency, status, selected intent, and error class—never raw comments, metrics, client IDs, or response content—and return `Cache-Control: no-store`.
+For live preview, discard after a new/edited Complaint, shutter/capture/review entry, lifecycle stop, camera/session/lens/viewport change, analysis discontinuity, Subject Lock change, face count leaving one for person-specific cases, subject loss, face-box IoU below `0.70`, face-center movement above `0.08` frame, face-scale change above 10%, or color-direction/chroma material change. A surviving result is only a Visual Hint: obtain a fresh local observation no older than 750 ms and run the normal planner. It never enables Apply by itself.
 
-The Worker sends the random `clientInstanceId` to OpenAI as `safety_identifier`. Cloudflare necessarily observes the client IP. `store: false` avoids Responses application-state storage, but ordinary OpenAI abuse-monitoring logs can include inputs/outputs for up to 30 days unless the project is separately approved and configured for Modified Abuse Monitoring or Zero Data Retention. Do not claim zero retention. Disable the endpoint and delete its provider secret after judging.
+For Capture Review, bind to SavedCapture ID/URI, digest of the exact reduced pixels, and RetakeBaseline. Dismissal/Retake/Done, a new Complaint/capture, background, or digest mismatch invalidates it. `Apply for retake` requires saved-image evidence plus freshly validated camera/lens capabilities.
 
-Deployment acceptance covers valid fixtures, 400/413/429 paths, a simulated upstream timeout, invalid provider output, the alias-model-field check, the kill switch, content-free logs, and a source/APK secret scan. A public hackathon client cannot prevent determined abuse; these controls bound ordinary misuse and cost rather than providing user authentication.
+### 10.7 Evaluation
 
-The remote classifier is English-only for the MVP. Voice requires an installed on-device English recognizer, initially exercised with `en-US`, `en-GB`, and `en-SG`; typed English remains available. Unsupported language or locale stays local and produces English chips/advice rather than a transmission.
+Before judging, run the exact 12-call API smoke plus 24 ordinary cases (12/family), 18 adversarial cases, and parser fault fixtures. Require every call under five seconds, 100% strict union/family enforcement, zero wrong-direction executable outcomes, and graceful local fallback on key/network/provider failure.
 
-Before every prompt, schema, model-alias, or Worker change, run 240 fixed utterances: 120 supported paraphrases balanced across four complaint families and directions, 60 negation/contrast cases, 30 ambiguous cases, and 30 unsupported or noisy-ASR cases. Release requires at least 95% correct intent+direction on the supported set, zero wrong-direction executable results in the negation/ambiguous sets, and 100% fail-closed behavior for invalid/unknown schema. Every non-passing result must clarify or advise rather than Apply.
+For post-hackathon evidence, use 80 development pairs and a sealed 40-case holdout, plus 54 adversarial cases covering prompt injection, visible text, no/multiple/wrong faces, color confounders, crop/mirror/rotation, provider refusal/truncation, response drift, and family-disallowed labels. Treat a 12-person/48-trial study as exploratory rather than production proof.
+
+Each fixture run writes JSONL with run/time, source commit, expected/returned model, prompt/schema hash, fixture/content hash, expected family/labels, raw fixture-only response, parsed label, latency, rejection reason, and pass/fail. It stores no additional image copy or API key.
 
 ## 11. Positional guidance
 
@@ -598,7 +631,6 @@ Examples:
 | `PLACE_SUBJECT_FRAME_LEFT` | “Aim the phone slightly right.” | subject-center x decreases | center enters target band |
 | `FRAME_HIGHER` | “Tilt the phone slightly down.” | pitch and subject position | both enter band |
 | `LEVEL_FRAME` | “Rotate the phone a little clockwise.” | absolute roll | under 1.5° for 500 ms |
-| `FULL_BODY_TALLER` | “Lower the phone toward hip height.” | body visibility, pitch, pose proportions | experimental; confirm with user |
 
 Guidance rules:
 
@@ -618,7 +650,7 @@ Guidance rules:
 - Main thread: Compose rendering, camera binding, SpeechRecognizer calls required by Android, and state dispatch.
 - Camera executor: CameraX analysis callback and capture callback.
 - Analysis dispatcher: histogram and ML Kit work; at most one analysis job at a time.
-- IO dispatcher: gateway HTTP call and MediaStore preparation.
+- IO dispatcher: direct Z.AI HTTP call, key encryption, and MediaStore preparation.
 - ViewModel scope: serialized product-state transitions.
 
 Cancellation behavior:
@@ -645,17 +677,18 @@ app/src/main/java/.../photohelper/
     CameraCapabilities.kt
   coach/
     CoachEngine.kt
-    HybridCoachEngine.kt
+    DefaultCoachEngine.kt
     CoachingModels.kt
     AdjustmentPlanner.kt
     Verification.kt
   voice/
     VoiceIo.kt
     AndroidVoiceIo.kt
-  agent/
-    AgentGateway.kt
-    HttpAgentGateway.kt
-    AgentContracts.kt
+  visual/
+    ZaiVisualClient.kt
+    DemoApiKeyStore.kt
+    ObservationImageFactory.kt
+    VisualContracts.kt
   ui/
     PhotoHelperTheme.kt
 
@@ -664,12 +697,18 @@ app/src/test/java/.../
   coach/AdjustmentPlannerTest.kt
   capture/CaptureViewModelTest.kt
 
+app/src/test/java/.../visual/
+  VisualContractTest.kt
+  DemoApiKeyStoreTest.kt
+
 app/src/androidTest/java/.../
   capture/CameraSmokeTest.kt
   capture/PermissionFlowTest.kt
 ```
 
 Do not create separate Gradle modules until build time, team ownership, or reuse demonstrates a real need.
+
+Use one application artifact with ordinary debug/release build types. The Z.AI endpoint, model identifier, and prompt schema are fixed application constants; they are not secrets. The operator-entered API key is runtime data and must never be generated into build constants or resources.
 
 ## 14. Dependencies
 
@@ -687,7 +726,7 @@ Required:
 Conditional:
 
 - ML Kit pose detection only in the full-body phase.
-- A JSON library only if the chosen model/backend client does not already provide one. Prefer platform JSON for the single small contract.
+- Use platform `HttpsURLConnection` and `org.json` for the one Z.AI contract; do not add Retrofit or a provider SDK.
 - No Hilt, Room, Retrofit, navigation library, analytics SDK, or image-loading library in the MVP.
 
 ## 15. Permissions and privacy
@@ -704,12 +743,14 @@ Manifest permissions:
 - Request microphone permission only when the microphone button is first used.
 - If microphone permission is denied, typed comments remain fully usable.
 - No location, contacts, media-library read, background camera, or background microphone permission.
-- Default Remote Coaching Consent is `ASK`. Before the first request, disclose the full path: comment, locale, coarse brightness/color/face-count/face-size metrics, and a random resettable app ID go to Photo Helper's Cloudflare Worker; Cloudflare sees the client IP for abuse protection; the Worker sends the comment, metrics, and app ID to OpenAI. No photo, audio, EXIF, URI, landmarks, tracking ID, or Android hardware ID leaves the phone.
-- `Enable advanced coaching` creates a UUIDv4 `clientInstanceId` and persists it with `ENABLED` in `SharedPreferences`. `Stay local` or dismissal sends nothing. Settings can change the consent and `Reset advanced-coaching ID`; uninstall/reinstall also resets consent and the ID.
-- The Worker sends the random ID as OpenAI's `safety_identifier`. It sets `store: false`, but the UI/privacy copy states that ordinary OpenAI abuse-monitoring logs may retain API input/output for up to 30 days unless separately approved data controls apply. It does not claim zero provider retention; Cloudflare security/platform metadata follows the deployed account configuration.
-- All camera and captured-photo pixels remain on-device for both local and advanced coaching.
+- Settings explicitly enables direct Z.AI visual processing only after the operator enters a key. `Clear key` disables it immediately.
+- Store only Keystore-encrypted key ciphertext/IV, disable app backup, and never put plaintext into saved state, logs, crash reports, screenshots, source, Gradle properties, resources, or the APK.
+- One reduced Observation Image and its Complaint may go directly to Z.AI for an eligible family. Audio, EXIF, content URI, face landmarks, tracking ID, Android hardware ID, and local metrics do not.
+- This is a private operator-controlled demo. It makes no zero-retention promise and is not the privacy/credential architecture for public distribution.
 - Use TLS only; block cleartext traffic in network security configuration.
 - Never log comments, scalar measurements, random client IDs, transcripts, image bytes, content URIs, or face geometry in production logs.
+
+Build acceptance scans source, Gradle output, resources, DEX, and APK strings for the actual API key and known key prefix; any match blocks use. Endpoint/model strings are expected. Install, enter the disposable key, verify one direct call, clear it, and confirm subsequent visual calls remain disabled. Revoke the key after judging.
 
 ## 16. Compatibility and graceful degradation
 
@@ -723,7 +764,7 @@ Manifest permissions:
 | Face detector finds no face | Do not emit portrait movement instructions; ask the user to point at the subject |
 | Face detector finds multiple faces | Pause person-specific coaching and ask the photographer to frame only one person; do not select or switch |
 | Android touch exploration active | Keep stationary phone guidance; replace walking with distance advice or a capability-gated continuous zoom action |
-| Gateway offline/timeout | Run local intent rules; ask a constrained clarification for unknown comments |
+| Z.AI key missing/invalid, offline, or timeout | Keep the identical local clarification/chips; show a transient unavailable message |
 | Device camera privacy toggle off | Show the system-specific recovery message; do not treat blank frames as darkness |
 | Camera2 override fails | Clear overrides, restore automatic controls, and keep the shutter usable |
 
@@ -734,13 +775,13 @@ The hackathon demo device should be selected and capability-probed early. Androi
 ### Pure JVM checks
 
 - Intent synonym mapping.
-- Gateway JSON parsing and rejection of invalid values.
+- Visual outcome-union parsing, family enforcement, and rejection of invalid/trailing values.
 - Exposure EV-to-index quantization and range clamping.
 - Manual shutter/ISO tradeoff calculations.
 - White-balance range clamping.
 - `Applied`, `EffectObserved`, and `RequestSatisfied` remain distinct through comparable, changed, unchanged, and incomparable observations.
 - Verification target hysteresis and timeout behavior.
-- ViewModel state transitions with fake camera, voice, and gateway adapters.
+- ViewModel direct-visual request ownership, cancellation, key-clear, and late-callback transitions.
 
 ### Image fixtures
 
@@ -761,7 +802,7 @@ Assert measurements and intent eligibility, not aesthetic “beauty scores.”
 - Camera permission grant, denial, and “only this time.”
 - Preview + analysis + still capture bound concurrently.
 - EV adjustment visibly changes preview and is reported in capture state.
-- Manual-mode Apply followed by Reset returns to stable AE/AWB.
+- When the optional manual showcase is enabled, Apply followed by Reset returns to stable AE/AWB.
 - Speech cancellation, recognizer-busy errors, and TTS interruption.
 - On-device recognizer available/unavailable and language-model-missing paths; the app never invokes the default cloud-capable recognizer.
 - Background/foreground does not leak camera or microphone resources.
@@ -771,7 +812,7 @@ Use a real physical phone for camera acceptance; emulator success is not evidenc
 
 Physical test matrix:
 
-- primary stage device on its exact OS build and rear lens, with camera capability probe passed and the required on-device speech language installed;
+- primary stage device on its exact OS build and rear wide lens, with the P0 CameraX/EV/face probe passed; on-device English speech is preferred while typed input is the pass condition;
 - one API 31/32 compatibility device;
 - one current-target API 35/36 device as available.
 
@@ -786,7 +827,7 @@ API 23–30 are unsupported and need no storage, review, or voice test coverage.
 5. Unsupported, ambiguous, negated, or polarity-conflicted language asks one short clarification and leaves the shutter usable.
 6. Airplane mode understands the four local MVP complaint families. On cameras without stable WB control, color produces clearly labeled advice rather than an Apply button; the other three families retain their executable baseline.
 7. A saved photo enters Capture Review; Done retains the URI, while a post-capture comment analyzes actual captured pixels and produces an `Apply for retake` plan tied to the captured baseline.
-8. On the tested demo phone, a deliberately blurry saved photo with 1/120 s and ISO 400 receives `Freeze movement`; Apply for retake proposes about 1/500 s and ISO 1600, hardware acknowledgement precedes capture, Reset restores the session ControlBaseline, and only comparable saved retake pixels may produce `Subject detail is sharper`.
+8. Conditional manual showcase only: after its five-run capability gate, a blurry saved photo near 1/120 s and ISO 400 may receive `Freeze movement`; Apply for retake proposes about 1/500 s and ISO 1600, acknowledgement precedes capture, Reset restores the baseline, and only comparable pixels may produce `Subject detail is sharper`. Otherwise the feature is hidden and scenarios 1–7 define acceptance.
 
 ## 18. Implementation plan
 
@@ -797,7 +838,7 @@ API 23–30 are unsupported and need no storage, review, or voice test coverage.
 - Request camera permission in context.
 - Save one photo to MediaStore.
 - Show the saved photo in Capture Review with truthful Done and Retake actions; both retain the original.
-- Select and capability-probe the exact stage phone/lens: manual sensor control, capture-result acknowledgement, Reset to stable AE, and installed on-device English speech must pass now. If manual exposure is unstable, choose a different stage phone before feature freeze.
+- Select the exact API-31+ stage phone/rear-wide lens. Require concurrent Preview+ImageAnalysis+ImageCapture, EV range spanning at least `-2..+2` steps, EV acknowledgement/convergence within one second for five trials, 4 Hz analysis without visible jank, stable one-face detection, and MediaStore capture. Prefer installed on-device English speech; typed input is the fallback and pass condition.
 - Produce and install a signed debug APK on the demo phone.
 
 Exit: the app launches from the home screen, previews, captures, and saves without coaching.
@@ -815,41 +856,42 @@ Exit: measurements update without visible preview jank.
 ### Phase 2 — deterministic coach and one-tap exposure
 
 - Implement data contracts, local intent parser, planner, and verification.
-- Support exposure, color, face-occupancy, and phone-position wording from typed comments. The first executable set is `EXPOSURE_DARKER`, `EXPOSURE_BRIGHTER`, `FACE_OCCUPANCY_LOWER`, and `LEVEL_FRAME`; warm/cool comments return capability-aware AWB advice unless optional Phase 6 work proves stable control.
+- Support exposure, color, face-occupancy, and phone-position wording from typed comments. The first executable set is `EXPOSURE_DARKER`, `EXPOSURE_BRIGHTER`, `FACE_OCCUPANCY_LOWER`, and `LEVEL_FRAME`; warm/cool comments return capability-aware AWB advice unless later device testing proves stable control.
 - Apply CameraX EV compensation and verify it.
+- Decode the saved Capture Review image, bind a post-capture Complaint to its RetakeBaseline, and support capability-revalidated `Apply for retake` for exposure.
 - Add Reset.
 
-Exit: two setting and two positional demos work offline.
+Exit: live and post-capture exposure coaching plus two positional demos work offline.
 
-### Phase 3 — required demo-device manual exposure
+### Phase 3 — voice and guidance
 
-- Implement keyed `ControlBaseline`, `lastCommittedControlState`, transactional Apply/rollback, and invalidation on lens/session/background changes.
-- Add the bounded `FREEZE_MOTION` shutter/ISO calculation through Camera2 interop on the demo device.
-- Build the Capture Review → Apply for retake → saved retake comparison and Reset path.
-- Run the 1/120 s at ISO 400 → approximately 1/500 s at ISO 1600 acceptance scenario repeatedly.
+- Add capability-dependent on-device push-to-talk with typed fallback; recognizer absence does not fail the build.
+- Add TTS, haptics, instruction cooldown, cancellation, and closed-loop face-size guidance.
+- Rehearse exposure Apply/verify/Reset and one-step face guidance twice from a cold install.
 
-Exit: the tested demo phone applies, acknowledges, compares, and resets manual exposure; unsupported devices return EV/advice.
+Exit: the app installs, captures, supports post-capture exposure `Apply for retake`, coaches live exposure and face occupancy offline, verifies, and resets.
 
-### Phase 4 — remote language interpretation
+### Phase 4 — direct Z.AI visual path
 
-- Deploy the single Cloudflare Worker `/v1/coach/classify` endpoint with strict enum schema, `gpt-5.6-luna`, `store: false`, timeout, rate-limit binding, kill switch, and server-side provider secret.
-- Add the complete remote-consent screen and resettable random client ID; send only comments and coarse scalar metrics.
-- Run the 240-utterance gate, malformed/timeout/rate-limit fixtures, log inspection, and source/APK secret scan.
+- Add the masked key-entry/Test/Clear/enable Settings flow and native Keystore encryption.
+- Add the direct `ZaiVisualClient`, Observation Image encoder, two-family prompt, strict union parser, cancellation, provenance invalidation, and persistent attribution label.
+- Pass the 12-call compatibility smoke and small fixture gate with the disposable demo key.
 
-Exit: paraphrases resolve to the same local intent, invalid results fail closed, no pixels leave the phone, and the local path survives shutdown.
+Exit: eligible color/face-size ambiguity uses Z.AI when configured and falls back locally for missing key, invalid key, timeout, malformed output, or airplane mode.
 
-### Phase 5 — voice and guidance
+### Phase 5 — optional manual-exposure showcase
 
-- Add push-to-talk recognizer with typed fallback.
-- Add TTS, haptics, instruction cooldown, and cancellation.
-- Implement closed-loop face-size and phone-level guidance.
+- Capability-probe `MANUAL_SENSOR`, ISO/shutter ranges, AE-off acknowledgement for five trials, return to stable AE, and comparable saved captures.
+- Only if all pass, implement keyed baseline, transactional Apply/rollback, bounded `FREEZE_MOTION`, and saved-retake sharpness comparison.
+- If any condition fails, hide the entire manual showcase rather than shipping partial manual controls.
 
-Exit: the user can complete the core flow without touching the screen after starting guidance.
+Exit: either the showcase passes repeatedly on the exact lens, or it is absent without affecting demo completion.
 
 ### Phase 6 — demo hardening
 
 - Remove or hide the developer overlay.
 - Add onboarding, permission rationale, offline/error copy, and accessibility semantics.
+- Add the truthful direct-Z.AI judge disclosure, API-key scan, quota check, and post-demo revocation checklist.
 - Add warm/cool WB only if confirmed supported and stable after all required acceptance paths pass.
 - Run the scenario matrix on the exact demo phone and lighting setup.
 - Build a release-signed APK; archive the keystore securely.
@@ -863,17 +905,17 @@ Exit: a cold-install rehearsal succeeds twice without developer intervention.
 |---|---|---|
 | Camera2 controls conflict with CameraX | unstable preview or broken 3A | use CameraX first; isolate interop; capability gate; always provide Reset |
 | Custom camera output looks worse than OEM camera | product feels inferior | judge coaching loop on preview/retake; test CameraX quality mode; evaluate OEM extensions only after MVP |
-| Model returns plausible but wrong advice | trust loss | fixed intents, evidence thresholds, consent, local planning, verification |
+| VLM returns plausible but wrong hint | trust loss | two-family union, family whitelist, fresh local evidence, local planning, verification, fail-closed gates |
 | Blue-cast detector mistakes a blue scene | wrong WB | treat chroma as weak evidence; ask clarification; offer reversible reset |
 | Step-back instruction is unsafe | physical harm | per-action opt-in, explicit no-hazard-knowledge copy, single small step, cancel; unavailable with touch exploration |
 | Continuous analysis heats phone | throttling and battery drain | 4 Hz measurements, keep-latest frames, pose only on demand, stop in background |
-| Network delay breaks conversational feel | demo stalls | local rules for demo intents, 5 s timeout, no automatic retry |
+| Network delay breaks visual interpretation | demo stalls | preserve local clarification, 5 s timeout, no automatic retry |
 | Speech fails in noisy venue | unusable input | large typed-comment field and quick complaint chips |
-| API key extracted from APK | cost/security incident | owned backend; no provider key in the app |
+| Entered API key is extracted from the private device | cost/security incident | disposable low-quota key, Keystore encryption at rest, own-device install only, clear and revoke after demo |
 
 ## 20. Decision record
 
-The one decision that is hard to reverse, surprising without context, and based on a real tradeoff is recorded in [ADR 0001 — Keep camera authority and pixels on-device](../docs/adr/0001-keep-camera-authority-on-device.md). Native Android, CameraX-first controls, one Gradle module, manual wiring, and no coaching database are implementation choices documented above but intentionally not promoted to ADRs because they are expected or comparatively easy to revisit.
+[ADR 0001 — Keep camera authority and pixels on-device](../docs/adr/0001-keep-camera-authority-on-device.md) was superseded by [ADR 0002 — Permit one consented Observation Image](../docs/adr/0002-permit-one-consented-observation-image.md), which is now superseded by [ADR 0003 — Call Z.AI directly from the private demo app](../docs/adr/0003-call-zai-directly-from-private-demo.md). ADR 0003 records the deliberate direct-key/single-device tradeoff; the model still has no camera authority.
 
 ## 21. Definition of done
 
@@ -883,14 +925,15 @@ The Android MVP is complete when:
 - the user can capture and save a photo;
 - the four MVP complaint families work with typed input;
 - a post-capture complaint is associated with the saved shot and can apply a capability-revalidated retake plan;
-- push-to-talk and spoken output work with a typed/visual fallback;
+- typed input and visible/haptic output work on every supported device; on-device push-to-talk/TTS work when their installed services are available and otherwise degrade explicitly;
 - exposure application and positional guidance are verified against new observations;
-- `FREEZE_MOTION` applies and acknowledges ISO/shutter on the tested demo phone, compares actual saved retake pixels, and Reset restores the valid session baseline;
-- all model output passes the whitelist and device capability validation;
 - the app remains usable when offline, speech fails, or analysis finds no face;
 - camera and microphone stop when the app backgrounds;
-- no paid provider secret is present in the APK;
-- all eight end-to-end scenarios in section 17 pass on the demo device.
+- a disposable key can be entered, tested, used for a direct GLM-4.6V-Flash request, cleared, and found nowhere in source/build/APK scans;
+- the two visual families accept only the fixed union and every accepted Visual Hint is replanned against fresh local evidence;
+- scenarios 1–7 in section 17 pass on the demo device.
+
+The optional manual showcase is done only when scenario 8 passes five times; failure hides it and does not fail the MVP.
 
 ## 22. Primary references
 
@@ -909,8 +952,10 @@ The Android MVP is complete when:
 - [Runtime permissions](https://developer.android.com/training/permissions/requesting)
 - [MediaStore access](https://developer.android.com/training/data-storage/shared/media)
 - [Android guidance on insecure static API keys](https://developer.android.com/privacy-and-security/risks/insecure-api-usage)
-- [OpenAI GPT-5.6 Luna model](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
-- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
-- [OpenAI API data controls and retention](https://platform.openai.com/docs/models/default-usage-policies-by-endpoint)
-- [Cloudflare Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
-- [Cloudflare Workers Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
+- [Android Keystore](https://developer.android.com/privacy-and-security/keystore)
+- [Z.AI GLM-4.6V documentation](https://docs.z.ai/guides/vlm/glm-4.6v)
+- [Z.AI Chat Completions API](https://docs.z.ai/api-reference/llm/chat-completion)
+- [Z.AI pricing](https://docs.z.ai/guides/overview/pricing)
+- [Z.AI API terms](https://docs.z.ai/legal-agreement/terms-of-use)
+- [Z.AI API privacy/DPA](https://docs.z.ai/legal-agreement/privacy-policy)
+- [Z.AI caching FAQ](https://docs.z.ai/help/faq)

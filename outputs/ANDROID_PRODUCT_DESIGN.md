@@ -1,7 +1,7 @@
 # Photo Helper — Android Product and Interaction Design
 
 Status: implementation-ready draft  
-Last reviewed: 2026-08-03  
+Last reviewed: 2026-08-04
 Audience: product design, engineering, user research, accessibility review, and hackathon judges
 
 Companion document: [Android Technical Architecture](ANDROID_TECHNICAL_ARCHITECTURE.md)
@@ -16,6 +16,8 @@ Photo Helper is a camera that lets someone describe what feels wrong with the cu
 The promise is not “AI makes every photo beautiful.” The promise is:
 
 > Tell the camera what bothers you. It will suggest one bounded, reversible setting change or one explicitly started guidance action, then check what happened.
+
+The planned hackathon artifact is one private, single-device Android app. Android on-device speech and face/frame analysis feed a deterministic local planner. For two visually ambiguous complaint families, the app may send one reduced current frame directly to Z.AI `glm-4.6v-flash`; Z.AI returns only a fixed semantic hint. The app—not the model—chooses, validates, applies, and verifies every camera action. This qualifies as a bounded agent through its observe–propose–act–verify loop, not through a chat persona.
 
 ## 2. Experience principles
 
@@ -33,7 +35,7 @@ Photography is time-sensitive. Give one primary action, one reason, and one obvi
 
 Prefer “Darken by 0.7 EV to reduce clipping across the photo” over “ISO 50, 1/500 s.” Technical values remain visible in a secondary line for interested users.
 
-### Consent before control
+### Approval before camera control
 
 The user taps Apply before a setting changes and Start guidance before the app begins spoken movement instructions. Reset remains visible while its baseline still belongs to the current camera session; session invalidation clears overrides instead of restoring stale values.
 
@@ -125,6 +127,26 @@ The wording must not imply that the existing image is being edited.
 
 The photo has already been saved when review appears, and review explicitly says `Original remains saved`. `Done` dismisses review; `Retake` returns to the live camera without changing settings. Neither duplicates or deletes the saved original. The camera stays ready behind the review, while live analysis and the shutter pause. Post-capture diagnosis uses a downscaled decode of the actual saved pixels plus available capture metadata, never the last preview frame. Apply revalidates the active camera, returns to live preview with `Retake settings active`, and checks the new frame. If the lens changed, the app recalculates before enabling Apply.
 
+### Scenario E — bounded Z.AI visual interpretation
+
+This path runs only when `Visual AI enabled` is on and a tested demo key is configured. It applies only to whole-frame color-cast ambiguity or one stable face whose size-versus-perspective meaning is ambiguous. Novel wording, `person looks short`, exposure, blur, and ordinary positioning stay local.
+
+After an eligible final comment, the app freezes the newest qualifying live frame—or decodes the saved photo in Capture Review—then produces one metadata-free Observation Image. A compact non-modal state appears:
+
+```text
+┌──────────────────────────────────┐
+│ Checking current frame with Z.AI…│
+│ Local choices remain available. │
+│                         [Cancel] │
+└──────────────────────────────────┘
+```
+
+The app sends that single reduced image and the bounded family prompt directly to Z.AI. It does not stream preview frames. A new Complaint, shutter, Back, backgrounding, Cancel, timeout, or process death releases the in-memory image and stops local waiting. If transmission has already started, cancellation cannot recall data already received by Z.AI.
+
+The result never appears as model prose. It may choose only one reviewed, family-specific Visual Hint. The app rejects malformed, stale, family-conflicting, or polarity-conflicting output, rechecks the current scene and camera capabilities locally, and then either presents a normal local recommendation or keeps the same clarification chips. Color exposes Apply only with fresh matching evidence and tested white-balance control; face occupancy may expose one-step guidance; close-perspective interpretation is advice only.
+
+Every accepted result carries `AI-interpreted by Z.AI; camera controls checked on device`. Missing key, invalid key, no network, timeout, or model failure never blocks local coaching.
+
 ## 5. Information architecture
 
 The MVP has one destination: Capture. Settings appear as a modal sheet; there is no bottom navigation.
@@ -139,10 +161,12 @@ Capture
 └── Settings sheet
     ├── Spoken guidance on/off
     ├── Haptics on/off
-    ├── Advanced coaching: enabled / local only
-    ├── Reset advanced-coaching ID
     ├── Coaching detail: simple / technical
-    └── Privacy explanation
+    ├── Visual AI enabled on/off
+    ├── Z.AI API key (masked)
+    │   ├── Test key
+    │   └── Clear key
+    └── Demo data explanation
 ```
 
 Captured-photo review is an overlay state of Capture, not a second navigation destination.
@@ -195,7 +219,7 @@ Captured-photo review is an overlay state of Capture, not a second navigation de
 | Previewing | unobstructed preview | placeholder: “What looks wrong?” |
 | Listening | microphone pulse and transcript | “Listening…” |
 | Interpreting locally | subtle progress under composer | “Checking the shot…” |
-| Requesting advanced coaching | network indicator | “Checking the wording…” |
+| Requesting Z.AI interpretation | compact network indicator; local chips remain usable | “Checking current frame with Z.AI…” |
 | Recommendation | bottom card with one action | action-specific |
 | Applying | Apply button disabled briefly | “Applying…” |
 | Guiding | instruction centered near lower preview | direction-specific |
@@ -218,6 +242,8 @@ Each card contains at most:
 3. one sentence explaining the consequence;
 4. one primary button;
 5. optional Reset or Dismiss.
+
+A card derived from an accepted Visual Hint carries the persistent provenance label `AI-interpreted by Z.AI; camera controls checked on device`. It remains visible after the transient network indicator disappears and TalkBack announces it after the card headline. Local-only cards omit it. The label does not imply that the model selected or applied camera controls.
 
 ### Setting example
 
@@ -285,7 +311,7 @@ Ask a clarification when:
 - an attempted Measured Diagnosis lacks or contradicts its required evidence; a clear-direction User Preference still receives a mismatch-labeled reversible option;
 - the relevant subject cannot be detected;
 - the action would trade one defect for another and the preference is unknown;
-- the remote result is unsupported, polarity-conflicted, or ambiguous.
+- an optional visual hint is unavailable, family-disallowed, polarity-conflicted, stale, or ambiguous.
 
 Clarifications should have two or three concrete chips. Do not ask open-ended follow-up questions repeatedly.
 
@@ -393,16 +419,18 @@ Screen 2:
 
 ```text
 You stay in control.
-Nothing changes until you tap Apply. Advanced coaching can send your
-comment and coarse measurements, but never a photo or audio.
+Nothing changes until you tap Apply or Start guidance.
+Visual AI is off until you add your Z.AI demo key in Settings.
 [Open camera]
 ```
+
+The key-entry screen explains the actual boundary before Visual AI can be enabled: `For two visual questions, Photo Helper sends one reduced current frame and your comment directly to Z.AI. It never sends audio and does not stream the preview.`
 
 ### Permission timing
 
 - Camera: request after `Open camera`.
 - Microphone: request only after the user taps the microphone. Before first use, state: `Android transcribes voice on this device. Photo Helper does not store or send your audio.` If an installed on-device English recognizer is unavailable, keep typed English and local chips; never fall back to cloud speech.
-- Internet: normal manifest permission; explain advanced coaching inside the experience before its first use.
+- Internet: declare it in the installed app for direct Z.AI requests. Android does not present this as a runtime permission.
 
 ### Denial recovery
 
@@ -424,21 +452,25 @@ comment and coarse measurements, but never a photo or audio.
 - Large font must not cover the shutter or Cancel; the response card may expand upward and scroll internally.
 - Do not rely on face-recognition identity; only geometry is used.
 
-## 14. Privacy design
+## 14. Demo data and credential design
 
-### Default behavior
+This is an explicit private-demo tradeoff, not a production security design.
 
-- All preview and captured-photo pixels stay on the phone. Advanced coaching never receives a photo, audio, EXIF, URI, face landmarks, or face-tracking ID.
-- Default Remote Coaching Consent is `Ask`. Before the first remote request, explain that the comment, locale, coarse brightness/color/face-count/face-size measurements, and a random resettable app ID go to Photo Helper's Cloudflare Worker. Cloudflare sees the client IP for abuse protection; the Worker sends the comment, metrics, and app ID to OpenAI.
-- `Enable advanced coaching` persists across app sessions; `Stay local` or dismissal sends nothing. Settings can change this choice and regenerate the random app ID; uninstall/reinstall also regenerates it.
-- The app and Worker do not intentionally persist or content-log comments or metrics. The OpenAI request uses `store: false`, but ordinary API abuse-monitoring logs may retain inputs and outputs for up to 30 days unless the project has separately approved data-retention controls. Cloudflare may retain security and platform metadata under the configured account policy.
-- The privacy screen links to the deployed providers' current policies. It does not claim zero retention.
+- Visual AI is disabled until the operator enters a disposable Z.AI key, successfully tests it, and turns on `Visual AI enabled`.
+- The app stores only encrypted key ciphertext and its IV in private preferences. A non-exportable Android Keystore AES/GCM key performs encryption and decryption. Android backup is disabled.
+- The Settings field is masked after save and provides `Test key` and `Clear key`. The operator uses a low-quota credential and revokes it after the hackathon.
+- The key is not placed in source, Android resources, `BuildConfig`, logs, analytics, screenshots, or crash reports. Before the key-entry UI exists, desktop fixture scripts read `ZAI_API_KEY` from the process environment only.
+- Direct API access means the credential can still be extracted from a compromised or instrumented phone. This is accepted only because the artifact is installed on one operator-controlled device with a disposable credential. A public build would require an owned backend or a capable on-device model.
+- For an eligible Complaint, the app automatically sends one reduced, metadata-free Observation Image and the bounded comment/prompt directly to Z.AI. It sends no audio, EXIF, content URI, face landmarks, tracking ID, hardware ID, or local metrics and does not stream camera frames.
+- The image/JPEG/base64 exists in memory only until result, failure, cancellation, backgrounding, or process death. The app does not claim guaranteed physical-memory erasure or provider recall after sending.
+- The product makes no zero-retention or guaranteed-residency claim. Z.AI documents both real-time API processing and request-content caching behavior; the demo simply discloses the provider and limits what is sent.
+- About copy is exact: `This private demo uses Android on-device speech and face/frame analysis plus Z.AI GLM-4.6V-Flash for selected visual interpretation. It sends one reduced current frame for an eligible comment. Z.AI returns a fixed semantic label; camera decisions and verification stay on this phone.`
 
 ### UI indicators
 
-- Microphone button visibly changes while listening.
-- A small network indicator appears only during an advanced-coaching request.
-- Privacy settings state the complete transmission path and provide `Stay local` and `Reset advanced-coaching ID` actions.
+- The microphone button visibly changes while listening.
+- A small `Z.AI` network indicator appears only during a direct visual request; local clarification remains usable.
+- Settings shows the fixed provider/model, key status, Visual AI toggle, one-frame limit, `Test key`, `Clear key`, and the current Z.AI policy link.
 
 ## 15. Error and recovery design
 
@@ -447,7 +479,9 @@ Errors use the smallest recovery surface that works. Do not show a modal dialog 
 | Failure | Response |
 |---|---|
 | No speech recognized | Keep composer open with “I didn’t catch that” |
-| Network timeout | “Couldn’t reach advanced coaching. Try a basic comment like ‘too bright.’” |
+| Missing or invalid Z.AI key | Turn Visual AI off for the session; keep local chips and link to Settings |
+| Offline or Z.AI timeout | Keep the same chips and add “Visual interpretation unavailable—using local coaching” |
+| Malformed or disallowed model output | Discard it silently, keep local chips, and record a redacted diagnostic |
 | Unsupported manual control | Explain, then offer closest automatic action or advice |
 | Subject lost during guidance | “I lost the face—point back at the person” and pause |
 | Camera adjustment rejected | Reset automatic controls and show “That setting isn’t available on this camera” |
@@ -496,11 +530,11 @@ No mascot, conversational bubbles, or decorative generation is needed for the MV
 | Face too small | face-width fraction | step closer after per-action opt-in; otherwise distance advice | face fraction rises | required |
 | Crooked | phone roll | rotate phone | roll enters band | required |
 | Subject too high/low | face/body center | aim phone | center enters band | required |
-| Blurry / freeze motion | explicit `Freeze movement` choice + saved capture telemetry | faster shutter plus bounded ISO on the tested phone | hardware acknowledgement, then comparable saved-photo check | required on demo phone |
-| Person looks short | full-body visibility + pitch | clarification, then lower phone/adjust angle | experimental | advisory only |
+| Blurry / freeze motion | explicit `Freeze movement` choice + saved capture telemetry | faster shutter plus bounded ISO only after the five-run device gate | hardware acknowledgement, then comparable saved-photo check | optional showcase; hidden on failure |
+| Person looks short | no pose-backed evidence in MVP | app-owned crop-versus-angle clarification and modest advice | user confirmation only | local advisory; never uploaded |
 | Grainy | high ISO telemetry | lower ISO if safe | later captured-photo check | stretch |
 
-The first nine rows are required for the judged build, with ISO/shutter limited to the tested demo phone. “Person looks short” visibly demonstrates honest clarification, not false certainty.
+The reliable judged cut is live and post-capture exposure EV (including `Apply for retake` from the saved RetakeBaseline), face-occupancy guidance, capture/review, Reset, and typed input. On-device voice/TTS is used when the installed services are available but is not a release gate. Color and phone position are locally understood; color Apply is capability-gated. Manual ISO/shutter is a showcase, not a release blocker. “Person looks short” demonstrates honest local clarification, not false certainty or remote analysis.
 
 ## 18. Evaluation plan
 
@@ -510,7 +544,7 @@ The first nine rows are required for the judged build, with ISO/shutter limited 
 - All executable actions remain inside the active camera's reported ranges.
 - Median user can complete the Apply flow in two taps after commenting.
 - Positional guidance finishes without left/right oscillation in the scripted setup.
-- A network failure does not block capture or local understanding of the four complaint families. Color may be advisory on a camera without stable WB controls.
+- Missing key, airplane mode, or Z.AI failure leaves the core local experience usable; color may be advisory on a camera without stable WB controls.
 
 ### Small usability test
 
@@ -518,7 +552,7 @@ Recruit five to eight people unfamiliar with manual camera controls. Give each p
 
 1. Fix a uniformly overexposed portrait.
 2. Make a face smaller in the frame.
-3. Straighten the phone using spoken guidance.
+3. Straighten the phone using visible guidance and spoken guidance when available.
 4. Recover when the app misunderstands “They look weird.”
 
 Measure:
@@ -532,13 +566,19 @@ Measure:
 
 Ask one final forced comparison: original or coached photo, shown blind and in randomized order. Do not use “beauty” as the only outcome.
 
+### Z.AI visual-path evidence
+
+Before wiring the Android client, run the exact 12-call real-key smoke described in the technical architecture. It must prove inline data-image input, the fixed model/options, JSON-object output, returned-model checks, quota behavior, and redacted errors. If inline image data is unsupported, keep visual coaching local; do not add an image-hosting service for the hackathon.
+
+Then rehearse 24 ordinary owned/staged fixtures and 18 adversarial cases across only whole-frame color cast and face-size ambiguity. The direct path must improve useful interaction without producing unsafe or disallowed actions. A later non-hackathon study may use the larger sealed sets in the technical architecture; those results would still not establish production safety or generalization.
+
 ## 19. Demo script
 
 ### Primary 90-second path
 
 1. Open the installed app into a live portrait preview.
 2. Use an evenly lit setup and intentionally raise whole-frame exposure.
-3. Say “This whole shot is way too bright.”
+3. Say “This whole shot is way too bright,” or type it if the on-device recognizer is unavailable.
 4. Show the evidence-backed `−0.7 EV` recommendation.
 5. Tap Apply; show the preview change and verification.
 6. Move close to the subject and say “Their face takes up too much frame.”
@@ -553,30 +593,34 @@ Ask one final forced comparison: original or coached photo, shown blind and in r
 - Mark subject and photographer starting positions discreetly.
 - Control even lighting so the whole-frame exposure diagnosis is repeatable.
 - Keep typed quick-comment chips available if venue noise defeats speech.
-- Keep a local-only demo mode that uses the same product flow, not a separate fake UI.
+- Rehearse both with Visual AI enabled and with airplane mode; the latter must fall back to the same local chips without a separate fake UI.
+- Enter a low-quota disposable key before the demo and revoke it afterward.
 
-### Required judge check — manual exposure
+### Optional judge showcase — manual exposure
 
-On the tested demo phone, begin in Capture Review with a deliberately blurry saved photo of a repeatable moving subject and actual telemetry near 1/120 s at ISO 400. Choose `Freeze movement`; show the proposed change near 1/500 s and ISO 1600, tap Apply for retake, confirm the hardware reports those values, and save the retake. Compare aligned subject crops from the two actual saved photos; say `Subject detail is sharper` only when they are comparable and the gradient-sharpness score improves by at least 15%. Then tap Reset to restore the valid session baseline. Both photos remain saved.
+Only after the exact lens passes five manual-control/rollback trials, begin in Capture Review with a deliberately blurry saved photo near 1/120 s at ISO 400. Choose `Freeze movement`; show the proposal near 1/500 s and ISO 1600, apply for retake, confirm hardware acknowledgement, and save. Compare aligned crops and say `Subject detail is sharper` only when comparable and at least 15% sharper. Reset to the valid baseline. If the gate is unstable, hide this path rather than showing partial controls.
 
 ## 20. Release scope
 
-### Must ship in the hackathon APK
+### Must ship in the hackathon app
 
 - Camera preview and capture.
-- Contextual camera/microphone permission flows.
-- Typed and voice comments.
+- Contextual camera permission; request microphone only on mic tap when an on-device recognizer is available.
+- Typed comments on every device; on-device voice comments when the installed recognizer is available.
 - Four locally understood complaint families: exposure, color, face occupancy, and phone/subject position. The cross-device executable baseline is whole-frame exposure, face occupancy, and position; color application is capability-gated and otherwise advisory.
-- Remote classifier with local timeout fallback.
 - One-tap EV application.
-- One-tap ISO plus shutter application for `Freeze motion` on the tested demo phone; other devices degrade to EV or advice.
+- Capture Review plus post-capture exposure coaching with capability-revalidated `Apply for retake`; the original stays saved.
 - Face-size and level guidance.
-- Matching spoken/text feedback, haptics, Cancel, and Reset.
-- Remote-coaching consent and local-only mode.
+- Matching visible/haptic feedback, Cancel, and Reset; spoken feedback when TTS is available.
+- Direct Z.AI GLM-4.6V-Flash interpretation for only whole-frame color-cast and face-size ambiguity, with one reduced frame per eligible Complaint and local fallback.
+- Masked key entry, Test/Clear controls, Keystore-backed encrypted storage, no static key in the APK, and the Android INTERNET permission.
+- Persistent provenance on model-assisted cards: `AI-interpreted by Z.AI; camera controls checked on device`.
+- Judge disclosure: `This private demo uses Android on-device speech and face/frame analysis plus Z.AI GLM-4.6V-Flash for selected visual interpretation. It sends one reduced current frame for an eligible comment. Z.AI returns a fixed semantic label; camera decisions and verification stay on this phone.`
 
 ### Add only if core acceptance passes
 
 - Manual white balance.
+- Capability-gated manual ISO/shutter and saved-retake comparison.
 - Full-body pose guidance.
 - Front-camera coaching.
 - CameraX OEM extensions.
@@ -595,11 +639,12 @@ On the tested demo phone, begin in Capture Review with a deliberately blurry sav
 - [ ] The camera preview remains the largest visual element.
 - [ ] The shutter is usable during non-fatal coaching states.
 - [ ] Every recommendation has one primary action.
-- [ ] Settings do not change before consent.
+- [ ] Camera settings do not change before the user taps Apply.
 - [ ] Manual changes expose Reset.
 - [ ] Reset restores the first coached-control baseline across chained Applies and never crosses a camera/lens/session boundary.
 - [ ] Spoken guidance is also visible as text.
 - [ ] Voice input has a typed fallback.
+- [ ] Recognizer/TTS unavailability does not fail typed/visible local coaching.
 - [ ] Every walking action is explicitly started, never claims hazard knowledge, and stops after one small step.
 - [ ] Ambiguous, unsupported, or polarity-conflicted language becomes a constrained clarification.
 - [ ] Regional exposure complaints cannot produce a whole-frame diagnosis without the user selecting `Whole photo`.
@@ -609,7 +654,12 @@ On the tested demo phone, begin in Capture Review with a deliberately blurry sav
 - [ ] Person-specific coaching requires exactly one stable face; zero or multiple faces produce reframe guidance, never selection or silent switching.
 - [ ] Direction copy names the photographer/camera action and is verified in one documented coordinate frame.
 - [ ] The screen holds one complete Complaint at a time; elliptical text cannot execute.
-- [ ] No image or audio bytes leave the phone; remote coaching is disclosed and can be disabled.
+- [ ] Installed build shows the private-demo Z.AI disclosure and exposes Visual AI/key status in Settings.
+- [ ] No real or placeholder API key appears in source, resources, `BuildConfig`, logs, screenshots, or the APK; Clear removes ciphertext and revoke is rehearsed.
+- [ ] Visual AI sends at most one reduced Observation Image for only the two eligible families; no preview streaming exists.
+- [ ] Missing key, invalid key, offline, timeout, malformed output, and stale output all preserve local clarification.
+- [ ] Every card derived from a Visual Hint keeps `AI-interpreted by Z.AI; camera controls checked on device` after loading ends; local-only cards omit it.
+- [ ] No audio, EXIF, URI, landmarks, tracking ID, hardware ID, or local metrics leave the app.
 - [ ] TalkBack order, large type, contrast, and 48 dp targets are verified.
 - [ ] Success is tied to a measurement, not the word “perfect.”
 

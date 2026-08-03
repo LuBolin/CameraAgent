@@ -1,91 +1,116 @@
-# AI Components and Lower-Cost Model Options
+# Photo Helper AI Component Decisions
 
-Status: prototype defaults selected; production architecture unchanged  
+Status: implementation decision note
 Last reviewed: 2026-08-04
 
-This note records the selected prototype AI defaults and lower-cost alternatives. It does not replace [ADR 0001](../docs/adr/0001-keep-camera-authority-on-device.md): production camera pixels remain on-device unless that decision and its consent design are explicitly revised.
+Companion documents: [Android Technical Architecture](ANDROID_TECHNICAL_ARCHITECTURE.md), [Android Product Design](ANDROID_PRODUCT_DESIGN.md), and [Unselected Model Research Appendix](AI_MODEL_RESEARCH_APPENDIX.md).
 
-## Selected prototype defaults
+## Decision summary
 
-- Speech-to-text: Android's on-device `SpeechRecognizer`. It has no per-call fee. Keep typed input when the device or requested language has no installed on-device recognizer; never fall back silently to cloud speech recognition.
-- Multimodal interpretation: hosted `GLM-4.6V-Flash`. Send the completed Complaint and one current frame through the owned gateway, then accept only the existing fixed intent enum. All planning, capability checks, camera control, and verification remain on-device.
+The planned judged APK uses Android's on-device `SpeechRecognizer`, bundled ML Kit face detection, deterministic frame statistics/planning/control/verification, and one hosted model: Z.AI `glm-4.6v-flash`. The local planner is the agent through its closed observe–propose–act–verify loop.
 
-`GLM-4.6V-Flash` is the prototype default because Z.AI currently lists its input and output as free. Treat that as changeable pricing, not a permanent product assumption. Keep the provider key in the gateway, never in the APK.
+GLM-4.6V-Flash is a visual-only semantic helper for two already-classified families—whole-frame color cast and face-size ambiguity. It is not a language fallback, camera controller, source of numeric settings, or source of user-facing prose. The app calls Z.AI directly with a disposable key entered by the operator because this is a private, single-device hackathon demo.
 
-For live-user prototype testing, uploading the frame is a consent-gated exception to the current no-pixel-upload ADR. Send no audio, EXIF, content URI, face landmarks, tracking ID, or hardware ID. Until that consent copy and gateway path exist, use only stored non-sensitive fixtures. `MiniCPM-V 4.6` remains the first fallback to test if hosted pricing, privacy, availability, or latency makes GLM unsuitable.
+There is no provider abstraction, runtime model selector, automatic fallback, or hosted language-classification path.
 
-## Minimal pipeline
+## Selected APK components
+
+### Speech-to-text: Android on-device `SpeechRecognizer`
+
+- Use push-to-talk with `isOnDeviceRecognitionAvailable` and `createOnDeviceSpeechRecognizer` only.
+- Typed input is always available.
+- Never fall back silently to Android's default cloud-capable recognizer.
+- If the installed service/language is missing, disable voice for that session and keep typed input.
+- Before first use: `Android transcribes voice on this device. Photo Helper does not store or send your audio.`
+
+This is the smallest native solution and has no per-call API fee. Add a bundled recognizer only after a recorded acceptance set on the exact devices/languages/noise conditions proves the native service inadequate.
+
+### Local visual evidence: ML Kit plus frame statistics
+
+- Bundle ML Kit face detection so the demo does not wait for a model download.
+- Compute luma, clipping, and coarse chroma statistics from CameraX analysis frames.
+- Use rotation/gravity sensors for level/pitch.
+- Defer ML Kit Pose. Therefore `person looks short` is local clarification/advice and never a VLM upload in the current scope.
+- No face recognition, identity, embeddings, persistent tracking, or beauty score.
+
+### Local planner and verifier
+
+The Kotlin parser/planner owns the supported wording map, polarity/negation guards, capability checks, bounded setting calculations, app copy, action approval, camera control, rollback, and verification. Hosted output cannot choose numeric ISO, shutter, white-balance, zoom, movement, or user-facing text.
+
+## Hosted visual helper: `glm-4.6v-flash`
+
+### Why it is the one candidate
+
+Z.AI documents image understanding for GLM-4.6V-Flash and currently lists its input/output as free. Pricing is changeable and is not a product assumption. The exact hosted model identifier is fixed as `glm-4.6v-flash`; there is no runtime model picker or alternate provider.
+
+For the installed demo, the operator enters a low-quota disposable key in Settings. The app encrypts it using a non-exportable Android Keystore AES/GCM key and stores only ciphertext plus IV in private preferences with backup disabled. `Test key`, `Clear key`, and post-demo revocation are part of the demo workflow. Direct client-side use can expose a key on a compromised or instrumented device; that risk is accepted only for this operator-controlled artifact. A public release would need an owned backend or a capable on-device model.
+
+Before the key-entry UI exists, desktop smoke/evaluation scripts read `ZAI_API_KEY` from the process environment. The environment value is never copied into Android source, resources, `BuildConfig`, logs, or the APK.
+
+### Minimum role
 
 ```text
-push-to-talk -> on-device speech recognition -> final Complaint text
-CameraX frame -> local measurements / face detection / sensors -> FrameObservation
-Complaint + FrameObservation -> local rules or enum-only text classifier
-validated intent -> on-device planner -> camera/user action -> verification
+exact locally classified Complaint family
+  + one reduced, metadata-free current frame
+  -> direct HTTPS -> Z.AI GLM-4.6V-Flash
+  -> fixed INTENT-or-CLARIFY union
+  -> fresh local evidence/capabilities/planner
+  -> optional Apply, one-step guidance, or advice
 ```
 
-The multimodal prototype path, after explicit consent:
+Allowed visual families and outputs:
 
-```text
-final Complaint + one current frame -> optional VLM -> fixed intent enum
-fixed intent + device capabilities -> on-device planner -> action -> verification
-```
+| Family | Model `INTENT` values | Product effect |
+|---|---|---|
+| `COLOR_CAST` | `WHITE_BALANCE_WARMER`, `WHITE_BALANCE_COOLER` | Apply only with fresh matching local evidence and tested WB control; otherwise advice |
+| `FACE_SIZE_AMBIGUOUS` | `FACE_OCCUPANCY_LOWER`, `CLOSE_PERSPECTIVE_ADVISORY` | first may start one-step guidance after fresh Subject Lock evidence; second is advice only |
 
-Do not stream preview frames to a model. Capture one frame when the speech turn completes. The VLM may suggest only an existing intent; it must not choose arbitrary ISO, shutter, white-balance, zoom, or movement values, and it never controls the camera directly.
+The alternative model outcome is `CLARIFY` with `VISUAL_INSUFFICIENT`, `SUBJECT_UNCLEAR`, or `SCENE_CONFOUND`. Novel wording and height appearance stay local and send nothing.
 
-## Free speech-to-text choices
+Every card derived from an accepted Visual Hint keeps the visible label `AI-interpreted by Z.AI; camera controls checked on device`; local-only cards never show it.
 
-These are automatic speech-recognition systems, not general-purpose LLMs.
+### Direct-call boundary and smoke gate
 
-| Choice | Cost and deployment | Use it when | Main limitation |
-|---|---|---|---|
-| Android on-device `SpeechRecognizer` | No per-call fee; native Android API | **Default for this Android MVP** | Availability and accuracy depend on the device, installed language, and recognition service |
-| `sherpa-onnx` with Zipformer, Paraformer, or another supported ASR model | Open source; fully offline; Android/Kotlin; streaming and non-streaming | A bundled and repeatable recognizer is required across test devices | Adds native binaries and model files; the app owns performance tuning |
-| `whisper.cpp` | Open source; offline; Android; quantized Whisper models | Broad multilingual accuracy matters more than package size and latency | Heavier CPU, memory, and battery use than the native recognizer on many phones |
-| FunASR / Paraformer or SenseVoice | Open source; strong Chinese ecosystem; streaming options | Mandarin, Chinese-English code-switching, or a self-hosted ASR backend is central | More integration and deployment work than the Android-native path |
+Z.AI's API DPA describes real-time processing/no saving and says processing is generally in Singapore; its FAQ and cache documentation also describe caching of some request content. This is not a blocker for the private demo, but the app makes no zero-retention, deletion, or guaranteed-residency claim. Enabling Visual AI after entering the key is the operator's setup acknowledgement.
 
-The lazy implementation is the first row. Add another recognizer only after the exact demo phone, languages, accents, and noise conditions fail an acceptance recording set.
+The real account must prove inline base64/data-image support with `glm-4.6v-flash`, thinking disabled, JSON-object output, no tools, `max_tokens: 80`, exact returned model, and hard quota behavior in a 12-call smoke. Official examples establish multimodal `image_url` input but do not clearly establish inline data-image support for this exact path. Failure keeps both families on local clarification; do not add temporary image hosting or another service.
 
-## Lower-cost multimodal options
+The app sends at most one reduced image per eligible Complaint and never sends preview streams, audio, EXIF, content URIs, face landmarks, tracking IDs, hardware IDs, or local metrics. Missing/invalid key, offline, timeout, malformed output, or a stale result falls back to the same local clarification. All response fields cross a strict allowlist before the local planner sees a Visual Hint.
 
-Provider benchmark claims are not rankings for Photo Helper. "Open" below means weights/code are available from the linked project; licensing and redistribution terms must still be checked before shipping.
+## Sole research fallback: MiniCPM-V 4.6
 
-| Model | Origin | Cheapest practical route | Why it belongs on the shortlist | Main catch |
-|---|---|---|---|---|
-| `GLM-4.6V-Flash` | Z.AI, China | Hosted API currently listed as free; 9B open model also available | Fastest zero-API-cost experiment; image understanding, grounding, and function calling | Free pricing may change; hosted use sends the frame off-device |
-| `MiniCPM-V 4.6` | OpenBMB, China | Local Android/CPU/GPU; official free API for trials | Best first on-device candidate; official Android support and roughly 2 GB GGUF / 3-4 GB GPU variants | Real-phone latency, thermals, and APK/model delivery still need measurement |
-| `Qwen3-VL-4B-Instruct` | Alibaba Qwen, China | Self-host; use the 2B variant if memory is tighter | Strong general baseline with 2B, 4B, 8B, and larger variants and a broad inference ecosystem | A 4B VLM is still substantial for continuous mobile use; prefer one still frame |
-| `DeepSeek-VL2-Tiny` | DeepSeek, China | Self-host; 1B activated-parameter variant | Compact older baseline for image QA, OCR, charts, and grounding | Activated parameters understate total model storage; newer models may be better |
-| `Kimi-VL-A3B-Instruct` | Moonshot AI, China | Self-host with vLLM | Efficient inference and strong multimodal reasoning; about 3B active parameters | It is a 16B-total MoE model, so memory footprint is not that of a dense 3B mobile model |
-| `InternVL3.5-4B` or `InternVL3.5-8B` | OpenGVLab / Shanghai AI Lab, China | Self-host on a small GPU server | Mature multimodal family with standard Transformers-format releases | Better suited to a server than this Android MVP; 4B and 8B choices total about 4.7B and 8.5B parameters |
-| `MiMo-VL-7B-RL-2508` | Xiaomi, China | Self-host | Apache-2.0 model focused on visual reasoning and grounding | Seven-billion-parameter server deployment is harder to justify for a fixed intent list |
-| `STEP3-VL-10B` | StepFun, China | Self-host on a GPU server | Apache-2.0 model emphasizing visual perception, spatial reasoning, OCR, and grounding | Heavier than the smaller candidates; official quick start currently expects BF16 |
-| `Doubao-1.5-vision-pro` | ByteDance / Volcengine, China | Paid hosted API | Managed image, video, and text input with little infrastructure work | Requires an external account/region check, variable pricing, and sending pixels to the provider |
-| `SmolVLM2-2.2B-Instruct` | Hugging Face, non-Chinese | Self-host or experiment with a smaller local build | Apache-2.0, compact, and designed for image/video understanding with low memory | Lower ceiling than larger models and no ready-made Photo Helper Android integration |
+MiniCPM-V 4.6 is not an APK dependency or automatic fallback. It is the first on-device research candidate only if hosted privacy, pricing, latency, or availability makes GLM unsuitable.
 
-## Selection order
+The official mobile path is substantial: roughly a 1.6 GB model download, a device with at least 6 GB RAM recommended, native/NDK/JNI integration, and device-specific latency, peak-memory, battery, and thermal measurement. It is not a small drop-in Android library. Do not implement it until the fixed two-family corpus shows that image input adds enough value to justify this cost.
 
-1. Prototype with on-device `SpeechRecognizer` plus `GLM-4.6V-Flash` on stored, non-sensitive fixtures.
-2. Add the consent-gated one-frame gateway path before testing with live users.
-3. Keep the deterministic local pipeline as the offline and provider-failure path.
-4. If GLM is unsuitable, try `MiniCPM-V 4.6` on the exact Android device.
-5. Test larger or more specialized models only when a measured failure remains.
+Repository code licensing and model-weight/redistribution terms are separate checks. Do not infer weight rights from a repository LICENSE; review both the official repository and the exact model card/license before bundling or downloading weights in an app.
 
-Before changing the ADR, evaluate every candidate on the same small set of real frame-and-Complaint pairs. Record fixed-intent accuracy, invalid-output rate, unsafe-action rate, p50/p95 latency, peak memory, battery/thermal behavior, and cost per completed complaint. Generic model benchmarks do not replace this test.
+## Evidence sequence
+
+1. Build and rehearse the complete local observe–propose–act–verify loop first.
+2. Run the 12-call real-account contract smoke on owned, non-sensitive fixtures using `ZAI_API_KEY` from the desktop environment.
+3. Wire the same fixed contract into Android direct HTTPS, then verify key entry/test/clear, encryption, no static secret, airplane-mode fallback, timeout, cancellation, and response validation.
+4. Evaluate 24 ordinary and 18 adversarial staged fixtures. Remove the hosted path if it cannot improve completion time and clarification count without unsafe outcomes.
+5. Test MiniCPM-V on the exact phone only if a measured GLM failure justifies its mobile cost.
+
+## License and terms status
+
+| Component | Repository/code terms | Model weights or hosted terms |
+|---|---|---|
+| Android `SpeechRecognizer` | Android platform API terms | Installed recognition service/model terms belong to the device/service provider; verify target-device behavior |
+| ML Kit face detection | Google ML Kit SDK terms | Bundled model use follows the SDK/service terms; no redistribution claim is made here |
+| Hosted GLM-4.6V-Flash | No provider repository or SDK is embedded | Use is governed by the exact Z.AI API account, Terms, DPA/privacy, caching, pricing, and quota settings; archive their demo-time versions |
+| MiniCPM-V 4.6 | Verify the official repository LICENSE before integration | Separately verify the exact model-card/weight/redistribution license before any download or bundling |
 
 ## Primary sources
 
 - [Android `SpeechRecognizer`](https://developer.android.com/reference/android/speech/SpeechRecognizer)
-- [`sherpa-onnx`](https://github.com/k2-fsa/sherpa-onnx)
-- [`whisper.cpp`](https://github.com/ggml-org/whisper.cpp)
-- [FunASR](https://github.com/modelscope/FunASR)
+- [ML Kit face detection on Android](https://developers.google.com/ml-kit/vision/face-detection/android)
+- [Z.AI GLM-4.6V documentation](https://docs.z.ai/guides/vlm/glm-4.6v)
+- [Z.AI Chat Completions API](https://docs.z.ai/api-reference/llm/chat-completion)
 - [Z.AI pricing](https://docs.z.ai/guides/overview/pricing)
-- [GLM-V](https://github.com/zai-org/GLM-V)
-- [MiniCPM-V 4.6](https://github.com/OpenBMB/MiniCPM-V)
-- [Qwen3-VL](https://github.com/QwenLM/Qwen3-VL)
-- [DeepSeek-VL2](https://github.com/deepseek-ai/DeepSeek-VL2)
-- [Kimi-VL](https://github.com/MoonshotAI/Kimi-VL)
-- [InternVL](https://github.com/OpenGVLab/InternVL)
-- [MiMo-VL](https://github.com/XiaomiMiMo/MiMo-VL)
-- [STEP3-VL-10B](https://github.com/stepfun-ai/Step3-VL-10B)
-- [Doubao visual understanding](https://www.volcengine.com/docs/6492/2165093?lang=en)
-- [SmolVLM2](https://huggingface.co/blog/smolvlm2)
+- [Z.AI API terms](https://docs.z.ai/legal-agreement/terms-of-use)
+- [Z.AI API privacy/DPA](https://docs.z.ai/legal-agreement/privacy-policy)
+- [Z.AI caching FAQ](https://docs.z.ai/help/faq)
+- [MiniCPM-V repository](https://github.com/OpenBMB/MiniCPM-V)
+- [MiniCPM-V-Apps](https://github.com/OpenBMB/MiniCPM-V-Apps)
