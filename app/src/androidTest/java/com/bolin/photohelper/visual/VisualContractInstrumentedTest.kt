@@ -1,6 +1,9 @@
 package com.bolin.photohelper.visual
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.bolin.photohelper.coach.ClarificationReason
+import com.bolin.photohelper.coach.ControlIntent
+import com.bolin.photohelper.coach.IntentClassification
 import com.bolin.photohelper.coach.VisualFamily
 import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.VisualIntent
@@ -24,6 +27,72 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class VisualContractInstrumentedTest {
+    @Test
+    fun complaintRequestSeparatesUntrustedTextFromTheStrictContract() {
+        val bytes = buildComplaintRequestBody(ComplaintRequest("Could you open the framing a little?"))
+        val body = JSONObject(bytes.toString(StandardCharsets.UTF_8))
+        val messages = body.getJSONArray("messages")
+
+        assertEquals(QWEN_MODEL, body.getString("model"))
+        assertEquals("system", messages.getJSONObject(0).getString("role"))
+        assertTrue(messages.getJSONObject(0).getString("content").contains("JSON"))
+        assertTrue(messages.getJSONObject(0).getString("content").contains("ZOOM_OUT"))
+        assertFalse(messages.getJSONObject(0).getString("content").contains("Could you open"))
+        assertEquals("user", messages.getJSONObject(1).getString("role"))
+        assertEquals("Could you open the framing a little?", messages.getJSONObject(1).getString("content"))
+        assertEquals("json_object", body.getJSONObject("response_format").getString("type"))
+        assertEquals(false, body.getBoolean("enable_thinking"))
+        assertEquals(0, body.getInt("temperature"))
+        assertEquals(false, body.getBoolean("stream"))
+        assertEquals(64, body.getInt("max_completion_tokens"))
+    }
+
+    @Test
+    fun complaintParserAcceptsOnlyTheSemanticUnion() {
+        assertEquals(
+            IntentClassification.Intent(ControlIntent.ZOOM_OUT),
+            parseComplaintResponse(response("""{"schemaVersion":1,"outcome":"INTENT","intent":"ZOOM_OUT"}""")),
+        )
+        assertEquals(
+            IntentClassification.Clarify(ClarificationReason.BLUR_TYPE),
+            parseComplaintResponse(response("""{"schemaVersion":1,"outcome":"CLARIFY","reason":"BLUR_TYPE"}""")),
+        )
+
+        listOf(
+            """{"schemaVersion":1,"outcome":"INTENT","intent":"WHITE_BALANCE_AUTO"}""",
+            """{"schemaVersion":1,"outcome":"INTENT","intent":"ZOOM_OUT","ratio":1.5}""",
+            """{"schemaVersion":1,"outcome":"INTENT","intent":"FOCUS_POINT_REQUIRED","x":0.5}""",
+            """{"schemaVersion":1,"outcome":"CLARIFY","reason":"UNKNOWN"}""",
+            """{"schemaVersion":2,"outcome":"INTENT","intent":"ZOOM_OUT"}""",
+            """{"schemaVersion":1,"outcome":"UNSUPPORTED","reason":"MANUAL_EXPOSURE"}""",
+            """{"schemaVersion":1,"outcome":"INTENT","intent":"ZOOM_OUT"} trailing""",
+        ).forEach { assertNull(parseComplaintResponse(response(it))) }
+    }
+
+    @Test
+    fun complaintClientUsesOneBoundedRedactedHttpsRequest() = runBlocking {
+        val fakeConnection = FakeHttpsConnection(
+            response = response("""{"schemaVersion":1,"outcome":"INTENT","intent":"EXPOSURE_BRIGHTER"}"""),
+        )
+        var connections = 0
+        val client = BailianVisualClient(connectionFactory = {
+            connections++
+            fakeConnection
+        })
+        val key = "disposable-api-key".toCharArray()
+
+        val result = client.classify(ComplaintRequest("The photo needs more light"), key)
+
+        assertEquals(
+            ComplaintResult.Available(IntentClassification.Intent(ControlIntent.EXPOSURE_BRIGHTER)),
+            result,
+        )
+        assertEquals(1, connections)
+        assertTrue(key.all { it == '\u0000' })
+        assertFalse(fakeConnection.sentBody.toString(StandardCharsets.UTF_8).contains("disposable-api-key"))
+        assertTrue(fakeConnection.disconnected)
+    }
+
     @Test
     fun clientUsesOneBoundedRedactedHttpsRequest() = runBlocking {
         val request = VisualRequest(

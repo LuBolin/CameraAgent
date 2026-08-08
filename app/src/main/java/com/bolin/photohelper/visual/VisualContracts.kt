@@ -123,7 +123,9 @@ internal fun buildVisualRequestBody(request: VisualRequest): ByteArray {
 internal fun parseVisualResponse(
     response: String,
     family: VisualFamily,
-): VisualHint? {
+): VisualHint? = parseCompletionContent(response)?.let { parseVisualHint(it, family) }
+
+internal fun parseCompletionContent(response: String): String? {
     return try {
         val root = strictObject(response) ?: return null
         if (root.opt("object") != "chat.completion") return null
@@ -141,7 +143,7 @@ internal fun parseVisualResponse(
 
         val content = message.opt("content") as? String ?: return null
         if (content.toByteArray(StandardCharsets.UTF_8).size > MAX_RESPONSE_CONTENT_BYTES) return null
-        parseVisualHint(content.trim(), family)
+        content.trim()
     } catch (_: JSONException) {
         null
     }
@@ -181,14 +183,14 @@ private fun parseVisualHint(content: String, family: VisualFamily): VisualHint? 
     }
 }
 
-private fun strictObject(json: String): JSONObject? {
+internal fun strictObject(json: String): JSONObject? {
     if (json.isEmpty()) return null
     val tokener = JSONTokener(json)
     val value = tokener.nextValue() as? JSONObject ?: return null
     return value.takeIf { tokener.nextClean().code == 0 }
 }
 
-private fun JSONObject.keysSet(): Set<String> = buildSet {
+internal fun JSONObject.keysSet(): Set<String> = buildSet {
     val iterator = keys()
     while (iterator.hasNext()) add(iterator.next())
 }

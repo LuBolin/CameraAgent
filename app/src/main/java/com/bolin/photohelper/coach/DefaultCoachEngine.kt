@@ -11,19 +11,21 @@ import kotlin.math.roundToInt
 class DefaultCoachEngine(
     private val thresholds: CoachThresholds = CoachThresholds(),
 ) : CoachEngine {
+    override fun classifyComplaint(complaint: String): IntentClassification =
+        com.bolin.photohelper.coach.classifyComplaint(complaint)
+
     override fun evaluateLocal(input: CoachingInput): LocalDecision {
         val text = input.complaint.trim().lowercase()
         if (text.isBlank()) return clarifyCurrentShot()
         if (text.length > 300) return LocalDecision.Advisory("Comment is too long", "Keep it under 300 characters and describe one problem.")
-        if (isElliptical(text)) return LocalDecision.Clarify(
-            "Describe the result directly, for example ‘too bright’ or ‘background too bright.’",
-            standardChips(),
-        )
-        if (hasNegatedDirection(text) || hasConflictingPolarity(text)) {
-            return LocalDecision.Clarify("Which change do you want?", standardChips())
-        }
         if (text == "reset" || text.startsWith("undo")) {
             return LocalDecision.Advisory("Use Reset", "Reset restores the first coached camera setting from this camera session.")
+        }
+        when (val classification = classifyComplaint(text)) {
+            is IntentClassification.Intent -> return planIntent(input, classification.value)
+            is IntentClassification.Clarify -> return clarify(classification.reason, text)
+            is IntentClassification.Unsupported -> return unsupported(classification.reason)
+            IntentClassification.Unknown -> Unit
         }
 
         return when {
@@ -34,6 +36,14 @@ class DefaultCoachEngine(
             text == "background-specific exposure" -> LocalDecision.Advisory(
                 "Background-only exposure is unavailable",
                 "Photo Helper can change exposure only across the whole photo. Change the lighting or reframe instead.",
+            )
+            text == "regional color adjustment" -> LocalDecision.Advisory(
+                "Area-only color adjustment is unavailable",
+                "Photo Helper can change white balance only across the whole photo. Change the lighting or reframe instead.",
+            )
+            text == "subject fills too much frame" -> LocalDecision.Advisory(
+                "Reframe the subject manually",
+                "Move back, zoom out, or aim differently. Generic subject tracking is not available in this version.",
             )
             text == "body is cropped" -> LocalDecision.Advisory(
                 "Reframe the full body",
@@ -97,6 +107,18 @@ class DefaultCoachEngine(
             )
             else -> clarifyCurrentShot()
         }
+    }
+
+    override fun planIntent(input: CoachingInput, intent: ControlIntent): LocalDecision = when (intent) {
+        ControlIntent.EXPOSURE_BRIGHTER -> exposure(input, darker = false)
+        ControlIntent.EXPOSURE_DARKER -> exposure(input, darker = true)
+        ControlIntent.ZOOM_IN -> zoom(input, inward = true)
+        ControlIntent.ZOOM_OUT -> zoom(input, inward = false)
+        ControlIntent.WHITE_BALANCE_WARMER -> colorAdjustment(input, WhiteBalancePreset.WARMER, fromVisual = false)
+        ControlIntent.WHITE_BALANCE_COOLER -> colorAdjustment(input, WhiteBalancePreset.COOLER, fromVisual = false)
+        ControlIntent.WHITE_BALANCE_AUTO -> colorAdjustment(input, WhiteBalancePreset.AUTO, fromVisual = false)
+        ControlIntent.FOCUS_POINT_REQUIRED -> focus(input)
+        ControlIntent.LEVEL_FRAME -> level(input)
     }
 
     override fun continueWithVisualHint(
@@ -172,6 +194,14 @@ class DefaultCoachEngine(
                     }
                 }
             }
+            is VerificationTarget.Zoom -> current.zoomRatio?.let { ratio ->
+                val tolerance = (target.targetRatio * 0.01f).coerceAtLeast(0.01f)
+                when {
+                    abs(ratio - target.targetRatio) <= tolerance -> VerificationResult.Satisfied
+                    (ratio - target.baselineRatio) * target.direction > 0f -> VerificationResult.Progress
+                    else -> VerificationResult.Unchanged
+                }
+            } ?: VerificationResult.Incomparable("Zoom was applied, but the camera did not report its current ratio.")
         }
 
     private fun exposure(input: CoachingInput, darker: Boolean): LocalDecision {
@@ -224,6 +254,44 @@ class DefaultCoachEngine(
                     ),
                 ),
                 basis = basis,
+            ),
+        )
+    }
+
+    private fun zoom(input: CoachingInput, inward: Boolean): LocalDecision {
+        if (input.origin == ObservationOrigin.CAPTURE_REVIEW && !input.telemetryKnown) {
+            return LocalDecision.Advisory(
+                "Capture settings are unavailable",
+                "The saved photo is still available, but its zoom ratio was not reported reliably enough to plan a retake.",
+            )
+        }
+        val range = input.capabilities.zoomRatioRange
+        if (!range.start.isFinite() || !range.endInclusive.isFinite() || range.endInclusive - range.start < 0.01f) {
+            return LocalDecision.Advisory("Zoom control is unavailable", "This camera cannot apply a zoom change here.")
+        }
+        val current = input.telemetry.zoomRatio
+        if (!current.isFinite() || current !in range) {
+            return LocalDecision.Advisory("Zoom state is unavailable", "Hold the shot steady while the camera reports its current zoom.")
+        }
+        val direction = if (inward) 1 else -1
+        val target = (if (inward) current * 1.25f else current / 1.25f).coerceIn(range)
+        if (abs(target - current) < 0.01f) {
+            return LocalDecision.Advisory("Zoom limit reached", "This camera cannot move zoom farther in that direction.")
+        }
+        val formatted = String.format(java.util.Locale.US, "%.2f", target).trimEnd('0').trimEnd('.') + "×"
+        return LocalDecision.Recommend(
+            Recommendation(
+                complaintId = input.complaintId,
+                cameraSessionId = input.cameraSessionId,
+                headline = if (inward) "The framing can be tighter" else "The framing can be wider",
+                actionText = "Apply $formatted digital zoom",
+                consequence = "This changes framing by cropping the camera image and can be reset.",
+                primaryLabel = if (input.origin == ObservationOrigin.CAPTURE_REVIEW) "Apply for retake" else "Apply",
+                action = RecommendationAction.ApplySetting(
+                    CameraAdjustment.ZoomRatio(target),
+                    VerificationTarget.Zoom(direction, current, target),
+                ),
+                basis = RecommendationBasis.USER_PREFERENCE,
             ),
         )
     }
@@ -288,6 +356,14 @@ class DefaultCoachEngine(
     private fun position(input: CoachingInput, horizontal: Int = 0, vertical: Int = 0): LocalDecision {
         val face = coachingFace(input)
         if (face == null) {
+            if (input.complaint.lowercase().contains("subject") &&
+                !input.complaint.lowercase().containsAny("person", "face")
+            ) {
+                return LocalDecision.Advisory(
+                    "Reframe the subject manually",
+                    "Generic subject tracking is not available yet; use the preview guide to place it where you want.",
+                )
+            }
             return LocalDecision.Advisory("Hold on one person for a moment", "Position coaching needs exactly one stable visible face.")
         }
         val matchesDirection = when {
@@ -463,6 +539,77 @@ class DefaultCoachEngine(
         )
     }
 
+    private fun clarify(reason: ClarificationReason, text: String): LocalDecision = when (reason) {
+        ClarificationReason.BLUR_TYPE -> LocalDecision.Clarify(
+            "Is movement blurred, or did focus miss?",
+            listOf(
+                ClarificationChip("Freeze movement", "freeze movement"),
+                ClarificationChip("Focus missed", "focus missed"),
+            ),
+        )
+        ClarificationReason.ZOOM_OR_DISTANCE -> LocalDecision.Clarify(
+            "Is the view zoomed in, is the camera physically too close, or does the subject fill too much frame?",
+            listOf(
+                ClarificationChip("Zoomed in", "too zoomed in"),
+                ClarificationChip("Perspective", "features look distorted"),
+                ClarificationChip("Fills frame", "subject fills too much frame"),
+            ),
+        )
+        ClarificationReason.REGIONAL_REQUEST -> if (hasRegionalColorRequest(text)) {
+            val wholePhoto = if (text.containsAny("blue", "cold", "cool")) "whole photo is too blue" else "whole photo is too yellow"
+            LocalDecision.Clarify(
+                "Does that color cast affect the whole photo or only the named area?",
+                listOf(
+                    ClarificationChip("Whole photo", wholePhoto),
+                    ClarificationChip("Named area", "regional color adjustment"),
+                ),
+            )
+        } else {
+            LocalDecision.Clarify(
+                "Which area do you mean? A whole-photo change affects every area.",
+                listOf(
+                    ClarificationChip("Whole photo", if (requestsBrighterExposure(text)) "whole photo is too dark" else "whole photo is too bright"),
+                    ClarificationChip("Person/face", "person-specific exposure"),
+                    ClarificationChip("Background", "background-specific exposure"),
+                ),
+            )
+        }
+        ClarificationReason.NEGATED_DIRECTION -> LocalDecision.Clarify(
+            "That sounds like a change you do not want. What should change instead?",
+            standardChips(),
+        )
+        ClarificationReason.CONFLICTING_DIRECTIONS -> LocalDecision.Clarify(
+            "Those directions conflict. Which one should I use?",
+            standardChips(),
+        )
+        ClarificationReason.MULTIPLE_COMPLAINTS -> LocalDecision.Clarify(
+            "Choose one change first; you can ask for the next one after applying it.",
+            standardChips(),
+        )
+        ClarificationReason.AMBIGUOUS -> if (text.contains("cool")) {
+            LocalDecision.Clarify(
+                "Do you mean the color looks too blue, or that you like the style?",
+                listOf(ClarificationChip("Too blue", "too blue")),
+            )
+        } else {
+            LocalDecision.Clarify(
+                "Describe the result directly, for example ‘too bright’ or ‘background too bright.’",
+                standardChips(),
+            )
+        }
+    }
+
+    private fun unsupported(reason: UnsupportedReason): LocalDecision = when (reason) {
+        UnsupportedReason.MANUAL_EXPOSURE -> LocalDecision.Advisory(
+            "Manual ISO and shutter are not available yet",
+            "This version will not substitute exposure compensation for an explicit ISO or shutter request.",
+        )
+        UnsupportedReason.NOISE_REDUCTION -> LocalDecision.Advisory(
+            "Noise control is not available yet",
+            "ISO and shutter must be qualified together before Photo Helper can offer a safe one-tap noise adjustment.",
+        )
+    }
+
     private fun clarifyCurrentShot() = LocalDecision.Clarify("Which part feels wrong?", standardChips())
 
     private fun standardChips() = listOf(
@@ -493,24 +640,96 @@ class DefaultCoachEngine(
         return hint == expected && frameMatches
     }
 
-    private fun hasNegatedDirection(text: String) = listOf("not too", "isn't too", "is not too", "don't make", "do not make").any(text::contains)
-
-    private fun hasConflictingPolarity(text: String): Boolean =
-        (text.contains("bright") && text.containsAny("dark", "dim")) ||
-            (text.contains("warm") && (text.contains("cool") || text.contains("blue"))) ||
-            (text.contains("bigger") && text.contains("smaller"))
-
-    private fun isElliptical(text: String) = text in setOf("a little more", "more", "less", "do the opposite", "no, the background")
-
     private fun isRegionalExposureComplaint(text: String): Boolean =
-        text.containsAny("background", "face", "person", "subject") &&
+        text.containsAny("background", "foreground", "sky", "window", "face", "skin", "person", "subject", "left side", "right side") &&
             text.containsAny("bright", "dark", "dim", "overexposed", "underexposed", "washed out", "highlights", "shadows")
+
+    private fun hasRegionalColorRequest(text: String): Boolean =
+        text.containsAny("blue", "yellow", "warm", "cool", "cold") &&
+            text.containsAny("background", "foreground", "sky", "window", "face", "skin", "person", "subject", "left side", "right side")
 
     private fun requestsBrighterExposure(text: String): Boolean =
         text.containsAny("dark", "dim", "underexposed", "shadows")
 
     private fun String.containsAny(vararg values: String) = values.any(::contains)
 }
+
+internal fun classifyComplaint(raw: String): IntentClassification {
+    val text = raw.trim().lowercase()
+    if (text.isBlank()) return IntentClassification.Unknown
+    if (hasManualExposureRequest(text)) return IntentClassification.Unsupported(UnsupportedReason.MANUAL_EXPOSURE)
+    if (text.containsAnyText("too noisy", "noisy", "grainy", "too much noise", "too much grain")) {
+        return IntentClassification.Unsupported(UnsupportedReason.NOISE_REDUCTION)
+    }
+    if (text in setOf("a little more", "more", "less", "do the opposite", "no, the background")) {
+        return IntentClassification.Clarify(ClarificationReason.AMBIGUOUS)
+    }
+    if (hasNegatedControlDirection(text)) return IntentClassification.Clarify(ClarificationReason.NEGATED_DIRECTION)
+    if (text.containsAnyText("too blur", "blurry", "blurred", "out of focus", "motion blur")) {
+        return IntentClassification.Clarify(ClarificationReason.BLUR_TYPE)
+    }
+    if (text.contains("too close")) return IntentClassification.Clarify(ClarificationReason.ZOOM_OR_DISTANCE)
+    if (text.contains("looks cool") && !text.containsAnyText("color", "colour", "tone", "temperature")) {
+        return IntentClassification.Clarify(ClarificationReason.AMBIGUOUS)
+    }
+
+    val intents = buildSet {
+        if (text.containsAnyText(
+                "too dark", "too dim", "so dark", "so dim", "underexposed", "shadows gone",
+                "brighten", "make it brighter", "make brighter",
+            ) || text in setOf("dark", "dim", "brighter")
+        ) add(ControlIntent.EXPOSURE_BRIGHTER)
+        if (text.containsAnyText(
+                "too bright", "overexposed", "washed out", "highlights gone", "darken", "make it darker", "make darker",
+            ) || text in setOf("bright", "darker")
+        ) add(ControlIntent.EXPOSURE_DARKER)
+        if (text.containsAnyText("too zoomed out", "zoom in", "zoom closer")) add(ControlIntent.ZOOM_IN)
+        if (text.containsAnyText("too zoomed in", "zoom out", "zoom wider")) add(ControlIntent.ZOOM_OUT)
+        if (text.containsAnyText("too blue", "so blue", "too cold", "looks cold", "cold-toned", "cold toned", "make it warmer") || text == "warmer") {
+            add(ControlIntent.WHITE_BALANCE_WARMER)
+        }
+        if (text.containsAnyText("too yellow", "so yellow", "too warm", "warm-toned", "warm toned", "make it cooler") || text == "cooler") {
+            add(ControlIntent.WHITE_BALANCE_COOLER)
+        }
+        if (text in setOf("auto", "auto white balance", "restore auto white balance")) add(ControlIntent.WHITE_BALANCE_AUTO)
+        if (text in setOf("focus missed", "missed focus")) add(ControlIntent.FOCUS_POINT_REQUIRED)
+        if (text.containsAnyText("crooked", "not straight", "isn't straight", "is not straight", "level the phone", "level the frame")) {
+            add(ControlIntent.LEVEL_FRAME)
+        }
+    }
+
+    if ((ControlIntent.EXPOSURE_BRIGHTER in intents && ControlIntent.EXPOSURE_DARKER in intents) ||
+        (ControlIntent.ZOOM_IN in intents && ControlIntent.ZOOM_OUT in intents) ||
+        (ControlIntent.WHITE_BALANCE_WARMER in intents && ControlIntent.WHITE_BALANCE_COOLER in intents)
+    ) return IntentClassification.Clarify(ClarificationReason.CONFLICTING_DIRECTIONS)
+    if (hasRegionalControlRequest(text)) return IntentClassification.Clarify(ClarificationReason.REGIONAL_REQUEST)
+    if (intents.size > 1) return IntentClassification.Clarify(ClarificationReason.MULTIPLE_COMPLAINTS)
+    return intents.singleOrNull()?.let(IntentClassification::Intent) ?: IntentClassification.Unknown
+}
+
+private fun hasManualExposureRequest(text: String): Boolean =
+    Regex("\\biso\\b").containsMatchIn(text) ||
+        text.containsAnyText("shutter", "exposure time", "manual exposure") ||
+        Regex("\\b1\\s*/\\s*\\d+\\s*(s|sec|second|seconds)?\\b").containsMatchIn(text)
+
+private fun hasNegatedControlDirection(text: String): Boolean {
+    val hasNegation = text.containsAnyText("not too", "no longer", "isn't", "is not", "don't", "dont", "do not") || text.startsWith("not ")
+    return hasNegation && text.containsAnyText(
+        "bright", "dark", "dim", "overexposed", "underexposed", "blue", "yellow", "warm", "cool", "cold", "zoom", "focus", "blur",
+    )
+}
+
+private fun hasRegionalControlRequest(text: String): Boolean {
+    val region = Regex("\\b(background|foreground|sky|window|face|skin|person|subject)\\b").containsMatchIn(text) ||
+        text.containsAnyText("left side", "right side", "top half", "bottom half")
+    val wholeFrameControl = text.containsAnyText(
+        "bright", "dark", "dim", "overexposed", "underexposed", "washed out", "highlights", "shadows",
+        "blue", "yellow", "warm", "cool", "cold",
+    )
+    return region && wholeFrameControl
+}
+
+private fun String.containsAnyText(vararg values: String) = values.any(::contains)
 
 internal fun observationsComparable(baseline: FrameObservation, current: FrameObservation): Boolean {
     if (baseline.sourceWidth <= 0 || baseline.sourceHeight <= 0 || current.sourceWidth <= 0 || current.sourceHeight <= 0) return false
@@ -527,6 +746,8 @@ internal fun observationsComparable(baseline: FrameObservation, current: FrameOb
     if (baseline.focalLengthMm != null && current.focalLengthMm != null &&
         relativeDelta(baseline.focalLengthMm, current.focalLengthMm) >= 0.02f
     ) return false
+    if (baseline.zoomRatio == null != (current.zoomRatio == null)) return false
+    if (baseline.zoomRatio != null && current.zoomRatio != null && relativeDelta(baseline.zoomRatio, current.zoomRatio) >= 0.02f) return false
     if (baseline.deviceRollDegrees != null && current.deviceRollDegrees != null &&
         abs(baseline.deviceRollDegrees - current.deviceRollDegrees) >= 2f
     ) return false

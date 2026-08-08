@@ -29,45 +29,60 @@ class BailianVisualClient internal constructor(
         callLimiter = PROCESS_CALL_LIMITER,
     )
 
-    suspend fun interpret(request: VisualRequest, apiKey: CharArray): VisualResult {
+    suspend fun interpret(request: VisualRequest, apiKey: CharArray): VisualResult =
+        when (val result = call(apiKey) { buildVisualRequestBody(request) }) {
+            is ProviderCall.Available -> parseVisualResponse(result.response, request.family)
+                ?.let(VisualResult::Available) ?: VisualResult.Unavailable
+            ProviderCall.CredentialsRejected -> VisualResult.CredentialsRejected
+            ProviderCall.Unavailable -> VisualResult.Unavailable
+        }
+
+    suspend fun classify(request: ComplaintRequest, apiKey: CharArray): ComplaintResult =
+        when (val result = call(apiKey) { buildComplaintRequestBody(request) }) {
+            is ProviderCall.Available -> parseComplaintResponse(result.response)
+                ?.let(ComplaintResult::Available) ?: ComplaintResult.Unavailable
+            ProviderCall.CredentialsRejected -> ComplaintResult.CredentialsRejected
+            ProviderCall.Unavailable -> ComplaintResult.Unavailable
+        }
+
+    private suspend fun call(apiKey: CharArray, buildBody: () -> ByteArray): ProviderCall {
         val authorization = try {
             apiKey.takeIf(::isValidApiKey)?.concatToString()?.let { "Bearer $it" }
         } finally {
             apiKey.fill('\u0000')
         }
-        if (authorization == null) return VisualResult.Unavailable
+        if (authorization == null) return ProviderCall.Unavailable
         val body = try {
-            buildVisualRequestBody(request)
+            buildBody()
         } catch (_: IllegalArgumentException) {
-            return VisualResult.Unavailable
+            return ProviderCall.Unavailable
         } catch (_: JSONException) {
-            return VisualResult.Unavailable
+            return ProviderCall.Unavailable
         }
         if (!callLimiter.tryAcquire()) {
             body.fill(0)
-            return VisualResult.Unavailable
+            return ProviderCall.Unavailable
         }
 
         return try {
             withTimeout(NETWORK_TIMEOUT_MS) {
                 runInterruptible(Dispatchers.IO) {
-                    execute(request, body, authorization)
+                    execute(body, authorization)
                 }
             }
         } catch (_: TimeoutCancellationException) {
-            VisualResult.Unavailable
+            ProviderCall.Unavailable
         } catch (_: IOException) {
-            VisualResult.Unavailable
+            ProviderCall.Unavailable
         } finally {
             body.fill(0)
         }
     }
 
     private fun execute(
-        request: VisualRequest,
         body: ByteArray,
         authorization: String,
-    ): VisualResult {
+    ): ProviderCall {
         val connection = connectionFactory(URL(BAILIAN_ENDPOINT))
         return try {
             connection.requestMethod = "POST"
@@ -85,13 +100,14 @@ class BailianVisualClient internal constructor(
             val status = connection.responseCode
             if (status != HttpURLConnection.HTTP_OK) {
                 connection.errorStream?.close()
-                return visualFailureForHttpStatus(status)
+                return if (status == HttpURLConnection.HTTP_UNAUTHORIZED || status == HttpURLConnection.HTTP_FORBIDDEN) {
+                    ProviderCall.CredentialsRejected
+                } else {
+                    ProviderCall.Unavailable
+                }
             }
-            val response = connection.inputStream.use(::readLimited) ?: return VisualResult.Unavailable
-            parseVisualResponse(
-                response = response.toString(StandardCharsets.UTF_8),
-                family = request.family,
-            )?.let { VisualResult.Available(it) } ?: VisualResult.Unavailable
+            val response = connection.inputStream.use(::readLimited) ?: return ProviderCall.Unavailable
+            ProviderCall.Available(response.toString(StandardCharsets.UTF_8))
         } finally {
             connection.disconnect()
         }
@@ -118,4 +134,10 @@ class BailianVisualClient internal constructor(
         const val MAX_HTTP_RESPONSE_BYTES = 64 * 1024
         val PROCESS_CALL_LIMITER = VisualCallLimiter()
     }
+}
+
+private sealed interface ProviderCall {
+    data class Available(val response: String) : ProviderCall
+    data object CredentialsRejected : ProviderCall
+    data object Unavailable : ProviderCall
 }

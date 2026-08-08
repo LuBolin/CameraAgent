@@ -580,7 +580,7 @@ class CaptureScreenTest {
         }
 
         compose.onNodeWithTag(CaptureTestTags.SETTINGS).assertExists()
-        compose.onNodeWithText("Visual AI enabled").assertIsNotEnabled()
+        compose.onNodeWithText("AI interpretation enabled").assertIsNotEnabled()
         compose.onNodeWithText("Test key").assertIsNotEnabled()
         compose.onNodeWithText("Alibaba Cloud Model Studio API key").performScrollTo().performTextInput("disposable-key")
         compose.onNodeWithText("Test key").performScrollTo().assertIsEnabled().performClick()

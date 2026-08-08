@@ -238,7 +238,7 @@ private fun Onboarding(step: Int, onContinue: () -> Unit, onOpenCamera: () -> Un
             Text(
                 text = if (secondStep) {
                     "Nothing changes until you tap Apply, a focus target, or Start guidance.\n\n" +
-                        "Visual AI is off until you add your Alibaba Cloud Model Studio key in Settings."
+                        "AI interpretation is off until you add your Alibaba Cloud Model Studio key in Settings."
                 } else {
                     "Photo Helper can adjust supported settings or guide your position."
                 },
@@ -638,7 +638,7 @@ private fun GuidanceTarget(target: VerificationTarget) {
                 strokeWidth = 3.dp.toPx(),
             )
 
-            is VerificationTarget.Exposure, is VerificationTarget.ColorBalance -> Unit
+            is VerificationTarget.Exposure, is VerificationTarget.ColorBalance, is VerificationTarget.Zoom -> Unit
         }
     }
 }
@@ -1281,10 +1281,10 @@ private fun SettingsSheet(
             ToggleRow("Haptics", state.settings.haptics, onHapticsChanged)
             ToggleRow("Technical detail", state.settings.technicalDetail, onTechnicalDetailChanged)
 
-            Text("Visual AI", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("AI interpretation", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text("Qwen3.7 Flash (2026-07-15) · Alibaba Cloud Model Studio, China (Beijing)")
             ToggleRow(
-                label = "Visual AI enabled",
+                label = "AI interpretation enabled",
                 checked = state.settings.visualAiEnabled,
                 onCheckedChange = onVisualAiEnabledChanged,
                 enabled = state.settings.keyConfigured && !state.settings.testingKey,
@@ -1331,9 +1331,9 @@ private fun SettingsSheet(
             }
 
             Text(
-                "For two visual questions, Photo Helper sends your comment with one reduced live frame or, in " +
-                    "Capture Review, one reduced copy of the saved photo under review to Alibaba Cloud Model " +
-                    "Studio in China (Beijing). It never sends audio or streams the preview. " +
+                "When local wording is not understood, Photo Helper may send the typed or transcribed comment to " +
+                    "Alibaba Cloud Model Studio in China (Beijing). For two visual questions it also sends one reduced " +
+                    "live frame or one reduced copy of the saved photo under review. It never sends audio or streams the preview. " +
                     "Alibaba Cloud may retain request data; see its privacy notice.",
                 style = MaterialTheme.typography.bodyMedium,
             )

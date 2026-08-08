@@ -1,9 +1,12 @@
 package com.bolin.photohelper.capture
 
 import com.bolin.photohelper.coach.DefaultCoachEngine
+import com.bolin.photohelper.coach.ControlIntent
+import com.bolin.photohelper.coach.IntentClassification
 import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.VisualIntent
+import com.bolin.photohelper.visual.ComplaintResult
 import com.bolin.photohelper.visual.VisualResult
 import com.bolin.photohelper.voice.VoiceIo
 import com.bolin.photohelper.voice.VoiceResult
@@ -53,6 +56,91 @@ class CaptureViewModelTest {
 
         assertEquals(CoachingPhase.RECOMMENDATION, viewModel.uiState.value.coachingPhase)
         assertNotNull(viewModel.uiState.value.recommendation)
+    }
+
+    @Test
+    fun `typed zoom complaint requires one apply verifies telemetry and resets`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(zoomRatio = 1f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+        }
+        val viewModel = viewModel(camera)
+        viewModel.setCameraPermission(true)
+
+        viewModel.updateComment("too zoomed out")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(0, camera.applyCalls)
+        val recommendation = (viewModel.uiState.value.decision as LocalDecision.Recommend).recommendation
+        assertEquals(
+            CameraAdjustment.ZoomRatio(1.25f),
+            (recommendation.action as com.bolin.photohelper.coach.RecommendationAction.ApplySetting).adjustment,
+        )
+
+        viewModel.applyRecommendation()
+        runCurrent()
+        assertEquals(1, camera.applyCalls)
+
+        listOf(1_500L, 1_600L, 1_700L).forEachIndexed { index, timestamp ->
+            camera.observation.value = observation(id = index + 2L, timestamp = timestamp, zoomRatio = 1.25f)
+            runCurrent()
+        }
+
+        assertEquals("Zoom changed to 1.25×. Is the framing closer?", viewModel.uiState.value.transientMessage)
+        assertTrue(viewModel.uiState.value.resetAvailable)
+
+        viewModel.reset()
+        runCurrent()
+        assertEquals(1, camera.resetCalls)
+        assertFalse(viewModel.uiState.value.resetAvailable)
+    }
+
+    @Test
+    fun `unknown wording can use a model intent but only local planning can apply`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            complaintResult = {
+                ComplaintResult.Available(IntentClassification.Intent(ControlIntent.EXPOSURE_BRIGHTER))
+            },
+        )
+        viewModel.setCameraPermission(true)
+
+        viewModel.updateComment("Could you lift the overall light a touch?")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertTrue(viewModel.uiState.value.decision is LocalDecision.Recommend)
+        assertEquals(0, camera.applyCalls)
+
+        camera.observation.value = observation(id = 2)
+        runCurrent()
+        viewModel.applyRecommendation()
+        runCurrent()
+
+        assertEquals(1, camera.applyCalls)
+        assertEquals(CameraAdjustment.ExposureCompensation(2), camera.lastAdjustment)
+    }
+
+    @Test
+    fun `unsafe wording never reaches the hosted classifier`() = runTest(dispatcher) {
+        var modelCalls = 0
+        val viewModel = viewModel(
+            FakeCamera(observation()),
+            visualEnabled = true,
+            complaintResult = {
+                modelCalls++
+                ComplaintResult.Unavailable
+            },
+        )
+
+        viewModel.updateComment("no longer too dark")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(0, modelCalls)
+        assertTrue(viewModel.uiState.value.decision is LocalDecision.Clarify)
     }
 
     @Test
@@ -1312,6 +1400,7 @@ class CaptureViewModelTest {
         nowMs: () -> Long = { 1_000 },
         voice: VoiceIo = FakeVoice(),
         feedback: (Feedback) -> Unit = {},
+        complaintResult: suspend () -> ComplaintResult = { ComplaintResult.Unavailable },
         visualResult: suspend () -> VisualResult = { VisualResult.Unavailable },
     ) = CaptureViewModel(
         camera = camera,
@@ -1323,6 +1412,7 @@ class CaptureViewModelTest {
         saveApiKey = saveApiKey,
         clearApiKey = clearApiKey,
         interpretVisual = { _, _ -> visualResult() },
+        interpretComplaint = { _, _ -> complaintResult() },
         createTestImage = { byteArrayOf(1) },
         feedback = feedback,
         nowMs = nowMs,
@@ -1441,6 +1531,7 @@ class CaptureViewModelTest {
         timestamp: Long = 1_000,
         faces: List<FaceObservation> = emptyList(),
         lensId: String? = null,
+        zoomRatio: Float? = null,
     ) = FrameObservation(
         id = id,
         timestampMs = timestamp,
@@ -1450,6 +1541,7 @@ class CaptureViewModelTest {
         chromaBlueBias = blueBias,
         faces = faces,
         lensId = lensId,
+        zoomRatio = zoomRatio,
         sourceWidth = 640,
         sourceHeight = 480,
     )

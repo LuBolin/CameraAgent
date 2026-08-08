@@ -331,6 +331,39 @@ class CameraSmokeTest {
 
     @RequiresDevice
     @Test
+    fun stagedZoomCommentAppliesVerifiesAndResets() {
+        openCameraAndWaitUntilReady()
+        val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
+        val camera = viewModel.camera
+        val range = camera.capabilities.value.zoomRatioRange
+        val baseline = camera.telemetry.value.zoomRatio
+        val target = (baseline * 1.25f).coerceIn(range)
+        assertTrue("Stage camera has no usable zoom-in step", target - baseline >= 0.01f)
+
+        compose.onNodeWithTag(CaptureTestTags.COMMENT).performTextInput("too zoomed out")
+        closeSoftKeyboard()
+        compose.onNodeWithText("Send").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            val action = viewModel.uiState.value.recommendation?.action as? com.bolin.photohelper.coach.RecommendationAction.ApplySetting
+            (action?.adjustment as? CameraAdjustment.ZoomRatio)?.ratio?.let { abs(it - target) <= 0.01f } == true
+        }
+
+        compose.onNodeWithText("Apply").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { abs(camera.telemetry.value.zoomRatio - target) <= 0.01f }
+        compose.waitUntil(timeoutMillis = 10_000) {
+            viewModel.uiState.value.transientMessage.orEmpty().startsWith("Zoom changed to")
+        }
+        assertTrue(viewModel.uiState.value.resetAvailable)
+
+        compose.onNodeWithText("Reset").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            !viewModel.uiState.value.resetAvailable && abs(camera.telemetry.value.zoomRatio - baseline) <= 0.01f
+        }
+        reportPhysicalGate("PHYSICAL_GATE zoom=$baseline>$target>$baseline chain=COMMENT>APPLY>VERIFY>RESET")
+    }
+
+    @RequiresDevice
+    @Test
     fun stagedPreviewTapShowsTargetAndLocksFocus() {
         openCameraAndWaitUntilReady()
         val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]

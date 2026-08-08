@@ -49,6 +49,78 @@ class DefaultCoachEngineTest {
     }
 
     @Test
+    fun `core complaints classify to allowlisted control intents`() {
+        mapOf(
+            "so dim" to ControlIntent.EXPOSURE_BRIGHTER,
+            "dark" to ControlIntent.EXPOSURE_BRIGHTER,
+            "too bright" to ControlIntent.EXPOSURE_DARKER,
+            "too zoomed out" to ControlIntent.ZOOM_IN,
+            "too zoomed in" to ControlIntent.ZOOM_OUT,
+            "too blue" to ControlIntent.WHITE_BALANCE_WARMER,
+            "too yellow" to ControlIntent.WHITE_BALANCE_COOLER,
+            "focus missed" to ControlIntent.FOCUS_POINT_REQUIRED,
+            "crooked" to ControlIntent.LEVEL_FRAME,
+        ).forEach { (complaint, intent) ->
+            assertEquals(IntentClassification.Intent(intent), classifyComplaint(complaint))
+        }
+    }
+
+    @Test
+    fun `unsafe complaint boundaries fail closed before planning`() {
+        mapOf(
+            "too blur" to ClarificationReason.BLUR_TYPE,
+            "no longer too dark" to ClarificationReason.NEGATED_DIRECTION,
+            "isn't overexposed" to ClarificationReason.NEGATED_DIRECTION,
+            "too dark and too bright" to ClarificationReason.CONFLICTING_DIRECTIONS,
+            "too blue and too yellow" to ClarificationReason.CONFLICTING_DIRECTIONS,
+            "too zoomed in and too zoomed out" to ClarificationReason.CONFLICTING_DIRECTIONS,
+            "too dark and too blue" to ClarificationReason.MULTIPLE_COMPLAINTS,
+            "the sky is too bright" to ClarificationReason.REGIONAL_REQUEST,
+            "this looks cool" to ClarificationReason.AMBIGUOUS,
+            "too close" to ClarificationReason.ZOOM_OR_DISTANCE,
+        ).forEach { (complaint, reason) ->
+            assertEquals(IntentClassification.Clarify(reason), classifyComplaint(complaint))
+            assertFalse(engine.evaluateLocal(input(complaint, observation())) is LocalDecision.Recommend)
+        }
+    }
+
+    @Test
+    fun `manual exposure and noise requests never substitute another setting`() {
+        listOf("too dark, raise ISO", "set ISO 100", "use 1/500 s", "use a faster shutter", "too noisy").forEach { complaint ->
+            assertTrue("$complaint must remain advisory", engine.evaluateLocal(input(complaint, observation())) is LocalDecision.Advisory)
+        }
+    }
+
+    @Test
+    fun `an allowlisted intent is still planned locally`() {
+        val decision = engine.planIntent(input("model wording", observation()), ControlIntent.EXPOSURE_BRIGHTER)
+        val action = ((decision as LocalDecision.Recommend).recommendation.action as RecommendationAction.ApplySetting).adjustment
+
+        assertEquals(CameraAdjustment.ExposureCompensation(2), action)
+    }
+
+    @Test
+    fun `zoom complaints plan one bounded digital zoom step`() {
+        val zoomCapabilities = capabilities.copy(zoomRatioRange = 1f..10f)
+
+        fun adjustment(complaint: String, currentRatio: Float): CameraAdjustment.ZoomRatio {
+            val decision = engine.evaluateLocal(
+                input(complaint, observation(), zoomCapabilities, CameraTelemetry(zoomRatio = currentRatio)),
+            ) as LocalDecision.Recommend
+            return (decision.recommendation.action as RecommendationAction.ApplySetting).adjustment as CameraAdjustment.ZoomRatio
+        }
+
+        assertEquals(1.6f, adjustment("too zoomed in", 2f).ratio, .001f)
+        assertEquals(1.25f, adjustment("too zoomed out", 1f).ratio, .001f)
+        assertTrue(
+            engine.evaluateLocal(input("too zoomed in", observation(), zoomCapabilities, CameraTelemetry(zoomRatio = 1f))) is LocalDecision.Advisory,
+        )
+        assertTrue(
+            engine.evaluateLocal(input("too zoomed out", observation(), zoomCapabilities, CameraTelemetry(zoomRatio = 10f))) is LocalDecision.Advisory,
+        )
+    }
+
+    @Test
     fun `regional exposure never produces global apply`() {
         val decision = engine.evaluateLocal(input("the background is too bright", observation()))
 
@@ -217,6 +289,14 @@ class DefaultCoachEngineTest {
     }
 
     @Test
+    fun `generic subject position without tracking never asks for a face`() {
+        val decision = engine.evaluateLocal(input("subject too far left", observation())) as LocalDecision.Advisory
+
+        assertFalse(decision.headline.contains("face", ignoreCase = true))
+        assertFalse(decision.detail.contains("person", ignoreCase = true))
+    }
+
+    @Test
     fun `face size guidance verifies the requested direction from its own baseline`() {
         fun target(complaint: String, width: Float) = (
             (engine.evaluateLocal(input(complaint, observation(faces = listOf(face(width))))) as LocalDecision.Recommend)
@@ -271,21 +351,17 @@ class DefaultCoachEngineTest {
     }
 
     @Test
-    fun `color clarification chips complete locally`() {
-        val chips = listOf("too blue", "too yellow")
-            .flatMap { (engine.evaluateLocal(input(it, observation())) as LocalDecision.Clarify).chips }
-            .associateBy { it.label }
-
-        assertEquals(setOf("Warmer", "Cooler", "Auto"), chips.keys)
-        listOf("Warmer", "Cooler").forEach { label ->
-            val decision = engine.evaluateLocal(
-                input(chips.getValue(label).replacementComplaint, observation()),
-            ) as LocalDecision.Recommend
+    fun `explicit color complaints produce a one tap setting`() {
+        mapOf(
+            "too blue" to CameraAdjustment.WhiteBalance(WhiteBalancePreset.WARMER),
+            "too yellow" to CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER),
+        ).forEach { (complaint, expected) ->
+            val decision = engine.evaluateLocal(input(complaint, observation())) as LocalDecision.Recommend
             val recommendation = decision.recommendation
-            assertTrue(recommendation.action is RecommendationAction.ApplySetting)
+
+            assertEquals(expected, (recommendation.action as RecommendationAction.ApplySetting).adjustment)
             assertEquals("Apply", recommendation.primaryLabel)
         }
-        assertTrue(engine.evaluateLocal(input(chips.getValue("Auto").replacementComplaint, observation())) is LocalDecision.Advisory)
     }
 
     @Test
@@ -408,6 +484,15 @@ class DefaultCoachEngineTest {
     }
 
     @Test
+    fun `zoom verification uses the camera reported ratio`() {
+        val target = VerificationTarget.Zoom(direction = 1, baselineRatio = 1f, targetRatio = 1.25f)
+
+        assertEquals(VerificationResult.Progress, engine.verify(target, observation(zoomRatio = 1.1f)))
+        assertEquals(VerificationResult.Satisfied, engine.verify(target, observation(zoomRatio = 1.25f)))
+        assertTrue(engine.verify(target, observation()) is VerificationResult.Incomparable)
+    }
+
+    @Test
     fun `weak or opposite color evidence is not uploaded`() {
         val weak = engine.evaluateLocal(input("looks blue", observation(blueBias = .01f))) as LocalDecision.Clarify
         val opposite = engine.evaluateLocal(input("looks blue", observation(blueBias = -.08f))) as LocalDecision.Clarify
@@ -490,6 +575,7 @@ class DefaultCoachEngineTest {
         height: Int = 480,
         sceneLumaSignature: List<Int> = emptyList(),
         rollDegrees: Float? = null,
+        zoomRatio: Float? = null,
     ) = FrameObservation(
         id = 1,
         timestampMs = 1,
@@ -499,6 +585,7 @@ class DefaultCoachEngineTest {
         chromaBlueBias = blueBias,
         faces = faces,
         deviceRollDegrees = rollDegrees,
+        zoomRatio = zoomRatio,
         sceneLumaSignature = sceneLumaSignature,
         sourceWidth = width,
         sourceHeight = height,

@@ -774,6 +774,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             sceneLumaSignature = metrics.lumaSignature,
             lensId = telemetry.lensId,
             focalLengthMm = telemetry.focalLengthMm,
+            zoomRatio = telemetry.zoomRatio,
             sourceWidth = width,
             sourceHeight = height,
         )
@@ -806,6 +807,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                 sceneLumaSignature = metrics.lumaSignature,
                 lensId = captureTelemetry?.lensId,
                 focalLengthMm = captureTelemetry?.focalLengthMm,
+                zoomRatio = captureTelemetry?.zoomRatio,
                 sourceWidth = bitmap.width,
                 sourceHeight = bitmap.height,
             )

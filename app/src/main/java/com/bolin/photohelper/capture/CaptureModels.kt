@@ -31,6 +31,7 @@ data class FrameObservation(
     val sceneLumaSignature: List<Int> = emptyList(),
     val lensId: String? = null,
     val focalLengthMm: Float? = null,
+    val zoomRatio: Float? = null,
     val sourceWidth: Int,
     val sourceHeight: Int,
 )

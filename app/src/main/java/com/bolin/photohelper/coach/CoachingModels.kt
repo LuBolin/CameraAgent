@@ -10,6 +10,37 @@ enum class ObservationOrigin { LIVE, CAPTURE_REVIEW }
 enum class RecommendationBasis { MEASURED_DIAGNOSIS, USER_PREFERENCE }
 enum class VisualFamily { COLOR_CAST, FACE_SIZE_AMBIGUOUS }
 
+enum class ControlIntent {
+    EXPOSURE_BRIGHTER,
+    EXPOSURE_DARKER,
+    ZOOM_IN,
+    ZOOM_OUT,
+    WHITE_BALANCE_WARMER,
+    WHITE_BALANCE_COOLER,
+    WHITE_BALANCE_AUTO,
+    FOCUS_POINT_REQUIRED,
+    LEVEL_FRAME,
+}
+
+enum class ClarificationReason {
+    AMBIGUOUS,
+    NEGATED_DIRECTION,
+    CONFLICTING_DIRECTIONS,
+    MULTIPLE_COMPLAINTS,
+    REGIONAL_REQUEST,
+    BLUR_TYPE,
+    ZOOM_OR_DISTANCE,
+}
+
+enum class UnsupportedReason { MANUAL_EXPOSURE, NOISE_REDUCTION }
+
+sealed interface IntentClassification {
+    data class Intent(val value: ControlIntent) : IntentClassification
+    data class Clarify(val reason: ClarificationReason) : IntentClassification
+    data class Unsupported(val reason: UnsupportedReason) : IntentClassification
+    data object Unknown : IntentClassification
+}
+
 data class VisualEligibility(
     val complaintId: String,
     val family: VisualFamily,
@@ -67,6 +98,12 @@ sealed interface VerificationTarget {
         val baselineBlueBias: Float?,
         val baselineObservation: FrameObservation? = null,
     ) : VerificationTarget
+
+    data class Zoom(
+        val direction: Int,
+        val baselineRatio: Float,
+        val targetRatio: Float,
+    ) : VerificationTarget
 }
 
 sealed interface RecommendationAction {
@@ -102,6 +139,7 @@ data class Recommendation(
     val capabilitiesSnapshot: CameraCapabilities? = null,
     val telemetrySnapshot: CameraTelemetry? = null,
     val createdAtMs: Long? = null,
+    val controlIntent: ControlIntent? = null,
     val visualFamily: VisualFamily? = null,
     val visualHint: VisualHint? = null,
 )
