@@ -5,6 +5,8 @@ Last reviewed: 2026-08-04
 
 This appendix preserves earlier candidates without making them part of the Android architecture. None is selected, integrated, benchmarked for Photo Helper, or approved for production. Generic benchmark and size claims do not establish performance on the two-family camera task.
 
+The selected hosted path is Qwen `qwen3.7-flash-2026-07-15` through Alibaba Cloud Model Studio, recorded in [ADR 0004](../docs/adr/0004-call-bailian-qwen-directly-from-private-demo.md); it is not an entry in this unselected inventory. Its current fixture contract is color Prompt/schema v2 plus face Prompt/schema v3 with boolean `distortionVisible`. The binary face contract replaced a two-label enum after the live fixture gate exposed output-label-order bias; Android now owns the boolean-to-intent mapping.
+
 For every entry, repository/code licensing and model-weight/hosted-service terms are separate. `Not verified` means exactly that; a repository license must never be assumed to cover weights, datasets, trademarks, hosted processing, or app redistribution.
 
 ## Unselected speech-recognition research
@@ -33,12 +35,12 @@ For every entry, repository/code licensing and model-weight/hosted-service terms
 A candidate returns to the implementation note only after:
 
 1. a current official source and both relevant license/terms layers are archived;
-2. the exact model runs on the fixed Photo Helper fixture contract;
-3. it solves a measured failure of GLM or the local pipeline;
+2. the exact model runs on the fixed Photo Helper family contracts, including color schema v2 and both boolean outcomes plus clarification for face schema v3;
+3. it solves a measured failure of the selected Qwen service or the local pipeline;
 4. its latency, memory, thermals, privacy, and cost are measured on the intended deployment; and
 5. adopting it is simpler than deleting the hosted visual feature.
 
-Until then, the implementation has one hosted experiment candidate (`glm-4.6v-flash`) and one on-device research fallback (MiniCPM-V 4.6), with no switching abstraction.
+Until then, the implementation has one hosted selection (`qwen3.7-flash-2026-07-15`). MiniCPM-V 4.6 remains an unimplemented research candidate; there is no model-switching abstraction.
 
 ## Official starting points for future verification
 

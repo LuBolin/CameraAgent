@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 ---
 
 # Call Z.AI directly from the private demo app

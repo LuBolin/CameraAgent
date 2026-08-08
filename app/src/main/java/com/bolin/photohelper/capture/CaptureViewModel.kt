@@ -1,0 +1,1133 @@
+package com.bolin.photohelper.capture
+
+import android.os.SystemClock
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.bolin.photohelper.coach.CoachEngine
+import com.bolin.photohelper.coach.CoachingInput
+import com.bolin.photohelper.coach.LocalDecision
+import com.bolin.photohelper.coach.ObservationOrigin
+import com.bolin.photohelper.coach.Recommendation
+import com.bolin.photohelper.coach.RecommendationAction
+import com.bolin.photohelper.coach.VerificationResult
+import com.bolin.photohelper.coach.VerificationTarget
+import com.bolin.photohelper.coach.VisualEligibility
+import com.bolin.photohelper.coach.VisualFamily
+import com.bolin.photohelper.coach.observationsComparable
+import com.bolin.photohelper.visual.VisualRequest
+import com.bolin.photohelper.visual.VisualResult
+import com.bolin.photohelper.voice.VoiceIo
+import com.bolin.photohelper.voice.VoiceResult
+import java.util.UUID
+import java.util.ArrayDeque
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.abs
+
+enum class Feedback { TICK, SUCCESS, ERROR }
+
+private const val CAPTURE_TIMEOUT_MS = 15_000L
+private const val CAPTURE_TIMEOUT_MESSAGE = "Camera did not finish saving the photo. Try again."
+
+class CaptureViewModel(
+    internal val camera: CaptureHardware,
+    private val coach: CoachEngine,
+    private val voice: VoiceIo,
+    private val preferences: PreferenceStore,
+    private val hasApiKey: () -> Boolean,
+    private val loadApiKey: () -> CharArray?,
+    private val saveApiKey: (CharArray) -> Unit,
+    private val clearApiKey: () -> Unit,
+    private val interpretVisual: suspend (VisualRequest, CharArray) -> VisualResult,
+    private val createTestImage: () -> ByteArray?,
+    private val feedback: (Feedback) -> Unit = {},
+    private val nowMs: () -> Long = SystemClock::elapsedRealtime,
+) : ViewModel() {
+    private val initialSettings = preferences.settings(hasApiKey())
+    private val _uiState = MutableStateFlow(
+        CaptureUiState(
+            onboardingStep = if (preferences.onboardingComplete()) 2 else 0,
+            settings = initialSettings,
+            capabilities = camera.capabilities.value,
+        ),
+    )
+    val uiState: StateFlow<CaptureUiState> = _uiState.asStateFlow()
+
+    private var activeComplaintId: String? = null
+    private var visualJob: Job? = null
+    private var operationJob: Job? = null
+    private var keyTestJob: Job? = null
+    private var guidanceTimeoutJob: Job? = null
+    private var verificationTimeoutJob: Job? = null
+    private var verificationStartObservationId: Long? = null
+    private var verificationStartedAtMs: Long? = null
+    private var verificationSatisfiedSamples = 0
+    private var verificationIncomparableMessage: String? = null
+    private var guidanceSatisfiedSinceMs: Long? = null
+    private var observedSessionId = camera.state.value.sessionId
+    private var captureInFlight = false
+    private var settingApplyInFlight = false
+    private var resetInFlight = false
+    private var restoreSettingAfterApply = false
+    private var isBackgrounded = false
+    private var visualCredentialsRejected = false
+    private var latestLiveObservation: FrameObservation? = camera.observation.value
+    private var liveObservationBarrierId: Long? = null
+    private val stableFaceTracker = StableFaceTracker()
+    private val comparisonSamples = ArrayDeque<FrameObservation>(3)
+    private var stableFace: FaceObservation? = null
+
+    init {
+        camera.setObservationImageEnabled(initialSettings.visualAiEnabled && initialSettings.keyConfigured)
+        viewModelScope.launch {
+            camera.state.collect { cameraState ->
+                if (cameraState.sessionId != observedSessionId) {
+                    observedSessionId = cameraState.sessionId
+                    invalidateCameraSession()
+                }
+                _uiState.update {
+                    it.copy(
+                        cameraPhase = if (it.review != null) CameraPhase.REVIEWING else cameraState.phase,
+                        transientMessage = cameraState.message ?: it.transientMessage,
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            camera.capabilities.collect { capabilities ->
+                _uiState.update { it.copy(capabilities = capabilities) }
+            }
+        }
+        viewModelScope.launch {
+            camera.observation.collect { observation ->
+                if (isBackgrounded) return@collect
+                val barrierId = liveObservationBarrierId
+                if (observation != null && barrierId != null && observation.id <= barrierId) return@collect
+                if (observation != null) liveObservationBarrierId = null
+                latestLiveObservation = observation
+                if (observation == null) {
+                    comparisonSamples.clear()
+                } else {
+                    comparisonSamples.addLast(observation)
+                    while (comparisonSamples.size > 3) comparisonSamples.removeFirst()
+                }
+                stableFace = stableFaceTracker.update(observation, camera.state.value.sessionId)
+                if (observation != null) verifyActiveWork(observation)
+            }
+        }
+    }
+
+    fun continueOnboarding() = _uiState.update { it.copy(onboardingStep = 1) }
+
+    fun finishOnboarding() {
+        preferences.setOnboardingComplete()
+        _uiState.update { it.copy(onboardingStep = 2) }
+    }
+
+    fun setCameraPermission(granted: Boolean) = _uiState.update {
+        it.copy(cameraPermission = if (granted) PermissionState.GRANTED else PermissionState.DENIED)
+    }
+
+    fun retryCamera() {
+        if (_uiState.value.cameraPhase != CameraPhase.BLOCKED) return
+        _uiState.update { it.copy(cameraPhase = CameraPhase.STARTING, transientMessage = null) }
+    }
+
+    fun setMicrophonePermission(granted: Boolean) = _uiState.update {
+        it.copy(
+            microphonePermission = if (granted) PermissionState.GRANTED else PermissionState.DENIED,
+            transientMessage = if (granted) it.transientMessage else "Microphone unavailable—type your comment instead.",
+        )
+    }
+
+    fun refreshPermissions(cameraGranted: Boolean, microphoneGranted: Boolean) = _uiState.update {
+        it.copy(
+            cameraPermission = if (cameraGranted) PermissionState.GRANTED else PermissionState.DENIED,
+            microphonePermission = when {
+                microphoneGranted -> PermissionState.GRANTED
+                it.microphonePermission == PermissionState.GRANTED -> PermissionState.DENIED
+                else -> it.microphonePermission
+            },
+        )
+    }
+
+    fun updateComment(comment: String) {
+        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        val next = comment.take(300)
+        if (activeComplaintId != null && next != _uiState.value.comment) cancelCoaching()
+        _uiState.update { it.copy(comment = next) }
+    }
+
+    fun submitComment(replacement: String? = null) {
+        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        val comment = (replacement ?: _uiState.value.comment).trim()
+        if (comment.isBlank()) {
+            _uiState.update { it.copy(transientMessage = "Describe the current shot first.") }
+            return
+        }
+        if (_uiState.value.resetAvailable &&
+            (comment.equals("reset", ignoreCase = true) ||
+                comment.equals("undo last camera adjustment", ignoreCase = true))
+        ) {
+            reset()
+            return
+        }
+        cancelCoaching(clearDecision = false)
+        val complaintId = UUID.randomUUID().toString()
+        activeComplaintId = complaintId
+        _uiState.update {
+            it.copy(
+                comment = comment,
+                coachingPhase = CoachingPhase.INTERPRETING,
+                decision = null,
+                transientMessage = null,
+            )
+        }
+        operationJob = viewModelScope.launch {
+            val input = coachingInput(complaintId, comment)
+            val decision = coach.evaluateLocal(input).withProvenance(input)
+            if (activeComplaintId != complaintId) return@launch
+            val phase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE
+            _uiState.update { it.copy(decision = decision, coachingPhase = phase) }
+            val eligibility = (decision as? LocalDecision.Clarify)?.visualEligibility
+            if (eligibility != null && canUseVisualAi()) requestVisualHint(input, eligibility, decision)
+        }
+    }
+
+    fun selectClarification(replacementComplaint: String) = submitComment(replacementComplaint)
+
+    fun dismissDecision() {
+        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        cancelCoaching()
+        _uiState.update { it.copy(decision = null, coachingPhase = CoachingPhase.IDLE) }
+    }
+
+    fun applyRecommendation() {
+        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        val recommendation = currentRecommendation() ?: return
+        val action = recommendation.action as? RecommendationAction.ApplySetting ?: return
+        cancelJobsOnly()
+        _uiState.update { it.copy(coachingPhase = CoachingPhase.APPLYING, transientMessage = null) }
+        settingApplyInFlight = true
+        operationJob = viewModelScope.launch {
+            try {
+                val result = camera.apply(action.adjustment)
+                if (restoreSettingAfterApply) {
+                    restoreAfterBackground()
+                    return@launch
+                }
+                when (result) {
+                    ApplyResult.Applied -> {
+                        val wasReview = _uiState.value.review != null
+                        if (wasReview) camera.setAnalysisPaused(false)
+                        verificationStartObservationId = latestLiveObservation?.id
+                        verificationStartedAtMs = nowMs()
+                        verificationSatisfiedSamples = 0
+                        verificationIncomparableMessage = null
+                        _uiState.update {
+                            it.copy(
+                                review = null,
+                                cameraPhase = CameraPhase.READY,
+                                coachingPhase = CoachingPhase.VERIFYING,
+                                resetAvailable = true,
+                                retakeSettingsActive = wasReview,
+                                activeGuidance = ActiveGuidance("Checking the requested effect…", action.target, nowMs()),
+                            )
+                        }
+                        verificationTimeoutJob = viewModelScope.launch {
+                            delay(3_000)
+                            if (_uiState.value.coachingPhase == CoachingPhase.VERIFYING) {
+                                completeWork(
+                                    verificationIncomparableMessage
+                                        ?: "Setting applied, but I don’t see the expected change yet.",
+                                    Feedback.TICK,
+                                )
+                            }
+                        }
+                    }
+                    is ApplyResult.Failed -> failWork(result.message)
+                }
+            } finally {
+                settingApplyInFlight = false
+                restoreSettingAfterApply = false
+                resumeAnalysisAfterControl()
+            }
+        }
+    }
+
+    fun startGuidance() {
+        if (_uiState.value.activeGuidance != null || _uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        val recommendation = currentRecommendation() ?: return
+        val action = recommendation.action as? RecommendationAction.GuidePosition ?: return
+        cancelJobsOnly()
+        val tracksFace = action.target is VerificationTarget.FaceOccupancy ||
+            action.target is VerificationTarget.FacePosition ||
+            action.target is VerificationTarget.StepBack
+        val subjectFace = if (tracksFace) stableFace else null
+        val subjectTrackingId = subjectFace?.trackingId
+        if (tracksFace && (recommendation.subjectFace == null || subjectFace == null || !sameSubject(recommendation.subjectFace, subjectFace))) {
+            failWork("The person or camera session changed. Hold the frame on the same person, then ask again.")
+            return
+        }
+        val wasReview = _uiState.value.review != null
+        if (wasReview) camera.setAnalysisPaused(false)
+        guidanceSatisfiedSinceMs = null
+        val guidance = ActiveGuidance(action.instruction, action.target, nowMs(), subjectTrackingId, subjectFace)
+        _uiState.update {
+            it.copy(
+                review = if (wasReview) null else it.review,
+                cameraPhase = if (wasReview) CameraPhase.READY else it.cameraPhase,
+                coachingPhase = CoachingPhase.GUIDING,
+                activeGuidance = guidance,
+                transientMessage = if (action.requiresWalkingWarning) {
+                    "Photo Helper cannot see obstacles. Move only if you can independently verify the path."
+                } else null,
+            )
+        }
+        if (_uiState.value.settings.spokenGuidance) voice.speak(action.instruction, "guidance")
+        guidanceTimeoutJob = viewModelScope.launch {
+            delay(10_000)
+            if (_uiState.value.activeGuidance === guidance) {
+                voice.stop()
+                _uiState.update {
+                    it.copy(
+                        coachingPhase = CoachingPhase.TRANSIENT_ERROR,
+                        activeGuidance = null,
+                        transientMessage = "I couldn’t confirm progress. Try again or stop.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelCoaching(clearDecision: Boolean = true) {
+        if (settingApplyInFlight || resetInFlight) return
+        cancelJobsOnly()
+        activeComplaintId = null
+        voice.stop()
+        guidanceSatisfiedSinceMs = null
+        verificationStartObservationId = null
+        verificationStartedAtMs = null
+        verificationSatisfiedSamples = 0
+        verificationIncomparableMessage = null
+        _uiState.update {
+            it.copy(
+                coachingPhase = CoachingPhase.IDLE,
+                decision = if (clearDecision) null else it.decision,
+                activeGuidance = null,
+            )
+        }
+    }
+
+    fun capture() {
+        if (captureInFlight || !_uiState.value.shutterEnabled) return
+        captureInFlight = true
+        cancelCoaching()
+        _uiState.update { it.copy(cameraPhase = CameraPhase.CAPTURING) }
+        operationJob = viewModelScope.launch {
+            try {
+                val result = withTimeoutOrNull(CAPTURE_TIMEOUT_MS) { camera.capture() }
+                    ?: CaptureResult.Failed(CAPTURE_TIMEOUT_MESSAGE)
+                when (result) {
+                    is CaptureResult.Saved -> _uiState.update {
+                        it.copy(
+                            cameraPhase = CameraPhase.REVIEWING,
+                            review = result.capture,
+                            comment = "",
+                            transientMessage = null,
+                        )
+                    }
+                    is CaptureResult.Failed -> {
+                        _uiState.update { it.copy(cameraPhase = CameraPhase.READY) }
+                        failWork(result.message)
+                    }
+                }
+            } finally {
+                captureInFlight = false
+            }
+        }
+    }
+
+    fun leaveReview() {
+        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        cancelCoaching()
+        camera.setAnalysisPaused(false)
+        _uiState.update {
+            it.copy(
+                review = null,
+                cameraPhase = CameraPhase.READY,
+                comment = "",
+                decision = null,
+                retakeSettingsActive = false,
+            )
+        }
+    }
+
+    fun reset() {
+        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        cancelCoaching()
+        _uiState.update { it.copy(coachingPhase = CoachingPhase.APPLYING, transientMessage = null) }
+        resetInFlight = true
+        operationJob = viewModelScope.launch {
+            try {
+                when (val result = camera.reset()) {
+                    ApplyResult.Applied -> _uiState.update {
+                        it.copy(
+                            coachingPhase = CoachingPhase.IDLE,
+                            decision = null,
+                            resetAvailable = false,
+                            retakeSettingsActive = false,
+                            transientMessage = "Automatic camera settings restored.",
+                        )
+                    }
+                    is ApplyResult.Failed -> failWork(result.message)
+                }
+            } finally {
+                resetInFlight = false
+                resumeAnalysisAfterControl()
+            }
+        }
+    }
+
+    fun startVoiceInput() {
+        if (_uiState.value.microphonePermission != PermissionState.GRANTED ||
+            _uiState.value.coachingPhase == CoachingPhase.APPLYING
+        ) return
+        cancelCoaching(clearDecision = false)
+        _uiState.update { it.copy(coachingPhase = CoachingPhase.LISTENING, transientMessage = null) }
+        operationJob = viewModelScope.launch {
+            when (val result = voice.listenOnce()) {
+                is VoiceResult.Heard -> {
+                    updateComment(result.text)
+                    submitComment(result.text)
+                }
+                is VoiceResult.Unavailable -> failWork(result.message)
+                is VoiceResult.Failed -> failWork(result.message)
+            }
+        }
+    }
+
+    fun isVoiceInputAvailable(): Boolean = voice.isOnDeviceRecognitionAvailable()
+
+    fun reportVoiceUnavailable() = _uiState.update {
+        it.copy(
+            coachingPhase = CoachingPhase.TRANSIENT_ERROR,
+            transientMessage = "On-device speech recognition is unavailable. Type your comment instead.",
+        )
+    }
+
+    fun openSettings(open: Boolean) = _uiState.update { it.copy(settingsOpen = open) }
+
+    fun setSpokenGuidance(enabled: Boolean) {
+        preferences.setSpokenGuidance(enabled)
+        if (!enabled) voice.stop()
+        updateSettings { it.copy(spokenGuidance = enabled) }
+    }
+
+    fun setHaptics(enabled: Boolean) {
+        preferences.setHaptics(enabled)
+        updateSettings { it.copy(haptics = enabled) }
+    }
+
+    fun setTechnicalDetail(enabled: Boolean) {
+        preferences.setTechnicalDetail(enabled)
+        updateSettings { it.copy(technicalDetail = enabled) }
+    }
+
+    fun setVisualAiEnabled(enabled: Boolean) {
+        if (enabled && visualCredentialsRejected) {
+            camera.setObservationImageEnabled(false)
+            updateSettings {
+                it.copy(
+                    visualAiEnabled = false,
+                    keyStatus = "Saved key rejected—test it again",
+                )
+            }
+            _uiState.update { it.copy(transientMessage = "Visual AI remains disabled until the key passes a new test.") }
+            return
+        }
+        val allowed = enabled && _uiState.value.settings.keyConfigured
+        if (!allowed) {
+            visualJob?.cancel()
+            visualJob = null
+            if (_uiState.value.coachingPhase == CoachingPhase.REQUESTING_VISUAL_INTERPRETATION) {
+                _uiState.update {
+                    it.copy(
+                        coachingPhase = CoachingPhase.IDLE,
+                        transientMessage = "Visual AI turned off—using local coaching.",
+                    )
+                }
+            }
+        }
+        preferences.setVisualAiEnabled(allowed)
+        camera.setObservationImageEnabled(allowed)
+        updateSettings { it.copy(visualAiEnabled = allowed) }
+    }
+
+    fun focusAt(xFraction: Float, yFraction: Float) {
+        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        if (!xFraction.isFinite() || !yFraction.isFinite() || xFraction !in 0f..1f || yFraction !in 0f..1f) {
+            failWork("Choose a focus point inside the preview.")
+            return
+        }
+        val recommendation = currentRecommendation() ?: return
+        if (recommendation.action !is RecommendationAction.TapToFocus) return
+        if (!camera.capabilities.value.supportsFocusMetering) {
+            cancelCoaching()
+            failWork("Tap to focus is unavailable on this camera.")
+            return
+        }
+        operationJob?.cancel()
+        _uiState.update { it.copy(coachingPhase = CoachingPhase.APPLYING, transientMessage = "Focusing…") }
+        operationJob = viewModelScope.launch {
+            when (val result = camera.focusAt(xFraction, yFraction)) {
+                ApplyResult.Applied -> {
+                    activeComplaintId = null
+                    if (_uiState.value.settings.haptics) feedback(Feedback.SUCCESS)
+                    _uiState.update {
+                        it.copy(
+                            coachingPhase = CoachingPhase.IDLE,
+                            decision = null,
+                            transientMessage = "Focus locked at the selected point.",
+                        )
+                    }
+                }
+                is ApplyResult.Failed -> failWork(result.message)
+            }
+        }
+    }
+
+    fun testAndSaveKey(apiKey: CharArray) {
+        val requestKey = apiKey.copyOf()
+        apiKey.fill('\u0000')
+        val testImage = try {
+            createTestImage()
+        } catch (_: Exception) {
+            null
+        }
+        if (testImage == null || requestKey.isEmpty()) {
+            requestKey.fill('\u0000')
+            testImage?.fill(0)
+            updateSettings { it.copy(testingKey = false, keyStatus = "Enter a key first") }
+            return
+        }
+        cancelKeyTest()
+        updateSettings { it.copy(testingKey = true, keyStatus = "Testing key…") }
+        keyTestJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            var keyForStorage: CharArray? = null
+            try {
+                val storageKey = requestKey.copyOf()
+                keyForStorage = storageKey
+                val request = VisualRequest(VisualFamily.COLOR_CAST, "neutral test pattern", testImage)
+                when (interpretVisual(request, requestKey)) {
+                    is VisualResult.Available -> {
+                        runCatching { saveApiKey(storageKey) }
+                            .onSuccess {
+                                visualCredentialsRejected = false
+                                updateSettings {
+                                    it.copy(
+                                        keyConfigured = true,
+                                        keyStatus = "Key tested and saved",
+                                    )
+                                }
+                            }
+                            .onFailure { updateSettings { it.copy(keyStatus = "Could not save key") } }
+                    }
+                    VisualResult.CredentialsRejected -> updateSettings { it.copy(keyStatus = "Key rejected") }
+                    VisualResult.Unavailable -> updateSettings { it.copy(keyStatus = "Key test failed") }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                updateSettings { it.copy(keyStatus = "Key test failed") }
+            } finally {
+                requestKey.fill('\u0000')
+                keyForStorage?.fill('\u0000')
+                testImage.fill(0)
+                updateSettings {
+                    it.copy(
+                        testingKey = false,
+                        keyStatus = if (it.keyStatus == "Testing key…") "Key test cancelled" else it.keyStatus,
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearKey() {
+        cancelKeyTest()
+        visualCredentialsRejected = false
+        setVisualAiEnabled(false)
+        if (runCatching { clearApiKey() }.isSuccess) {
+            updateSettings {
+                it.copy(
+                    keyConfigured = false,
+                    keyStatus = "No key saved",
+                    testingKey = false,
+                )
+            }
+        } else {
+            val configured = runCatching { hasApiKey() }.getOrDefault(false)
+            updateSettings {
+                it.copy(
+                    visualAiEnabled = false,
+                    keyConfigured = configured,
+                    keyStatus = if (configured) "Could not clear key" else "Key removed; cleanup can be retried",
+                    testingKey = false,
+                )
+            }
+        }
+    }
+
+    fun onBackground() {
+        isBackgrounded = true
+        advanceLiveObservationBarrier()
+        clearLiveObservationProvenance()
+        cancelKeyTest()
+        if (settingApplyInFlight) restoreSettingAfterApply = true
+        cancelCoaching()
+        camera.setAnalysisPaused(true)
+        if (_uiState.value.resetAvailable && !settingApplyInFlight && !resetInFlight) {
+            resetInFlight = true
+            _uiState.update { it.copy(coachingPhase = CoachingPhase.APPLYING, transientMessage = null) }
+            operationJob = viewModelScope.launch {
+                try {
+                    restoreAfterBackground()
+                } finally {
+                    resetInFlight = false
+                    resumeAnalysisAfterControl()
+                }
+            }
+        }
+    }
+
+    fun onForeground() {
+        advanceLiveObservationBarrier()
+        isBackgrounded = false
+        resumeAnalysisAfterControl()
+    }
+
+    override fun onCleared() {
+        cancelKeyTest()
+        cancelJobsOnly()
+        voice.close()
+        camera.close()
+    }
+
+    private fun requestVisualHint(
+        originalInput: CoachingInput,
+        eligibility: VisualEligibility,
+        fallback: LocalDecision.Clarify,
+    ) {
+        visualJob?.cancel()
+        visualJob = viewModelScope.launch {
+            _uiState.update { it.copy(coachingPhase = CoachingPhase.REQUESTING_VISUAL_INTERPRETATION) }
+            var jpeg: ByteArray? = null
+            var key: CharArray? = null
+            try {
+                val capture = _uiState.value.review
+                jpeg = camera.observationImage(capture)
+                key = runCatching { loadApiKey() }.getOrNull()
+                val ownedJpeg = jpeg
+                val ownedKey = key
+                if (ownedKey == null) {
+                    preferences.setVisualAiEnabled(false)
+                    camera.setObservationImageEnabled(false)
+                    updateSettings {
+                        it.copy(
+                            visualAiEnabled = false,
+                            keyConfigured = false,
+                            keyStatus = "Saved key unavailable—enter it again",
+                        )
+                    }
+                    if (activeComplaintId == originalInput.complaintId) keepVisualFallback(fallback)
+                    return@launch
+                }
+                if (ownedJpeg == null || !visualProvenanceMatches(originalInput, eligibility)) {
+                    if (activeComplaintId == originalInput.complaintId) keepVisualFallback(fallback)
+                    return@launch
+                }
+                val result = interpretVisual(
+                    VisualRequest(eligibility.family, originalInput.complaint, ownedJpeg),
+                    ownedKey,
+                )
+                if (result == VisualResult.CredentialsRejected) {
+                    visualCredentialsRejected = true
+                    camera.setObservationImageEnabled(false)
+                    updateSettings {
+                        it.copy(
+                            visualAiEnabled = false,
+                            keyConfigured = true,
+                            keyStatus = "Saved key rejected—test it again",
+                        )
+                    }
+                    if (activeComplaintId == originalInput.complaintId) {
+                        keepVisualFallback(fallback, "Visual AI disabled—the saved key was rejected.")
+                    }
+                    return@launch
+                }
+                if (activeComplaintId != originalInput.complaintId) return@launch
+                if (!visualProvenanceMatches(originalInput, eligibility)) {
+                    keepVisualFallback(fallback)
+                    return@launch
+                }
+                when (result) {
+                    is VisualResult.Available -> {
+                        val freshInput = coachingInput(originalInput.complaintId, originalInput.complaint)
+                        val decision = coach.continueWithVisualHint(freshInput, eligibility.family, result.hint)
+                            .withProvenance(freshInput, eligibility.family, result.hint)
+                        _uiState.update {
+                            it.copy(
+                                decision = decision,
+                                coachingPhase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
+                            )
+                        }
+                    }
+                    VisualResult.CredentialsRejected ->
+                        keepVisualFallback(fallback, "Visual AI disabled—the saved key was rejected.")
+                    VisualResult.Unavailable -> keepVisualFallback(fallback)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (activeComplaintId == originalInput.complaintId) keepVisualFallback(fallback)
+            } finally {
+                jpeg?.fill(0)
+                key?.fill('\u0000')
+            }
+        }
+    }
+
+    private fun keepVisualFallback(
+        fallback: LocalDecision.Clarify,
+        message: String = "Visual interpretation unavailable—using local coaching.",
+    ) = _uiState.update {
+        it.copy(
+            decision = fallback,
+            coachingPhase = CoachingPhase.IDLE,
+            transientMessage = message,
+        )
+    }
+
+    private fun visualProvenanceMatches(input: CoachingInput, eligibility: VisualEligibility): Boolean {
+        if (!canUseVisualAi()) return false
+        if (activeComplaintId != input.complaintId) return false
+        if (camera.state.value.sessionId != input.cameraSessionId) return false
+        val review = _uiState.value.review
+        if (input.origin == ObservationOrigin.CAPTURE_REVIEW) return review?.observation?.id == eligibility.observationId
+        val initial = input.observation ?: return false
+        val current = latestLiveObservation ?: return false
+        if (nowMs() - current.timestampMs > LIVE_OBSERVATION_FRESH_MS) return false
+        return when (eligibility.family) {
+            VisualFamily.COLOR_CAST -> {
+                val initialBias = initial.chromaBlueBias ?: return false
+                val currentBias = current.chromaBlueBias ?: return false
+                abs(initialBias - currentBias) <= 0.05f
+            }
+            VisualFamily.FACE_SIZE_AMBIGUOUS -> {
+                val first = input.lockedFace ?: return false
+                val latest = stableFace ?: return false
+                sameSubject(first, latest)
+            }
+        }
+    }
+
+    private fun coachingInput(complaintId: String, complaint: String): CoachingInput {
+        val review = _uiState.value.review
+        return CoachingInput(
+            complaintId = complaintId,
+            complaint = complaint,
+            origin = if (review == null) ObservationOrigin.LIVE else ObservationOrigin.CAPTURE_REVIEW,
+            cameraSessionId = camera.state.value.sessionId,
+            observation = review?.observation ?: latestLiveObservation,
+            lockedFace = review?.observation?.faces?.singleOrNull() ?: stableFace,
+            capabilities = camera.capabilities.value,
+            telemetry = if (review == null) camera.telemetry.value else review.telemetry ?: CameraTelemetry(),
+            telemetryKnown = review == null || review.telemetry != null,
+            comparisonBaseline = review?.observation ?: stableComparisonBaseline(),
+        )
+    }
+
+    private fun stableComparisonBaseline(): FrameObservation? {
+        if (comparisonSamples.size < 3) return null
+        val samples = comparisonSamples.toList()
+        if (samples.last().timestampMs - samples.first().timestampMs < 500) return null
+        return samples.last().takeIf { latest ->
+            samples.dropLast(1).all { observationsComparable(it, latest) }
+        }
+    }
+
+    private fun verifyActiveWork(observation: FrameObservation) {
+        val active = _uiState.value.activeGuidance ?: return
+        if (_uiState.value.coachingPhase == CoachingPhase.VERIFYING &&
+            (observation.id == verificationStartObservationId ||
+                observation.timestampMs < (verificationStartedAtMs ?: Long.MIN_VALUE) + 500)
+        ) return
+        val tracksFace = active.target is VerificationTarget.FaceOccupancy ||
+            active.target is VerificationTarget.FacePosition ||
+            active.target is VerificationTarget.StepBack
+        if (_uiState.value.coachingPhase == CoachingPhase.GUIDING && tracksFace) {
+            val face = observation.faces.singleOrNull()
+            val sameTrackedSubject = face != null && active.subjectFace != null && sameSubject(active.subjectFace, face)
+            if (!sameTrackedSubject) {
+                guidanceTimeoutJob?.cancel()
+                guidanceTimeoutJob = null
+                guidanceSatisfiedSinceMs = null
+                failWork(
+                    when {
+                        observation.faces.isEmpty() -> "I lost the person—point back at them, then start guidance again."
+                        observation.faces.size > 1 -> "I can’t isolate the same person—frame one person, then start guidance again."
+                        else -> "The tracked person changed—start guidance again."
+                    },
+                )
+                return
+            }
+            face?.let { trackedFace ->
+                _uiState.update { state ->
+                    state.copy(activeGuidance = state.activeGuidance?.copy(subjectFace = trackedFace, subjectTrackingId = trackedFace.trackingId))
+                }
+            }
+        }
+        when (val result = coach.verify(active.target, observation)) {
+            VerificationResult.Satisfied -> {
+                verificationIncomparableMessage = null
+                if (_uiState.value.coachingPhase == CoachingPhase.GUIDING) {
+                    val stableSince = guidanceSatisfiedSinceMs
+                    if (stableSince == null) guidanceSatisfiedSinceMs = nowMs()
+                    else if (nowMs() - stableSince >= 500) {
+                        completeWork(
+                            if (active.target is VerificationTarget.StepBack) {
+                                "The face is smaller after the step. Reframe and decide whether the proportions look better."
+                            } else {
+                                "That matches your request."
+                            },
+                            Feedback.SUCCESS,
+                        )
+                    }
+                } else {
+                    verificationSatisfiedSamples++
+                    if (verificationSatisfiedSamples >= 3) {
+                        val recommendation = _uiState.value.recommendation
+                        completeWork(successCopy(recommendation), Feedback.SUCCESS)
+                    }
+                }
+            }
+            VerificationResult.Progress -> {
+                verificationIncomparableMessage = null
+                guidanceSatisfiedSinceMs = null
+                verificationSatisfiedSamples = 0
+                if (_uiState.value.settings.haptics && _uiState.value.coachingPhase == CoachingPhase.GUIDING) feedback(Feedback.TICK)
+            }
+            VerificationResult.Unchanged -> {
+                verificationIncomparableMessage = null
+                verificationSatisfiedSamples = 0
+            }
+            is VerificationResult.Incomparable -> {
+                guidanceSatisfiedSinceMs = null
+                verificationSatisfiedSamples = 0
+                verificationIncomparableMessage = result.reason
+                _uiState.update { it.copy(transientMessage = result.reason) }
+            }
+        }
+    }
+
+    private fun successCopy(recommendation: Recommendation?): String =
+        when {
+            (recommendation?.action as? RecommendationAction.GuidePosition)?.target is VerificationTarget.StepBack ->
+                "The face is smaller after the step. Reframe and decide whether the proportions look better."
+            recommendation?.basis == com.bolin.photohelper.coach.RecommendationBasis.USER_PREFERENCE ->
+                "The requested effect is visible. Is this closer?"
+            else -> "The measured problem is now in range."
+        }
+
+    private fun completeWork(message: String, feedbackType: Feedback) {
+        cancelJobsOnly()
+        activeComplaintId = null
+        guidanceSatisfiedSinceMs = null
+        verificationStartObservationId = null
+        verificationStartedAtMs = null
+        verificationSatisfiedSamples = 0
+        verificationIncomparableMessage = null
+        voice.stop()
+        if (_uiState.value.settings.haptics) feedback(feedbackType)
+        if (_uiState.value.settings.spokenGuidance) voice.speak(message, "result")
+        _uiState.update {
+            it.copy(
+                coachingPhase = CoachingPhase.IDLE,
+                decision = null,
+                activeGuidance = null,
+                transientMessage = message,
+            )
+        }
+    }
+
+    private fun failWork(message: String) {
+        voice.stop()
+        if (_uiState.value.settings.haptics) feedback(Feedback.ERROR)
+        _uiState.update {
+            it.copy(
+                coachingPhase = CoachingPhase.TRANSIENT_ERROR,
+                activeGuidance = null,
+                transientMessage = message,
+            )
+        }
+    }
+
+    private fun canUseVisualAi(): Boolean = _uiState.value.settings.let {
+        it.visualAiEnabled && it.keyConfigured
+    }
+
+    private fun updateSettings(transform: (SettingsUiState) -> SettingsUiState) =
+        _uiState.update { it.copy(settings = transform(it.settings)) }
+
+    private suspend fun restoreAfterBackground() {
+        when (val result = camera.reset()) {
+            ApplyResult.Applied -> _uiState.update {
+                it.copy(
+                    coachingPhase = CoachingPhase.IDLE,
+                    decision = null,
+                    activeGuidance = null,
+                    resetAvailable = false,
+                    retakeSettingsActive = false,
+                )
+            }
+            is ApplyResult.Failed -> _uiState.update {
+                it.copy(
+                    coachingPhase = CoachingPhase.TRANSIENT_ERROR,
+                    decision = null,
+                    activeGuidance = null,
+                    resetAvailable = true,
+                    transientMessage = result.message,
+                )
+            }
+        }
+    }
+
+    private fun resumeAnalysisAfterControl() {
+        if (!isBackgrounded && !settingApplyInFlight && !resetInFlight && _uiState.value.review == null) {
+            camera.setAnalysisPaused(false)
+        }
+    }
+
+    private fun currentRecommendation(): Recommendation? {
+        val recommendation = _uiState.value.recommendation ?: return null
+        if (recommendation.cameraSessionId != camera.state.value.sessionId) {
+            invalidateCameraSession()
+            failWork("The camera session changed. Describe the shot again before applying a change.")
+            return null
+        }
+        if (activeComplaintId != recommendation.complaintId) return null
+
+        val review = _uiState.value.review
+        if (recommendation.origin == ObservationOrigin.CAPTURE_REVIEW) {
+            if (review == null || (recommendation.observationId != null && review.observation?.id != recommendation.observationId)) {
+                failWork("The saved photo changed. Review the current photo before applying a change.")
+                return null
+            }
+            if (!lensMatches(
+                    review.telemetry?.lensId ?: review.observation?.lensId,
+                    review.telemetry?.focalLengthMm ?: review.observation?.focalLengthMm,
+                    camera.telemetry.value.lensId,
+                    camera.telemetry.value.focalLengthMm,
+                )
+            ) {
+                failWork("The camera lens changed. Return to the live view and check the shot again.")
+                return null
+            }
+        } else {
+            val current = latestLiveObservation
+            if (current == null || nowMs() - current.timestampMs > LIVE_OBSERVATION_FRESH_MS) {
+                cancelCoaching()
+                failWork("The camera view changed or became stale. Hold the shot steady, then ask again.")
+                return null
+            }
+            if (!lensMatches(
+                    current.lensId,
+                    current.focalLengthMm,
+                    camera.telemetry.value.lensId,
+                    camera.telemetry.value.focalLengthMm,
+                )
+            ) {
+                cancelCoaching()
+                failWork("The camera lens changed. Hold the shot steady while I check the new view.")
+                return null
+            }
+            if (recommendation.basis == com.bolin.photohelper.coach.RecommendationBasis.USER_PREFERENCE &&
+                recommendation.createdAtMs?.let { nowMs() - it > 30_000 } == true
+            ) {
+                cancelCoaching()
+                failWork("That recommendation expired. Describe the shot again.")
+                return null
+            }
+        }
+
+        val currentInput = coachingInput(recommendation.complaintId, _uiState.value.comment)
+        val changed = recommendation.observationId != currentInput.observation?.id ||
+            recommendation.capabilitiesSnapshot != currentInput.capabilities ||
+            (recommendation.origin == ObservationOrigin.LIVE && recommendation.telemetrySnapshot != currentInput.telemetry)
+        if (!changed) return recommendation
+
+        val decision = if (recommendation.fromVisualHint && recommendation.visualFamily != null && recommendation.visualHint != null) {
+            coach.continueWithVisualHint(currentInput, recommendation.visualFamily, recommendation.visualHint)
+        } else {
+            coach.evaluateLocal(currentInput)
+        }.withProvenance(currentInput, recommendation.visualFamily, recommendation.visualHint)
+        _uiState.update {
+            it.copy(
+                decision = decision,
+                coachingPhase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
+                transientMessage = if (decision is LocalDecision.Recommend) it.transientMessage
+                else "The scene changed, so I checked the recommendation again.",
+            )
+        }
+        return (decision as? LocalDecision.Recommend)?.recommendation
+    }
+
+    private fun lensMatches(
+        firstId: String?,
+        firstFocalLengthMm: Float?,
+        secondId: String?,
+        secondFocalLengthMm: Float?,
+    ): Boolean {
+        if (firstId != secondId) return false
+        if (firstFocalLengthMm == null || secondFocalLengthMm == null) {
+            return firstFocalLengthMm == secondFocalLengthMm
+        }
+        if (firstFocalLengthMm <= 0f) return secondFocalLengthMm <= 0f
+        return abs(firstFocalLengthMm - secondFocalLengthMm) / firstFocalLengthMm < 0.02f
+    }
+
+    private fun LocalDecision.withProvenance(
+        input: CoachingInput,
+        visualFamily: VisualFamily? = null,
+        visualHint: com.bolin.photohelper.coach.VisualHint? = null,
+    ): LocalDecision = if (this is LocalDecision.Recommend) {
+        copy(
+            recommendation = recommendation.copy(
+                origin = input.origin,
+                observationId = input.observation?.id,
+                observationTimestampMs = input.observation?.timestampMs,
+                capabilitiesSnapshot = input.capabilities,
+                telemetrySnapshot = input.telemetry,
+                createdAtMs = nowMs(),
+                visualFamily = visualFamily,
+                visualHint = visualHint,
+            ),
+        )
+    } else {
+        this
+    }
+
+    private fun invalidateCameraSession() {
+        val hadCameraWork = _uiState.value.decision != null || _uiState.value.activeGuidance != null || _uiState.value.resetAvailable
+        cancelJobsOnly()
+        activeComplaintId = null
+        voice.stop()
+        guidanceSatisfiedSinceMs = null
+        verificationStartObservationId = null
+        verificationStartedAtMs = null
+        verificationSatisfiedSamples = 0
+        verificationIncomparableMessage = null
+        settingApplyInFlight = false
+        resetInFlight = false
+        restoreSettingAfterApply = false
+        advanceLiveObservationBarrier()
+        clearLiveObservationProvenance()
+        _uiState.update {
+            it.copy(
+                coachingPhase = CoachingPhase.IDLE,
+                decision = null,
+                activeGuidance = null,
+                resetAvailable = false,
+                retakeSettingsActive = false,
+                transientMessage = if (hadCameraWork) "Camera session changed—check the shot again." else it.transientMessage,
+            )
+        }
+    }
+
+    private fun cancelJobsOnly() {
+        operationJob?.cancel()
+        visualJob?.cancel()
+        guidanceTimeoutJob?.cancel()
+        verificationTimeoutJob?.cancel()
+        operationJob = null
+        visualJob = null
+        guidanceTimeoutJob = null
+        verificationTimeoutJob = null
+    }
+
+    private fun cancelKeyTest() {
+        keyTestJob?.cancel()
+        keyTestJob = null
+    }
+
+    private fun advanceLiveObservationBarrier() {
+        camera.observation.value?.id?.let { currentId ->
+            liveObservationBarrierId = maxOf(liveObservationBarrierId ?: Long.MIN_VALUE, currentId)
+        }
+    }
+
+    private fun clearLiveObservationProvenance() {
+        latestLiveObservation = null
+        stableFaceTracker.reset()
+        stableFace = null
+        comparisonSamples.clear()
+    }
+}
+
+internal class StableFaceTracker {
+    private data class Sample(val sessionId: Long, val observation: FrameObservation, val face: FaceObservation)
+
+    private val samples = ArrayDeque<Sample>(3)
+
+    fun update(observation: FrameObservation?, sessionId: Long): FaceObservation? {
+        val face = observation?.faces?.singleOrNull()
+        val qualified = observation != null && face != null &&
+            face.visibleFraction >= 0.90f &&
+            face.widthFraction * observation.sourceWidth >= 100f &&
+            (face.bottom - face.top) * observation.sourceHeight >= 100f
+        val lastSessionId = samples.peekLast()?.sessionId
+        if (!qualified || (lastSessionId != null && lastSessionId != sessionId)) {
+            reset()
+        }
+        if (!qualified || observation == null || face == null) return null
+        val previous = samples.peekLast()
+        if (previous != null && !sameSubject(previous.face, face)) reset()
+        samples.addLast(Sample(sessionId, observation, face))
+        while (samples.size > 3) samples.removeFirst()
+        if (samples.size < 3) return null
+        val firstSample = samples.peekFirst() ?: return null
+        val lastSample = samples.peekLast() ?: return null
+        if (lastSample.observation.timestampMs - firstSample.observation.timestampMs < 500) return null
+        return lastSample.face
+    }
+
+    fun reset() = samples.clear()
+}
+
+internal fun sameSubject(first: FaceObservation, second: FaceObservation): Boolean {
+    if (first.trackingId != null && second.trackingId != null && first.trackingId != second.trackingId) return false
+    val intersectionLeft = maxOf(first.left, second.left)
+    val intersectionTop = maxOf(first.top, second.top)
+    val intersectionRight = minOf(first.right, second.right)
+    val intersectionBottom = minOf(first.bottom, second.bottom)
+    val intersection = (intersectionRight - intersectionLeft).coerceAtLeast(0f) *
+        (intersectionBottom - intersectionTop).coerceAtLeast(0f)
+    val firstArea = (first.right - first.left).coerceAtLeast(0f) * (first.bottom - first.top).coerceAtLeast(0f)
+    val secondArea = (second.right - second.left).coerceAtLeast(0f) * (second.bottom - second.top).coerceAtLeast(0f)
+    val union = firstArea + secondArea - intersection
+    val iou = if (union > 0f) intersection / union else 0f
+    val scaleDelta = if (first.widthFraction > 0f) abs(second.widthFraction - first.widthFraction) / first.widthFraction else 1f
+    return iou >= 0.70f &&
+        abs(first.centerX - second.centerX) <= 0.08f &&
+        abs(first.centerY - second.centerY) <= 0.08f &&
+        scaleDelta <= 0.10f
+}

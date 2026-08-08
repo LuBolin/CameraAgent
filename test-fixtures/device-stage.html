@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Photo Helper device target</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #fff; background: #000; font: 16px system-ui, sans-serif; overflow: hidden; }
+    main { width: 100vw; height: 100vh; }
+    nav { position: fixed; z-index: 1; display: flex; gap: .5rem; width: 100%; padding: .6rem; background: #111d; opacity: 0; overflow-x: auto; }
+    nav:hover, nav:focus-within { opacity: 1; }
+    button { padding: .55rem .75rem; color: #fff; background: #292929; border: 1px solid #777; border-radius: .4rem; white-space: nowrap; }
+    button[aria-pressed="true"] { color: #06121f; background: #8bc7ff; border-color: #8bc7ff; }
+    img { width: 100%; height: 100%; object-fit: cover; }
+  </style>
+</head>
+<body>
+  <main>
+    <nav aria-label="Camera targets"></nav>
+    <img alt="Neutral portrait camera target" src="neutral-portrait.png">
+  </main>
+  <script>
+    const targets = [
+      ["Neutral portrait", "neutral-portrait.png"],
+      ["Cold scene", "cold-blue-scene.png"],
+      ["Warm scene", "warm-yellow-scene.png"],
+      ["Natural large face", "large-face-natural-perspective.png"],
+      ["Wide close face", "wide-angle-distorted-face.png"],
+      ["Extreme close face", "close-face.png"]
+    ];
+    const nav = document.querySelector("nav");
+    const image = document.querySelector("img");
+    targets.forEach(([label, source], index) => {
+      const button = document.createElement("button");
+      button.textContent = `${index + 1} · ${label}`;
+      button.setAttribute("aria-pressed", index === 0);
+      button.onclick = () => {
+        image.src = source;
+        image.alt = `${label} camera target`;
+        document.querySelectorAll("button").forEach((item) => item.setAttribute("aria-pressed", item === button));
+      };
+      nav.append(button);
+    });
+    addEventListener("keydown", (event) => {
+      const index = Number(event.key) - 1;
+      if (targets[index]) nav.children[index].click();
+    });
+  </script>
+</body>
+</html>

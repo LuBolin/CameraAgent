@@ -8,6 +8,14 @@ This context describes how a photographer expresses dissatisfaction with a shot 
 A photographer's statement about what feels wrong in the live preview or a captured photo.
 _Avoid_: Prompt, query
 
+**Control Intent**:
+A canonical direction inferred from a Complaint, such as brighter, zoom out, focus at a chosen point, or warmer. It is not executable until current camera capability and observation checks produce a Recommendation.
+_Avoid_: Model command, camera action, recommendation
+
+**Control Capability**:
+Evidence that the active camera can perform and reset a particular Direct Camera Adjustment in the current camera session.
+_Avoid_: Assumed support, advertised feature
+
 **User Preference**:
 A requested aesthetic direction that is authoritative for the photographer but does not imply that the current image has a measurable defect.
 _Avoid_: Diagnosis, correction
@@ -19,6 +27,10 @@ _Avoid_: Opinion, preference
 **Recommendation**:
 One proposed response to a Complaint, including its expected effect and whether it can be executed on the current camera.
 _Avoid_: Tip, answer
+
+**Direct Camera Adjustment**:
+A camera-control change the app can execute on the active camera. A setting change has exactly one Apply action; coached focus has one visible target and accepts one tap on any visible preview subject. An unavailable control is reported as unavailable instead of being presented as a manual setting change.
+_Avoid_: Advice, camera tip
 
 **Recommendation Provenance**:
 The frame, camera, qualified Coaching Subject, origin, and time context that determine whether a Recommendation is still valid.
@@ -37,7 +49,7 @@ The desired visual result expressed in image coordinates, independent of how the
 _Avoid_: Movement instruction, camera command
 
 **Guidance Action**:
-An actor-specific physical instruction to the photographer or camera that is expected to move the frame toward a Frame Goal.
+An actor-specific physical instruction a person performs with the photographer, camera, subject, or light to move the frame toward a Frame Goal.
 _Avoid_: Frame goal, subject movement
 
 **Executable Recommendation**:
@@ -45,7 +57,7 @@ A Recommendation that the current camera can apply or guide and whose effect can
 _Avoid_: Advice, suggestion
 
 **Advisory Recommendation**:
-A Recommendation that explains a useful change but cannot be executed on the current camera.
+A Recommendation that explains an unavailable control or an external physical change the app cannot execute. It never presents an available Direct Camera Adjustment without its Apply action.
 _Avoid_: Executable recommendation
 
 **Locally Understood Complaint**:

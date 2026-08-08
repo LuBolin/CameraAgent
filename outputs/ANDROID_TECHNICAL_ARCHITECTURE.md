@@ -1,14 +1,14 @@
 # Photo Helper — Android Technical Architecture
 
-Status: implementation-ready draft  
+Status: implemented; physical-device qualification pending
 Last reviewed: 2026-08-04
 Audience: Android engineers, backend engineers, hackathon judges, and technical reviewers
 
-Companion document: [Android Product and Interaction Design](ANDROID_PRODUCT_DESIGN.md)
+Companion documents: [Android Product and Interaction Design](ANDROID_PRODUCT_DESIGN.md) and [ADR 0004 — Call Bailian Qwen directly from the private demo app](../docs/adr/0004-call-bailian-qwen-directly-from-private-demo.md)
 
 ## 1. Executive decision
 
-Build one native Android camera app in Kotlin. Use CameraX for preview, capture, exposure compensation, focus, and zoom; use Camera2 interop only for capability-gated ISO, shutter, and white-balance controls. Run speech recognition, frame measurements, face detection, intent parsing, planning, camera control, and verification locally. For two visually ambiguous complaint families, the app sends one reduced Observation Image directly to Z.AI `glm-4.6v-flash` using a disposable API key entered on the operator's own device.
+Build one native Android camera app in Kotlin. Use CameraX for preview, capture, exposure compensation, focus, and zoom; use Camera2 interop only for capability-gated ISO, shutter, and white-balance controls. Run speech recognition, frame measurements, face detection, intent parsing, planning, camera control, and verification locally. For two visually ambiguous complaint families, the app sends one reduced Observation Image to Qwen `qwen3.7-flash-2026-07-15` through Alibaba Cloud Model Studio (Bailian) in China (Beijing), using a disposable API key entered on the operator's own device.
 
 There is no owned backend, public account system, or provider abstraction. This is deliberately a private single-device hackathon architecture, not a production credential-distribution design. The model returns only a fixed Visual Hint; the Android app—not the model—computes, validates, applies, and verifies every camera change. If the key, network, or model is unavailable, the same local clarification remains usable.
 
@@ -23,7 +23,7 @@ This is an agent because it closes the observe–act–verify loop. A chat respo
 
 Judge-facing disclosure:
 
-> This private demo uses Android on-device speech and face/frame analysis plus Z.AI GLM-4.6V-Flash for selected visual interpretation. It sends one reduced current frame for an eligible comment. Z.AI returns a fixed semantic label; camera decisions and verification stay on this phone.
+> This private demo uses Android on-device speech and face/frame analysis plus Qwen3.7 Flash through Alibaba Cloud Model Studio for selected visual interpretation. Qwen returns a fixed semantic label; camera decisions and verification stay on this phone.
 
 ### Selected stack
 
@@ -38,7 +38,7 @@ Judge-facing disclosure:
 | Orientation | Android rotation-vector/gravity sensors |
 | Voice input | Push-to-talk on-device `SpeechRecognizer` only; typed input always available |
 | Voice output | Android `TextToSpeech`, plus matching on-screen text and haptics |
-| Agent reasoning | Deterministic local parser/planner plus a direct Z.AI visual-only enum hint for two families |
+| Agent reasoning | Deterministic local parser/planner plus a direct Qwen visual-only enum hint for two families |
 | Persistence | No coaching/history database; photos use `MediaStore`; settings store accessibility flags and an Android-Keystore-encrypted demo API key |
 | Dependency injection | Manual constructor wiring; no Hilt for one screen |
 | Gradle structure | One `:app` module and one demo artifact; packages provide locality |
@@ -63,7 +63,7 @@ Judge-facing disclosure:
 - Offline behavior for the common, measurable intents.
 - Local clarification for ambiguous, unsupported, or novel wording.
 
-Across supported devices, the executable baseline is exposure compensation, face-size guidance, and phone/subject-position guidance. Color comments are always understood locally, but warm/cool application is capability-gated; an unsupported camera receives an honest advisory recommendation rather than a fake Apply action.
+Across supported devices, the executable baseline is exposure compensation, face-size guidance, and phone/subject-position guidance. Color comments are always understood locally, but warm/cool application is capability-gated; an unsupported camera reports that the control is unavailable instead of recommending a software change it cannot apply.
 
 ### Explicit non-goals for the hackathon
 
@@ -102,13 +102,13 @@ flowchart LR
     U["Photographer"] -->|"preview, comment, action approval, movement"| A["Installed Android app"]
     A -->|"preview and capture controls"| C["Android camera hardware"]
     C -->|"frames and capture results"| A
-    A -.->|"eligible Complaint + reduced Observation Image + operator API key"| Z["Z.AI GLM-4.6V-Flash API"]
+    A -.->|"eligible Complaint + reduced Observation Image + operator API key"| Z["Alibaba Cloud Model Studio Qwen3.7 Flash API (China, Beijing)"]
     Z -.->|"fixed visual outcome only"| A
     A -->|"saved JPEG/HEIC"| M["Android MediaStore"]
     A -->|"spoken guidance"| U
 ```
 
-The app remains usable when Z.AI is unavailable: the same local clarification stays on screen and the shutter remains usable.
+The app remains usable when Qwen or Alibaba Cloud Model Studio is unavailable: the same local clarification stays on screen and the shutter remains usable.
 
 ## 5. In-app architecture
 
@@ -128,7 +128,7 @@ flowchart TD
     CE --> LI["Local intent parser"]
     CE --> AP["AdjustmentPlanner"]
     CE --> LO["Visual eligibility decision"]
-    LO -.-> ZC["Concrete ZaiVisualClient"]
+    LO -.-> ZC["Concrete BailianVisualClient"]
     ZC -.-> CE
 
     VO --> AV["Android speech/TTS adapter"]
@@ -138,7 +138,7 @@ flowchart TD
 
 - `CaptureHardware` has a CameraX adapter for production and a deterministic fake for state-machine tests. It hides device fragmentation and asynchronous camera operations behind one interface.
 - `CoachEngine` is the main deep module. One call covers language interpretation, evidence checks, capability-aware planning, explanation, and a verification target.
-- `CoachEngine` cannot perform network I/O. It can return local clarification plus visual eligibility metadata; the ViewModel may then call the single concrete `ZaiVisualClient` when the operator has configured the demo key.
+- `CoachEngine` cannot perform network I/O. It can return local clarification plus visual eligibility metadata; the ViewModel may then call the single concrete `BailianVisualClient` when the operator has configured the demo key.
 - `VoiceIo` isolates Android speech lifecycles and provides a fake for ViewModel tests.
 - `FrameAnalyzer`, capability reading, sensor fusion, and action planning are implementation details. They are not exposed to the UI as independent shallow interfaces.
 
@@ -155,6 +155,7 @@ interface CaptureHardware {
     val status: StateFlow<CameraStatus>
 
     suspend fun apply(adjustment: CameraAdjustment): ApplyResult
+    suspend fun focusAt(xFraction: Float, yFraction: Float): ApplyResult
     suspend fun resetAutomaticControls(): ApplyResult
     suspend fun capture(): CaptureResult
 }
@@ -196,14 +197,14 @@ Interface invariants:
 - It never proposes an action unsupported by `input.capabilities`.
 - A setting recommendation includes the exact computed adjustment and a reversible reset path.
 - A movement recommendation includes a measurable target and a safety preamble when it asks the user to walk.
-- Ambiguous, unsupported, negated, or polarity-conflicted language returns a clarification instead of an executable action.
+- Ambiguous, unsupported, negated, or polarity-conflicted language returns a clarification or limitation instead of an executable action. Every supported setting change uses one `Apply` tap; coached focus uses one visible target tap; physical movement uses `Start guidance`.
 - `verify` is pure and deterministic.
 - A clear-direction complaint may express a `UserPreference` even when defect evidence is absent. In that case the recommendation labels the mismatch and offers a reversible directional change; it does not claim a `MeasuredDiagnosis`.
 - A diagnosis uses `DefectVerification`. A preference uses `EffectVerification` followed by user confirmation; applying the requested effect is not presented as objective quality improvement.
 - `evaluateLocal` performs no network I/O. It may return `Clarification(question, chips, visualEligibility)` only when a configured visual interpretation could change a useful result.
 - `continueWithVisualHint` treats the hint as semantic input, checks Complaint/provenance identity, and reruns the ordinary polarity, evidence, capability, planning, and verification rules.
 
-### 6.3 Direct Z.AI visual boundary
+### 6.3 Direct Qwen/Bailian visual boundary
 
 ```kotlin
 data class VisualEligibility(
@@ -213,12 +214,12 @@ data class VisualEligibility(
     val eligibilitySnapshotId: ObservationId
 )
 
-class ZaiVisualClient {
+class BailianVisualClient {
     suspend fun interpret(request: VisualRequest, apiKey: CharArray): VisualResult
 }
 ```
 
-The local parser—not Z.AI—classifies wording. `VisualEligibility` contains no pixels and causes no I/O. When the operator has entered and enabled a demo API key, the ViewModel freezes one qualifying image and calls the concrete `ZaiVisualClient` directly. The client has one hard-coded provider/model contract and cannot call Android controls. Clear the temporary key character buffer after request construction.
+The local parser—not Qwen—classifies wording. `VisualEligibility` contains no pixels and causes no I/O. When the operator has entered and enabled a demo API key, the ViewModel freezes one qualifying image and calls the concrete `BailianVisualClient` directly. The client has one hard-coded provider/model contract and cannot call Android controls. Clear the temporary key character buffer after request construction.
 
 ### 6.4 Voice I/O
 
@@ -231,7 +232,7 @@ interface VoiceIo {
 }
 ```
 
-Push-to-talk is capability-dependent rather than a release gate. On microphone tap, call `isOnDeviceRecognitionAvailable` and use `createOnDeviceSpeechRecognizer` only. Cloud-backed default speech recognition is not allowed in the MVP. Before first use, disclose: `Android transcribes voice on this device. Photo Helper does not store or send your audio.` If the on-device model or requested language is unavailable, disable voice for that session and retain typed input; never fall back silently to a network recognizer.
+Push-to-talk is capability-dependent rather than a release gate. On microphone tap, call `isOnDeviceRecognitionAvailable` and use `createOnDeviceSpeechRecognizer` only. Cloud-backed default speech recognition is not allowed in the MVP. Before first use, disclose: `Android transcribes voice on this device. Photo Helper does not store or send your audio. Android may download the English speech model.` If the on-device model or requested language is unavailable, retain typed input and let an explicit microphone tap request the platform model download; never fall back silently to a network recognizer.
 
 ## 7. Domain data
 
@@ -268,6 +269,7 @@ data class CameraCapabilities(
     val supportsManualColorCorrection: Boolean,
     val supportedAwbModes: Set<AwbMode>,
     val zoomRatioRange: ClosedFloatingPointRange<Float>,
+    val supportsFocusMetering: Boolean,
     val hardwareLevel: HardwareLevel
 )
 
@@ -410,7 +412,7 @@ enum class CoachingPhase {
 }
 ```
 
-Only `CaptureViewModel` transitions these fields. Camera, voice, and network callbacks become typed events processed serially in `viewModelScope`. Every asynchronous job carries a request ID so a cancelled or superseded result cannot mutate state.
+Only `CaptureViewModel` transitions these fields. Camera, voice, and network callbacks become typed events processed serially in `viewModelScope`. Each asynchronous operation is owned by a cancellable job and, where relevant, the active Complaint identity so a cancelled or superseded result cannot mutate state.
 
 The shutter is enabled only when `cameraPhase == READY` and `coachingPhase != APPLYING`:
 
@@ -418,8 +420,8 @@ The shutter is enabled only when `cameraPhase == READY` and `coachingPhase != AP
 |---|---|
 | `IDLE` | Capture directly |
 | `LISTENING` | Stop recognizer and discard partial speech |
-| `INTERPRETING` | Cancel local work and invalidate its request ID |
-| `REQUESTING_VISUAL_INTERPRETATION` | Cancel the Z.AI call, release the Observation Image, then capture |
+| `INTERPRETING` | Cancel local work and invalidate the active operation |
+| `REQUESTING_VISUAL_INTERPRETATION` | Cancel the Qwen/Bailian call, release the Observation Image, then capture |
 | `RECOMMENDATION` | Clear the unapplied recommendation |
 | `GUIDING` / `VERIFYING` | Stop TTS/haptics, release Subject Lock, and end verification |
 | `TRANSIENT_ERROR` | Clear the error |
@@ -427,7 +429,7 @@ The shutter is enabled only when `cameraPhase == READY` and `coachingPhase != AP
 
 Capture takes priority over cancellable coaching. `STARTING`, `CAPTURING`, `REVIEWING`, and `BLOCKED` camera phases disable the shutter. Coaching work never survives into a new capture implicitly.
 
-`REQUESTING_VISUAL_INTERPRETATION` owns one closeable Observation Image and request job under `try/finally`. A shutter press, Back, a new Complaint, lifecycle stop, timeout, or process death cancels the call, releases the image, and returns to the same local clarification; the shutter is never queued. Late callbacks must match request ID, Complaint lifecycle, provenance, and current state or are discarded.
+`REQUESTING_VISUAL_INTERPRETATION` owns one closeable Observation Image and request job under `try/finally`. A shutter press, Back, a new Complaint, lifecycle stop, timeout, or process death cancels the call, releases the image, and returns to the same local clarification; the shutter is never queued. Late callbacks must match the active Complaint lifecycle, provenance, and current state or are discarded.
 
 `REVIEWING` owns a `SavedCapture` containing the MediaStore URI, review image, actual-capture observation, captured telemetry, and applied baseline. The camera remains lifecycle-bound for a quick retake, but the review obscures preview, pauses live analysis, and hides the shutter. A review-origin recommendation retains its origin until Apply or dismissal.
 
@@ -487,7 +489,7 @@ Use high-level CameraX controls first:
 
 - exposure compensation;
 - zoom;
-- focus and metering;
+- AF-only tap-to-focus at a user-selected visible preview point, capability-checked before display and again on tap; this path does not require face detection;
 - torch when explicitly requested in a later phase.
 
 Use Camera2 interop only for manual ISO, shutter, or white balance. The interop interface is marked experimental; its options override CameraX controls and may disturb 3A behavior.
@@ -512,12 +514,13 @@ Android Camera2 does not expose one universal “set Kelvin” control. Warm/coo
 
 - Use `ImageCapture.takePicture(OutputFileOptions, …)`.
 - Write to `MediaStore.Images` under `Pictures/PhotoHelper`; on the supported API 31+ range, no broad storage permission is needed for media created by the app.
+- Bound capture completion to 15 seconds. Cancellation restores the ready/shutter state with retry guidance; a late save callback deletes its orphaned MediaStore row.
 - Record the applied settings in EXIF only if the capture result supplies them reliably.
 - A failed coaching analyzer must never disable the shutter.
 
 After a successful save, decode the actual saved pixels at analysis resolution and enter `ReviewingCapture`; do not use the last preview frame as capture truth. Capture telemetry comes from the still-capture result or EXIF and is marked unknown when unavailable. `Done` dismisses review, while `Retake` returns unchanged to preview. Both retain the already-saved original and perform no second write or deletion. Review copy states `Original remains saved`. A post-capture comment uses actual captured pixels and available telemetry as its `RetakeBaseline`. `Apply for retake` revalidates the active camera, applies a plan relative to that baseline, returns to live preview, and verifies against fresh observations. A lens or capability change invalidates the old plan and forces recomputation.
 
-## 10. Local coaching and direct Z.AI interpretation
+## 10. Local coaching and direct Qwen interpretation
 
 ### 10.1 Local decision first
 
@@ -531,60 +534,75 @@ The Android parser owns wording classification:
 "crooked", "not straight"                    → LEVEL_FRAME
 ```
 
-Unknown, elliptical, negated, unsupported, or novel wording produces app-owned clarification chips and no request. Z.AI is a visual disambiguator, not a language fallback. One complete Complaint replaces the prior lifecycle; literal Reset remains local.
+Unknown, elliptical, negated, unsupported, or novel wording produces app-owned clarification chips and no request. Qwen is a visual disambiguator, not a language fallback. One complete Complaint replaces the prior lifecycle; literal Reset remains local.
 
 When a demo API key is configured, `CoachEngine.evaluateLocal` may mark only `COLOR_CAST` or `FACE_SIZE_AMBIGUOUS` as visually eligible. `Person looks short` remains local clarification/advice until a later pose-backed phase.
 
 | Family | Required before a request | Returned result and authority |
 |---|---|---|
-| `COLOR_CAST` | Exact whole-frame warm/cool phrase and polarity; current color metric; at least 30% usable pixels; mean luma `0.10..0.90`; highlight/shadow clipping each below `0.15`; chroma bias between calibrated weak/strong thresholds. | `WHITE_BALANCE_WARMER` or `WHITE_BALANCE_COOLER`. Apply still requires fresh comparable color evidence and tested WB capability; otherwise advice only. |
-| `FACE_SIZE_AMBIGUOUS` | Exactly one geometrically stable Subject Lock across three samples/500 ms; face box at least 100×100 analysis pixels and 90% visible; occupancy `0.25..0.70`. | `FACE_OCCUPANCY_LOWER` may start one-step guidance only after fresh matching occupancy evidence; `CLOSE_PERSPECTIVE_ADVISORY` is advice only. |
+| `COLOR_CAST` | Exact whole-frame warm/cool phrase and polarity; current color metric; at least 30% usable pixels; mean luma `0.10..0.90`; highlight/shadow clipping each below `0.15`; chroma bias between calibrated weak/strong thresholds. | Prompt/schema v2 returns `WHITE_BALANCE_WARMER` or `WHITE_BALANCE_COOLER`. Apply still requires fresh comparable color evidence and tested WB capability; otherwise advice only. |
+| `FACE_SIZE_AMBIGUOUS` | Exactly one geometrically stable Subject Lock across three samples/500 ms; face box at least 100×100 analysis pixels and 90% visible; occupancy `0.25..0.70`. | Prompt/schema v3 returns only boolean `distortionVisible`. Android maps `false` to `FACE_OCCUPANCY_LOWER` and `true` to `CLOSE_PERSPECTIVE_ADVISORY`; the model never selects those labels. Occupancy may start one-step guidance after fresh evidence, while perspective remains advice only. |
 
 ### 10.2 Demo API key
 
-Settings contains a password-style `Z.AI API key` field, `Test key`, `Visual AI enabled`, and `Clear key`. The field does not use autofill, does not enter `SavedStateHandle`, and never logs or displays the full saved value. Generate a non-exportable AES/GCM key in `AndroidKeyStore`; store only the encrypted API key ciphertext and IV in private `SharedPreferences`, and set `android:allowBackup="false"`. Clear removes ciphertext and the Keystore alias. This reduces accidental disclosure but is not production-grade protection against a compromised device or runtime instrumentation.
+Settings contains a password-style `Alibaba Cloud Model Studio API key` field, `Test key`, `Visual AI enabled`, and `Clear key`. The field does not use autofill, does not enter `SavedStateHandle`, and never logs or displays the full saved value. Generate a non-exportable AES/GCM key in `AndroidKeyStore`; store only the encrypted API key ciphertext and IV in private `SharedPreferences`, and set `android:allowBackup="false"`. Clear removes ciphertext and the Keystore alias. This reduces accidental disclosure but is not production-grade protection against a compromised device or runtime instrumentation.
 
-Use a disposable Z.AI key with a low account quota, keep the APK on the operator's device, and revoke/rotate the key after the demo. The direct-call risk is deliberate and recorded in ADR 0003.
+Use a disposable Alibaba Cloud Model Studio key with a low account quota, keep the APK on the operator's device, and revoke/rotate the key after the demo. The direct-call risk and China (Beijing) processing boundary are recorded in ADR 0004.
 
-Before the Android key-entry screen exists, fixture/evaluation scripts read `ZAI_API_KEY` from the host environment. Do not commit `.env`, print the key, or copy the environment value into Android `BuildConfig`, resources, source, or the APK; a desktop environment variable is unavailable to an installed app at runtime.
+Fixture/evaluation scripts read `EVALUATION_MODEL_NAME` and `EVALUATION_MODEL_KEY` from the host environment or an ignored `.env` file. Do not commit `.env`, print the key, or copy either environment value into Android `BuildConfig`, resources, source, or the APK; desktop environment variables are unavailable to an installed app at runtime. The installed app uses the fixed non-secret model constant and a separately entered runtime key.
 
 ### 10.3 Observation Image lifecycle
 
 After the final text/voice Complaint passes visual eligibility, the app automatically freezes the newest live analysis frame no older than 500 ms, or uses the exact saved pixels in Capture Review. Normalize to the visible saved-image orientation/crop, cap the long edge at 768 px, encode JPEG at quality 70, and require at most 300 KiB. Close `ImageProxy` immediately.
 
-The reduced bitmap/JPEG/base64 exists only in memory and never enters MediaStore, app files/cache, a database, saved state, analytics, crash reporting, or logs. One request coroutine owns all buffers under `try/finally`; cancellation, timeout, result/failure, backgrounding, or process death releases them. No continuous preview streaming occurs.
+The reduced bitmap/JPEG/base64 exists only in memory and never enters MediaStore, app files/cache, a database, saved state, analytics, crash reporting, or logs. CameraX owns and wipes the latest live observation buffer; each request coroutine owns and wipes its private copies under `try/finally`. Cancellation, timeout, result/failure, backgrounding, or process death releases them. No continuous preview streaming occurs.
 
 ### 10.4 Direct API contract
 
-`ZaiVisualClient` calls `POST https://api.z.ai/api/paas/v4/chat/completions` with `Authorization: Bearer <operator-entered-key>` and one JSON body:
+`BailianVisualClient` calls `POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`, Alibaba Cloud Model Studio's OpenAI-compatible China (Beijing) endpoint, with `Authorization: Bearer <operator-entered-key>` and one JSON body:
 
 ```json
 {
-  "model": "glm-4.6v-flash",
-  "request_id": "uuid-v4",
+  "model": "qwen3.7-flash-2026-07-15",
   "messages": [{
     "role": "user",
     "content": [
       {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}},
-      {"type": "text", "text": "Prompt v1: family=FACE_SIZE_AMBIGUOUS; comment=face looks too big; return the required JSON union only"}
+      {"type": "text", "text": "Prompt v3: family=FACE_SIZE_AMBIGUOUS; comment=face looks too big; inspect facial proportions only; return JSON with boolean distortionVisible or a permitted clarification"}
     ]
   }],
-  "thinking": {"type": "disabled"},
-  "do_sample": false,
+  "enable_thinking": false,
+  "temperature": 0,
   "stream": false,
-  "max_tokens": 80,
   "response_format": {"type": "json_object"}
 }
 ```
 
-The first integration task is a real-key 12-call smoke test proving that GLM-4.6V-Flash accepts the inline Base64 data URL with this exact option combination. Official examples clearly document `image_url` but do not clearly document inline data URLs for this chat path; if the smoke test fails, stop and reassess rather than adding image hosting.
+Alibaba Cloud's OpenAI-compatible Chat documentation explicitly permits a URL or Base64-encoded Data URL in `image_url.url`; its structured-output documentation requires the prompt to mention JSON and `response_format.type` to be `json_object`. Qwen3.7 Flash supports image input and structured output in non-thinking mode, so the client sets `enable_thinking` to `false` and `temperature` to `0`, then still validates the returned content independently.
 
-Abort after five seconds and never retry automatically. Allow at most six visual calls per minute in the app and rely on the Z.AI account quota for cost control. Accept one choice only, `finish_reason == stop`, returned `request_id` equal to the locally generated ID, exact model identifier, no tool calls, absent/empty reasoning content, and content at most 512 bytes. Trim surrounding whitespace only; reject fences, trailing prose, unknown keys, and partial JSON.
+Bailian's OpenAI-compatible response uses a provider-generated `id` and `object: "chat.completion"`; it does not echo a client `request_id`. Abort after five seconds and never retry automatically. Allow at most six visual calls per minute in the app and rely on the Alibaba Cloud account quota for cost control. Accept a nonblank provider `id`, exact `object` and model identifiers, one choice only, `finish_reason == stop`, `role == assistant`, no tool calls, absent/empty reasoning content and refusal, and content at most 512 bytes. Trim surrounding whitespace only; reject fences, trailing prose, unknown union keys, partial JSON, and family-disallowed labels. Standard response metadata such as `usage` and `created` may be present but never reaches the planner.
 
-The provider content is exactly one disjoint union:
+A minimal accepted provider envelope is:
 
 ```json
-{"schemaVersion":2,"outcome":"INTENT","intent":"FACE_OCCUPANCY_LOWER"}
+{
+  "id": "chatcmpl-provider-generated",
+  "object": "chat.completion",
+  "model": "qwen3.7-flash-2026-07-15",
+  "choices": [{
+    "finish_reason": "stop",
+    "message": {
+      "role": "assistant",
+      "content": "{\"schemaVersion\":3,\"outcome\":\"INTENT\",\"distortionVisible\":false}"
+    }
+  }]
+}
+```
+
+The provider content is a family-specific strict union. `COLOR_CAST` uses Prompt/schema v2:
+
+```json
+{"schemaVersion":2,"outcome":"INTENT","intent":"WHITE_BALANCE_WARMER"}
 ```
 
 or:
@@ -593,19 +611,37 @@ or:
 {"schemaVersion":2,"outcome":"CLARIFY","reason":"SUBJECT_UNCLEAR"}
 ```
 
-For `INTENT`, `intent` is required and `reason` forbidden. Color allows `WHITE_BALANCE_WARMER|WHITE_BALANCE_COOLER`; face size allows `FACE_OCCUPANCY_LOWER|CLOSE_PERSPECTIVE_ADVISORY`. For `CLARIFY`, `reason` is required and `intent` forbidden; reasons are `VISUAL_INSUFFICIENT|SUBJECT_UNCLEAR|SCENE_CONFOUND`. Refusal, timeout, malformed output, or model mismatch is unavailable, not `CLARIFY`. No provider prose is rendered.
+Color `INTENT` requires `intent` and allows only `WHITE_BALANCE_WARMER|WHITE_BALANCE_COOLER`.
 
-Every card derived from an accepted Visual Hint displays `AI-interpreted by Z.AI; camera controls checked on device`. The label persists after loading and is announced after the card headline. Local-only cards never show it.
+`FACE_SIZE_AMBIGUOUS` uses Prompt/schema v3 and asks one visual question: whether close/wide-angle perspective distortion is visible in facial proportions. A large face, tight crop, or proximity alone is not distortion evidence. Its accepted values are:
+
+```json
+{"schemaVersion":3,"outcome":"INTENT","distortionVisible":true}
+```
+
+```json
+{"schemaVersion":3,"outcome":"INTENT","distortionVisible":false}
+```
+
+or:
+
+```json
+{"schemaVersion":3,"outcome":"CLARIFY","reason":"SUBJECT_UNCLEAR"}
+```
+
+`distortionVisible` must be a JSON boolean. Android—not Qwen—maps `true` to `CLOSE_PERSPECTIVE_ADVISORY` and `false` to `FACE_OCCUPANCY_LOWER`. This removes the output-label ordering that biased the earlier face enum contract. For `CLARIFY`, `reason` is required and `intent`/`distortionVisible` are forbidden; reasons remain `VISUAL_INSUFFICIENT|SUBJECT_UNCLEAR|SCENE_CONFOUND`, with schema v2 for color and v3 for face size. Refusal, timeout, malformed output, or model mismatch is unavailable, not `CLARIFY`. No provider prose is rendered.
+
+Every card derived from an accepted Visual Hint displays `AI-interpreted by Qwen via Alibaba Cloud; camera controls checked on device`. The label persists after loading and is announced after the card headline. Local-only cards never show it.
 
 ### 10.5 Provider processing and scope
 
-The operator explicitly enables direct Z.AI processing by entering the key and turning on `Visual AI enabled`. Each eligible request then runs automatically; Z.AI caching is disclosed but is not a launch blocker for this private demo. The app sends no audio, EXIF, content URI, face landmarks, tracking ID, or hardware ID, and makes no zero-retention claim. The operator controls the staged device and is responsible for what appears in its camera frame.
+The operator explicitly enables direct Alibaba Cloud Model Studio processing by entering the key and turning on `Visual AI enabled`. Each eligible request then runs automatically against the China (Beijing) endpoint. Alibaba Cloud's China privacy notice says submitted data is not used for model training and that model/application call data is stored as required by applicable law. The app makes no zero-retention, deletion, or broader residency claim. The Alibaba request contains no audio, EXIF, content URI, face landmarks, tracking ID, hardware ID, or local metrics. Bundled ML Kit inputs/results remain on-device, while its documented SDK diagnostics/usage collection is disclosed separately. The operator controls the staged device and is responsible for what appears in its camera frame.
 
 This is not a public-app security/privacy design. Before wider distribution, move the key behind an authenticated backend or use an on-device model, add a proper consent/bystander policy, and perform security/privacy review.
 
 ### 10.6 Provenance and stale results
 
-`PendingVisualRequest` keeps request ID, exact Complaint ID/text digest, origin, camera session/lens, Observation Image ID/time, preview crop/transform, Subject Lock generation/face box, and relevant luma/chroma/face/attitude snapshot locally.
+The active visual operation keeps the exact Complaint identity, origin, camera/session provenance, and relevant image/scene evidence locally. The synchronous HTTP response belongs to that operation; the provider-generated response `id` is validated as nonblank but is not treated as an echoed client correlation token.
 
 For live preview, discard after a new/edited Complaint, shutter/capture/review entry, lifecycle stop, camera/session/lens/viewport change, analysis discontinuity, Subject Lock change, face count leaving one for person-specific cases, subject loss, face-box IoU below `0.70`, face-center movement above `0.08` frame, face-scale change above 10%, or color-direction/chroma material change. A surviving result is only a Visual Hint: obtain a fresh local observation no older than 750 ms and run the normal planner. It never enables Apply by itself.
 
@@ -613,11 +649,11 @@ For Capture Review, bind to SavedCapture ID/URI, digest of the exact reduced pix
 
 ### 10.7 Evaluation
 
-Before judging, run the exact 12-call API smoke plus 24 ordinary cases (12/family), 18 adversarial cases, and parser fault fixtures. Require every call under five seconds, 100% strict union/family enforcement, zero wrong-direction executable outcomes, and graceful local fallback on key/network/provider failure.
+The live fixture gate exposed label-order bias when the earlier face contract asked Qwen to choose between two app intent names. That result is rejected evidence, not a shippable model behavior. The final Prompt v3 asks the binary distortion question, returns a boolean, and leaves intent mapping to Android. Rerun the exact API smoke plus ordinary, adversarial, and parser-fault fixtures against both boolean values and clarification; require every call under five seconds, 100% family/schema enforcement, zero wrong-direction executable outcomes, and graceful local fallback on key/network/provider failure.
 
 For post-hackathon evidence, use 80 development pairs and a sealed 40-case holdout, plus 54 adversarial cases covering prompt injection, visible text, no/multiple/wrong faces, color confounders, crop/mirror/rotation, provider refusal/truncation, response drift, and family-disallowed labels. Treat a 12-person/48-trial study as exploratory rather than production proof.
 
-Each fixture run writes JSONL with run/time, source commit, expected/returned model, prompt/schema hash, fixture/content hash, expected family/labels, raw fixture-only response, parsed label, latency, rejection reason, and pass/fail. It stores no additional image copy or API key.
+The repeatable evaluation harness at `scripts/qwen-live-smoke.py` writes JSONL with run/time, source commit, expected/returned model, prompt/schema hash, fixture/content hash, expected family/labels, raw fixture-only response, parsed label, latency, rejection reason, and pass/fail. It stores no additional image copy or API key. The bounded live-smoke results are recorded in `test-fixtures/README.md`.
 
 ## 11. Positional guidance
 
@@ -640,7 +676,7 @@ Guidance rules:
 - Use a short success earcon and haptic instead of another sentence.
 - Stop guidance immediately when the user taps Cancel, backgrounds the app, or loses the subject.
 - The app has no hazard detector and never infers that a path is safe. Each translational action card states the limitation and requires a per-action `Start one-step guidance` tap before movement.
-- Ask for at most one small step, then stop and re-measure. Dismissal produces distance advice; a small zoom-out Apply is allowed only within the active lens and validated zoom range.
+- Ask for at most one small step, then stop and re-measure. Dismissal stops the action without moving or changing the camera.
 - When Android touch exploration is active, do not offer walking instructions. Keep stationary pan/tilt/level guidance and advisory distance or capability-gated continuous-zoom alternatives.
 
 “Face too big” is ambiguous. The app asks `Takes up too much frame` versus `Features look distorted`. The first selects measurable Face Occupancy coaching. The second identifies possible Close-Perspective Distortion and returns advisory copy—step back, then use a longer lens or zoom to restore framing—without a guided success claim.
@@ -650,7 +686,7 @@ Guidance rules:
 - Main thread: Compose rendering, camera binding, SpeechRecognizer calls required by Android, and state dispatch.
 - Camera executor: CameraX analysis callback and capture callback.
 - Analysis dispatcher: histogram and ML Kit work; at most one analysis job at a time.
-- IO dispatcher: direct Z.AI HTTP call, key encryption, and MediaStore preparation.
+- IO dispatcher: direct Alibaba Cloud Model Studio HTTP call, key encryption, and MediaStore preparation.
 - ViewModel scope: serialized product-state transitions.
 
 Cancellation behavior:
@@ -685,7 +721,7 @@ app/src/main/java/.../photohelper/
     VoiceIo.kt
     AndroidVoiceIo.kt
   visual/
-    ZaiVisualClient.kt
+    BailianVisualClient.kt
     DemoApiKeyStore.kt
     ObservationImageFactory.kt
     VisualContracts.kt
@@ -708,7 +744,7 @@ app/src/androidTest/java/.../
 
 Do not create separate Gradle modules until build time, team ownership, or reuse demonstrates a real need.
 
-Use one application artifact with ordinary debug/release build types. The Z.AI endpoint, model identifier, and prompt schema are fixed application constants; they are not secrets. The operator-entered API key is runtime data and must never be generated into build constants or resources.
+Use one application artifact with ordinary debug/release build types. The Alibaba Cloud Model Studio endpoint, Qwen model identifier, and prompt schema are fixed application constants; they are not secrets. The operator-entered API key is runtime data and must never be generated into build constants or resources.
 
 ## 14. Dependencies
 
@@ -726,7 +762,7 @@ Required:
 Conditional:
 
 - ML Kit pose detection only in the full-body phase.
-- Use platform `HttpsURLConnection` and `org.json` for the one Z.AI contract; do not add Retrofit or a provider SDK.
+- Use platform `HttpsURLConnection` and `org.json` for the one Bailian/Qwen contract; do not add Retrofit or a provider SDK.
 - No Hilt, Room, Retrofit, navigation library, analytics SDK, or image-loading library in the MVP.
 
 ## 15. Permissions and privacy
@@ -743,9 +779,9 @@ Manifest permissions:
 - Request microphone permission only when the microphone button is first used.
 - If microphone permission is denied, typed comments remain fully usable.
 - No location, contacts, media-library read, background camera, or background microphone permission.
-- Settings explicitly enables direct Z.AI visual processing only after the operator enters a key. `Clear key` disables it immediately.
+- Settings explicitly enables direct Alibaba Cloud Model Studio visual processing only after the operator enters a key. `Clear key` disables it immediately.
 - Store only Keystore-encrypted key ciphertext/IV, disable app backup, and never put plaintext into saved state, logs, crash reports, screenshots, source, Gradle properties, resources, or the APK.
-- One reduced Observation Image and its Complaint may go directly to Z.AI for an eligible family. Audio, EXIF, content URI, face landmarks, tracking ID, Android hardware ID, and local metrics do not.
+- One reduced Observation Image and its Complaint may go to Alibaba Cloud Model Studio in China (Beijing) for an eligible family. That request excludes audio, EXIF, content URI, face landmarks, tracking ID, Android hardware ID, and local metrics. Google ML Kit's separate documented diagnostic/usage collection must be disclosed.
 - This is a private operator-controlled demo. It makes no zero-retention promise and is not the privacy/credential architecture for public distribution.
 - Use TLS only; block cleartext traffic in network security configuration.
 - Never log comments, scalar measurements, random client IDs, transcripts, image bytes, content URIs, or face geometry in production logs.
@@ -764,7 +800,7 @@ Build acceptance scans source, Gradle output, resources, DEX, and APK strings fo
 | Face detector finds no face | Do not emit portrait movement instructions; ask the user to point at the subject |
 | Face detector finds multiple faces | Pause person-specific coaching and ask the photographer to frame only one person; do not select or switch |
 | Android touch exploration active | Keep stationary phone guidance; replace walking with distance advice or a capability-gated continuous zoom action |
-| Z.AI key missing/invalid, offline, or timeout | Keep the identical local clarification/chips; show a transient unavailable message |
+| Alibaba Cloud Model Studio key missing/invalid, offline, or timeout | Keep the identical local clarification/chips; show a transient unavailable message |
 | Device camera privacy toggle off | Show the system-specific recovery message; do not treat blank frames as darkness |
 | Camera2 override fails | Clear overrides, restore automatic controls, and keep the shutter usable |
 
@@ -775,7 +811,7 @@ The hackathon demo device should be selected and capability-probed early. Androi
 ### Pure JVM checks
 
 - Intent synonym mapping.
-- Visual outcome-union parsing, family enforcement, and rejection of invalid/trailing values.
+- Family-specific visual parsing: color schema v2 intent enums; face schema v3 boolean-to-intent mapping; clarification versions; rejection of wrong-family, wrong-type, extra-key, and trailing values.
 - Exposure EV-to-index quantization and range clamping.
 - Manual shutter/ISO tradeoff calculations.
 - White-balance range clamping.
@@ -790,7 +826,7 @@ Keep a small fixture set covering:
 - clipped highlights;
 - deep shadows;
 - neutral scene and intentionally blue scene;
-- small, medium, and oversized faces;
+- small, medium, and oversized faces, with separate visible-distortion and no-visible-distortion cases so crop/scale cannot stand in for facial-proportion evidence;
 - centered and off-center faces;
 - multiple faces, no face, partially occluded face;
 - level and tilted device metadata.
@@ -827,7 +863,8 @@ API 23–30 are unsupported and need no storage, review, or voice test coverage.
 5. Unsupported, ambiguous, negated, or polarity-conflicted language asks one short clarification and leaves the shutter usable.
 6. Airplane mode understands the four local MVP complaint families. On cameras without stable WB control, color produces clearly labeled advice rather than an Apply button; the other three families retain their executable baseline.
 7. A saved photo enters Capture Review; Done retains the URI, while a post-capture comment analyzes actual captured pixels and produces an `Apply for retake` plan tied to the captured baseline.
-8. Conditional manual showcase only: after its five-run capability gate, a blurry saved photo near 1/120 s and ISO 400 may receive `Freeze movement`; Apply for retake proposes about 1/500 s and ISO 1600, acknowledgement precedes capture, Reset restores the baseline, and only comparable pixels may produce `Subject detail is sharper`. Otherwise the feature is hidden and scenarios 1–7 define acceptance.
+8. “Focus missed” with AF support shows a neutral target and makes the visible preview tappable. One tap on any subject invokes AF-only metering at that displayed point; no face is required, while unsupported, stale, review, and failed-lock paths remain non-executable or report failure honestly.
+9. Conditional manual showcase only: after its five-run capability gate, a blurry saved photo near 1/120 s and ISO 400 may receive `Freeze movement`; Apply for retake proposes about 1/500 s and ISO 1600, acknowledgement precedes capture, Reset restores the baseline, and only comparable pixels may produce `Subject detail is sharper`. Otherwise the feature is hidden and scenarios 1–8 define acceptance.
 
 ## 18. Implementation plan
 
@@ -871,13 +908,13 @@ Exit: live and post-capture exposure coaching plus two positional demos work off
 
 Exit: the app installs, captures, supports post-capture exposure `Apply for retake`, coaches live exposure and face occupancy offline, verifies, and resets.
 
-### Phase 4 — direct Z.AI visual path
+### Phase 4 — direct Qwen/Bailian visual path
 
 - Add the masked key-entry/Test/Clear/enable Settings flow and native Keystore encryption.
-- Add the direct `ZaiVisualClient`, Observation Image encoder, two-family prompt, strict union parser, cancellation, provenance invalidation, and persistent attribution label.
-- Pass the 12-call compatibility smoke and small fixture gate with the disposable demo key.
+- Add the direct `BailianVisualClient`, Observation Image encoder, color Prompt/schema v2, binary face Prompt/schema v3, strict family-specific parser, cancellation, provenance invalidation, and persistent attribution label.
+- Run the bounded live fixture smoke with the disposable demo key and the 12-call JSONL harness. Keep Qwen optional unless the strict gate passes; the 2026-08-07 run passed 4/12 because of timeout/network failures and one semantic mismatch.
 
-Exit: eligible color/face-size ambiguity uses Z.AI when configured and falls back locally for missing key, invalid key, timeout, malformed output, or airplane mode.
+Exit: eligible color/face-size ambiguity uses Qwen through Alibaba Cloud Model Studio when configured and falls back locally for missing key, invalid key, timeout, malformed output, or airplane mode.
 
 ### Phase 5 — optional manual-exposure showcase
 
@@ -891,7 +928,7 @@ Exit: either the showcase passes repeatedly on the exact lens, or it is absent w
 
 - Remove or hide the developer overlay.
 - Add onboarding, permission rationale, offline/error copy, and accessibility semantics.
-- Add the truthful direct-Z.AI judge disclosure, API-key scan, quota check, and post-demo revocation checklist.
+- Add the truthful direct-Qwen/Alibaba Cloud judge disclosure, API-key scan, quota check, and post-demo revocation checklist.
 - Add warm/cool WB only if confirmed supported and stable after all required acceptance paths pass.
 - Run the scenario matrix on the exact demo phone and lighting setup.
 - Build a release-signed APK; archive the keystore securely.
@@ -905,7 +942,7 @@ Exit: a cold-install rehearsal succeeds twice without developer intervention.
 |---|---|---|
 | Camera2 controls conflict with CameraX | unstable preview or broken 3A | use CameraX first; isolate interop; capability gate; always provide Reset |
 | Custom camera output looks worse than OEM camera | product feels inferior | judge coaching loop on preview/retake; test CameraX quality mode; evaluate OEM extensions only after MVP |
-| VLM returns plausible but wrong hint | trust loss | two-family union, family whitelist, fresh local evidence, local planning, verification, fail-closed gates |
+| VLM returns plausible but wrong hint | trust loss | color enum schema, binary face-evidence schema with app-owned mapping, family whitelist, fresh local evidence, local planning, verification, fail-closed gates |
 | Blue-cast detector mistakes a blue scene | wrong WB | treat chroma as weak evidence; ask clarification; offer reversible reset |
 | Step-back instruction is unsafe | physical harm | per-action opt-in, explicit no-hazard-knowledge copy, single small step, cancel; unavailable with touch exploration |
 | Continuous analysis heats phone | throttling and battery drain | 4 Hz measurements, keep-latest frames, pose only on demand, stop in background |
@@ -915,7 +952,7 @@ Exit: a cold-install rehearsal succeeds twice without developer intervention.
 
 ## 20. Decision record
 
-[ADR 0001 — Keep camera authority and pixels on-device](../docs/adr/0001-keep-camera-authority-on-device.md) was superseded by [ADR 0002 — Permit one consented Observation Image](../docs/adr/0002-permit-one-consented-observation-image.md), which is now superseded by [ADR 0003 — Call Z.AI directly from the private demo app](../docs/adr/0003-call-zai-directly-from-private-demo.md). ADR 0003 records the deliberate direct-key/single-device tradeoff; the model still has no camera authority.
+[ADR 0001 — Keep camera authority and pixels on-device](../docs/adr/0001-keep-camera-authority-on-device.md) was superseded by [ADR 0002 — Permit one consented Observation Image](../docs/adr/0002-permit-one-consented-observation-image.md), then by [ADR 0003 — Call Z.AI directly from the private demo app](../docs/adr/0003-call-zai-directly-from-private-demo.md), and now by [ADR 0004 — Call Bailian Qwen directly from the private demo app](../docs/adr/0004-call-bailian-qwen-directly-from-private-demo.md). ADR 0004 records the current provider, China (Beijing) processing boundary, and direct-key/single-device tradeoff; the model still has no camera authority.
 
 ## 21. Definition of done
 
@@ -929,11 +966,11 @@ The Android MVP is complete when:
 - exposure application and positional guidance are verified against new observations;
 - the app remains usable when offline, speech fails, or analysis finds no face;
 - camera and microphone stop when the app backgrounds;
-- a disposable key can be entered, tested, used for a direct GLM-4.6V-Flash request, cleared, and found nowhere in source/build/APK scans;
-- the two visual families accept only the fixed union and every accepted Visual Hint is replanned against fresh local evidence;
-- scenarios 1–7 in section 17 pass on the demo device.
+- a disposable key can be entered, tested, used for a direct `qwen3.7-flash-2026-07-15` request through Alibaba Cloud Model Studio, cleared, and found nowhere in source/build/APK scans;
+- the two visual families accept only their fixed family-specific schemas—color v2 enum and face v3 boolean—and every accepted Visual Hint is replanned against fresh local evidence;
+- scenarios 1–8 in section 17 pass on the demo device.
 
-The optional manual showcase is done only when scenario 8 passes five times; failure hides it and does not fail the MVP.
+The optional manual showcase is done only when scenario 9 passes five times; failure hides it and does not fail the MVP.
 
 ## 22. Primary references
 
@@ -945,6 +982,7 @@ The optional manual showcase is done only when scenario 8 passes five times; fai
 - [Camera2CameraControl](https://developer.android.com/reference/androidx/camera/camera2/interop/Camera2CameraControl)
 - [Android CaptureRequest manual controls](https://developer.android.com/reference/android/hardware/camera2/CaptureRequest)
 - [ML Kit face detection on Android](https://developers.google.com/ml-kit/vision/face-detection/android)
+- [ML Kit Android data disclosure](https://developers.google.com/ml-kit/android-data-disclosure)
 - [ML Kit pose detection](https://developers.google.com/ml-kit/vision/pose-detection)
 - [Android motion sensors](https://developer.android.com/develop/sensors-and-location/sensors/sensors_motion)
 - [Android SpeechRecognizer](https://developer.android.com/reference/android/speech/SpeechRecognizer)
@@ -953,9 +991,9 @@ The optional manual showcase is done only when scenario 8 passes five times; fai
 - [MediaStore access](https://developer.android.com/training/data-storage/shared/media)
 - [Android guidance on insecure static API keys](https://developer.android.com/privacy-and-security/risks/insecure-api-usage)
 - [Android Keystore](https://developer.android.com/privacy-and-security/keystore)
-- [Z.AI GLM-4.6V documentation](https://docs.z.ai/guides/vlm/glm-4.6v)
-- [Z.AI Chat Completions API](https://docs.z.ai/api-reference/llm/chat-completion)
-- [Z.AI pricing](https://docs.z.ai/guides/overview/pricing)
-- [Z.AI API terms](https://docs.z.ai/legal-agreement/terms-of-use)
-- [Z.AI API privacy/DPA](https://docs.z.ai/legal-agreement/privacy-policy)
-- [Z.AI caching FAQ](https://docs.z.ai/help/faq)
+- [Alibaba Cloud Model Studio visual understanding and Qwen model list](https://help.aliyun.com/en/model-studio/vision-model/)
+- [Alibaba Cloud Model Studio OpenAI-compatible Chat API](https://help.aliyun.com/en/model-studio/qwen-api-via-openai-chat-completions)
+- [Alibaba Cloud Model Studio structured output](https://help.aliyun.com/en/model-studio/qwen-structured-output)
+- [Alibaba Cloud Model Studio API key guidance](https://help.aliyun.com/en/model-studio/get-api-key)
+- [Alibaba Cloud Model Studio model pricing](https://help.aliyun.com/en/model-studio/model-pricing)
+- [Alibaba Cloud Model Studio China privacy notice](https://help.aliyun.com/zh/model-studio/privacy-notice)

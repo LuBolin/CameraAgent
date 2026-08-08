@@ -1,0 +1,15 @@
+.gradle/
+.tools/
+.idea/
+.env
+.env.*
+!.env.example
+build/
+app/build/
+local.properties
+*.iml
+captures/
+outputs/qa/physical-device/
+outputs/qa/qwen-live-smoke*.jsonl
+*.jks
+*.keystore

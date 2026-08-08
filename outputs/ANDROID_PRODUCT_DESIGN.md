@@ -1,10 +1,10 @@
 # Photo Helper — Android Product and Interaction Design
 
-Status: implementation-ready draft  
+Status: implemented; physical-device qualification pending
 Last reviewed: 2026-08-04
 Audience: product design, engineering, user research, accessibility review, and hackathon judges
 
-Companion document: [Android Technical Architecture](ANDROID_TECHNICAL_ARCHITECTURE.md)
+Companion documents: [Android Technical Architecture](ANDROID_TECHNICAL_ARCHITECTURE.md) and [ADR 0004 — Call Bailian Qwen directly from the private demo app](../docs/adr/0004-call-bailian-qwen-directly-from-private-demo.md)
 
 ## 1. Product proposition
 
@@ -17,7 +17,7 @@ The promise is not “AI makes every photo beautiful.” The promise is:
 
 > Tell the camera what bothers you. It will suggest one bounded, reversible setting change or one explicitly started guidance action, then check what happened.
 
-The planned hackathon artifact is one private, single-device Android app. Android on-device speech and face/frame analysis feed a deterministic local planner. For two visually ambiguous complaint families, the app may send one reduced current frame directly to Z.AI `glm-4.6v-flash`; Z.AI returns only a fixed semantic hint. The app—not the model—chooses, validates, applies, and verifies every camera action. This qualifies as a bounded agent through its observe–propose–act–verify loop, not through a chat persona.
+The hackathon artifact is one private, single-device Android app. Android on-device speech and face/frame analysis feed a deterministic local planner. For two visually ambiguous complaint families, the app may send one reduced live frame—or, in Capture Review, one reduced copy of the saved photo under review—to Qwen `qwen3.7-flash-2026-07-15` through Alibaba Cloud Model Studio (Bailian) in China (Beijing); Qwen returns only a fixed semantic hint. The app—not the model—chooses, validates, applies, and verifies every camera action. This qualifies as a bounded agent through its observe–propose–act–verify loop, not through a chat persona.
 
 ## 2. Experience principles
 
@@ -37,7 +37,7 @@ Prefer “Darken by 0.7 EV to reduce clipping across the photo” over “ISO 50
 
 ### Approval before camera control
 
-The user taps Apply before a setting changes and Start guidance before the app begins spoken movement instructions. Reset remains visible while its baseline still belongs to the current camera session; session invalidation clears overrides instead of restoring stale values.
+The user taps Apply before a setting changes, taps the visible target before coached focus, and taps Start guidance before the app begins spoken movement instructions. Reset remains visible while its baseline still belongs to the current camera session; session invalidation clears overrides instead of restoring stale values.
 
 ### Verify instead of pretending certainty
 
@@ -127,7 +127,7 @@ The wording must not imply that the existing image is being edited.
 
 The photo has already been saved when review appears, and review explicitly says `Original remains saved`. `Done` dismisses review; `Retake` returns to the live camera without changing settings. Neither duplicates or deletes the saved original. The camera stays ready behind the review, while live analysis and the shutter pause. Post-capture diagnosis uses a downscaled decode of the actual saved pixels plus available capture metadata, never the last preview frame. Apply revalidates the active camera, returns to live preview with `Retake settings active`, and checks the new frame. If the lens changed, the app recalculates before enabling Apply.
 
-### Scenario E — bounded Z.AI visual interpretation
+### Scenario E — bounded Qwen visual interpretation
 
 This path runs only when `Visual AI enabled` is on and a tested demo key is configured. It applies only to whole-frame color-cast ambiguity or one stable face whose size-versus-perspective meaning is ambiguous. Novel wording, `person looks short`, exposure, blur, and ordinary positioning stay local.
 
@@ -135,17 +135,17 @@ After an eligible final comment, the app freezes the newest qualifying live fram
 
 ```text
 ┌──────────────────────────────────┐
-│ Checking current frame with Z.AI…│
+│ Checking current frame with Qwen…│
 │ Local choices remain available. │
 │                         [Cancel] │
 └──────────────────────────────────┘
 ```
 
-The app sends that single reduced image and the bounded family prompt directly to Z.AI. It does not stream preview frames. A new Complaint, shutter, Back, backgrounding, Cancel, timeout, or process death releases the in-memory image and stops local waiting. If transmission has already started, cancellation cannot recall data already received by Z.AI.
+The app sends that single reduced image and the bounded family prompt to Alibaba Cloud Model Studio in China (Beijing). It does not stream preview frames. A new Complaint, shutter, Back, backgrounding, Cancel, timeout, or process death releases the in-memory image and stops local waiting. If transmission has already started, cancellation cannot recall data already received by Alibaba Cloud.
 
-The result never appears as model prose. It may choose only one reviewed, family-specific Visual Hint. The app rejects malformed, stale, family-conflicting, or polarity-conflicting output, rechecks the current scene and camera capabilities locally, and then either presents a normal local recommendation or keeps the same clarification chips. Color exposes Apply only with fresh matching evidence and tested white-balance control; face occupancy may expose one-step guidance; close-perspective interpretation is advice only.
+The result never appears as model prose. Color Prompt/schema v2 may return one reviewed warm/cool intent. Face Prompt/schema v3 answers only whether facial-proportion distortion is visibly present; Android maps boolean `false` to face-occupancy guidance and `true` to close-perspective advice. Qwen never selects those two app intent labels. The app rejects malformed, stale, family-conflicting, or polarity-conflicting output, rechecks the current scene and camera capabilities locally, and then either presents a normal local recommendation or keeps the same clarification chips. Color exposes one-tap Apply only with fresh matching evidence and tested white-balance control; an unsupported camera reports that control as unavailable instead of recommending a manual software change. Face occupancy may expose one-step physical guidance; close perspective remains advice-only and is not verified.
 
-Every accepted result carries `AI-interpreted by Z.AI; camera controls checked on device`. Missing key, invalid key, no network, timeout, or model failure never blocks local coaching.
+Every accepted result carries `AI-interpreted by Qwen via Alibaba Cloud; camera controls checked on device`. Missing key, invalid key, no network, timeout, or model failure never blocks local coaching.
 
 ## 5. Information architecture
 
@@ -163,7 +163,7 @@ Capture
     ├── Haptics on/off
     ├── Coaching detail: simple / technical
     ├── Visual AI enabled on/off
-    ├── Z.AI API key (masked)
+    ├── Alibaba Cloud Model Studio API key (masked)
     │   ├── Test key
     │   └── Clear key
     └── Demo data explanation
@@ -219,7 +219,7 @@ Captured-photo review is an overlay state of Capture, not a second navigation de
 | Previewing | unobstructed preview | placeholder: “What looks wrong?” |
 | Listening | microphone pulse and transcript | “Listening…” |
 | Interpreting locally | subtle progress under composer | “Checking the shot…” |
-| Requesting Z.AI interpretation | compact network indicator; local chips remain usable | “Checking current frame with Z.AI…” |
+| Requesting Qwen interpretation | compact network indicator; local chips remain usable | “Checking current frame with Qwen…” |
 | Recommendation | bottom card with one action | action-specific |
 | Applying | Apply button disabled briefly | “Applying…” |
 | Guiding | instruction centered near lower preview | direction-specific |
@@ -243,7 +243,7 @@ Each card contains at most:
 4. one primary button;
 5. optional Reset or Dismiss.
 
-A card derived from an accepted Visual Hint carries the persistent provenance label `AI-interpreted by Z.AI; camera controls checked on device`. It remains visible after the transient network indicator disappears and TalkBack announces it after the card headline. Local-only cards omit it. The label does not imply that the model selected or applied camera controls.
+A card derived from an accepted Visual Hint carries the persistent provenance label `AI-interpreted by Qwen via Alibaba Cloud; camera controls checked on device`. It remains visible after the transient network indicator disappears and TalkBack announces it after the card headline. Local-only cards omit it. The label does not imply that the model selected or applied camera controls.
 
 ### Setting example
 
@@ -298,10 +298,12 @@ Examples:
 |---|---|---|
 | “The whole shot is too bright” | “The frame is clipping. Darken by 0.7 EV?” | “Try lowering ISO, raising shutter, changing metering, or moving.” |
 | “The background is too bright” | “Do you mean the whole photo, the person, or only the background?” | Claiming global EV fixes the background without affecting the person |
-| “Looks blue” | “The image trends cool. This camera can warm it—apply?” or capability-gated advice | “Set Kelvin to 6200.” without capability/evidence |
+| “Looks blue” | “The image trends cool. This camera can warm it—apply?” or an honest unavailable-control message | “Set Kelvin to 6200.” without capability/evidence |
 | “Face too big” | “Does it take up too much frame, or do the features look distorted?” | Assuming occupancy and perspective distortion are the same problem |
 | “Person looks short” | “Do you mean their body is cropped, or the angle makes them look shorter?” | Immediately applying a distortion-heavy wide-angle change |
 | “Blurry” | “Is movement blurred, or did focus miss?” with `Freeze movement` / `Focus missed` chips | “There is motion blur. Use a faster shutter.” |
+
+Choosing `Focus missed` shows a neutral 56 dp crosshair and makes the visible preview a tap target. The user taps any subject that should be sharp; the app performs AF-only CameraX focus at that exact preview point and reports success or failure. Face detection is neither required nor used to choose the point. The target is withheld only when focus metering is unsupported, the live view is stale, or the user is reviewing a saved photo.
 
 ### Clarification policy
 
@@ -349,7 +351,7 @@ Show manual parameters only when the device supports and reports them reliably.
 - “Reduce noise” prioritizes lower ISO and explains that shutter/blur may increase.
 - Display both before and after values.
 - Keep Reset automatic controls visible.
-- If unsupported, provide advice without a fake Apply button.
+- If unsupported, report the control as unavailable and offer only physical lighting/stability guidance—not a manual software-setting instruction without Apply.
 
 ### White balance
 
@@ -363,7 +365,7 @@ Show manual parameters only when the device supports and reports them reliably.
 Zoom is not the default response to face perspective problems.
 
 - If the face is simply too large in the composition, step-back guidance is preferred.
-- If the user declines walking or cannot independently verify the path, offer zoom-out only when the active lens supports it without an abrupt lens switch.
+- If the user declines walking or cannot independently verify the path, dismiss the action without moving or changing the camera.
 - Lens-switch advice is out of MVP scope.
 
 ## 11. Positional guidance behaviors
@@ -419,18 +421,18 @@ Screen 2:
 
 ```text
 You stay in control.
-Nothing changes until you tap Apply or Start guidance.
-Visual AI is off until you add your Z.AI demo key in Settings.
+Nothing changes until you tap Apply, a focus target, or Start guidance.
+Visual AI is off until you add your Alibaba Cloud Model Studio key in Settings.
 [Open camera]
 ```
 
-The key-entry screen explains the actual boundary before Visual AI can be enabled: `For two visual questions, Photo Helper sends one reduced current frame and your comment directly to Z.AI. It never sends audio and does not stream the preview.`
+The key-entry screen explains the actual boundary before Visual AI can be enabled: `For two visual questions, Photo Helper sends your comment with one reduced live frame or, in Capture Review, one reduced copy of the saved photo under review to Alibaba Cloud Model Studio in China (Beijing). It never sends audio or streams the preview. Alibaba Cloud may retain request data; see its privacy notice.`
 
 ### Permission timing
 
 - Camera: request after `Open camera`.
-- Microphone: request only after the user taps the microphone. Before first use, state: `Android transcribes voice on this device. Photo Helper does not store or send your audio.` If an installed on-device English recognizer is unavailable, keep typed English and local chips; never fall back to cloud speech.
-- Internet: declare it in the installed app for direct Z.AI requests. Android does not present this as a runtime permission.
+- Microphone: request only after the user taps the microphone. Before first use, state: `Android transcribes voice on this device. Photo Helper does not store or send your audio. Android may download the English speech model.` If an installed on-device English recognizer is unavailable, keep typed English and local chips; never fall back to cloud speech.
+- Internet: declare it in the installed app for direct Alibaba Cloud Model Studio requests. Android does not present this as a runtime permission.
 
 ### Denial recovery
 
@@ -456,21 +458,22 @@ The key-entry screen explains the actual boundary before Visual AI can be enable
 
 This is an explicit private-demo tradeoff, not a production security design.
 
-- Visual AI is disabled until the operator enters a disposable Z.AI key, successfully tests it, and turns on `Visual AI enabled`.
+- Visual AI is disabled until the operator enters a disposable Alibaba Cloud Model Studio key, successfully tests it, and turns on `Visual AI enabled`.
 - The app stores only encrypted key ciphertext and its IV in private preferences. A non-exportable Android Keystore AES/GCM key performs encryption and decryption. Android backup is disabled.
 - The Settings field is masked after save and provides `Test key` and `Clear key`. The operator uses a low-quota credential and revokes it after the hackathon.
-- The key is not placed in source, Android resources, `BuildConfig`, logs, analytics, screenshots, or crash reports. Before the key-entry UI exists, desktop fixture scripts read `ZAI_API_KEY` from the process environment only.
+- The key is not placed in source, Android resources, `BuildConfig`, logs, analytics, screenshots, or crash reports. Desktop fixture scripts read `EVALUATION_MODEL_NAME` and `EVALUATION_MODEL_KEY` from the process environment or an ignored `.env` file only.
 - Direct API access means the credential can still be extracted from a compromised or instrumented phone. This is accepted only because the artifact is installed on one operator-controlled device with a disposable credential. A public build would require an owned backend or a capable on-device model.
-- For an eligible Complaint, the app automatically sends one reduced, metadata-free Observation Image and the bounded comment/prompt directly to Z.AI. It sends no audio, EXIF, content URI, face landmarks, tracking ID, hardware ID, or local metrics and does not stream camera frames.
+- For an eligible Complaint, the app automatically sends one reduced, metadata-free Observation Image and the bounded comment/prompt to Alibaba Cloud Model Studio in China (Beijing). That request contains no audio, EXIF, content URI, face landmarks, tracking ID, hardware ID, or local metrics and does not stream camera frames.
+- Bundled Google ML Kit keeps camera-image inputs and face outputs on-device, but Google documents collection of device/app information, per-installation identifiers, API configuration, event/error data, and performance/input-size metrics for diagnostics and usage analytics over HTTPS. Settings links the operator to the current ML Kit Android data disclosure; this traffic can occur even when Visual AI is off.
 - The image/JPEG/base64 exists in memory only until result, failure, cancellation, backgrounding, or process death. The app does not claim guaranteed physical-memory erasure or provider recall after sending.
-- The product makes no zero-retention or guaranteed-residency claim. Z.AI documents both real-time API processing and request-content caching behavior; the demo simply discloses the provider and limits what is sent.
-- About copy is exact: `This private demo uses Android on-device speech and face/frame analysis plus Z.AI GLM-4.6V-Flash for selected visual interpretation. It sends one reduced current frame for an eligible comment. Z.AI returns a fixed semantic label; camera decisions and verification stay on this phone.`
+- Alibaba Cloud's China privacy notice says submitted data is not used for model training and that model/application call data is stored as required by applicable law. The product makes no zero-retention, deletion, or broader residency claim; it discloses the provider and limits what is sent.
+- About copy is exact: `This private demo uses Android on-device speech and face/frame analysis plus Qwen3.7 Flash through Alibaba Cloud Model Studio for selected visual interpretation. Qwen returns a fixed semantic label; camera decisions and verification stay on this phone.`
 
 ### UI indicators
 
 - The microphone button visibly changes while listening.
-- A small `Z.AI` network indicator appears only during a direct visual request; local clarification remains usable.
-- Settings shows the fixed provider/model, key status, Visual AI toggle, one-frame limit, `Test key`, `Clear key`, and the current Z.AI policy link.
+- A small `Qwen` network indicator appears only during a direct visual request; local clarification remains usable.
+- Settings shows `Qwen3.7 Flash (2026-07-15) · Alibaba Cloud Model Studio, China (Beijing)`, key status, Visual AI toggle, one-frame limit, `Test key`, `Clear key`, and the current Alibaba Cloud privacy-notice link.
 
 ## 15. Error and recovery design
 
@@ -479,8 +482,8 @@ Errors use the smallest recovery surface that works. Do not show a modal dialog 
 | Failure | Response |
 |---|---|
 | No speech recognized | Keep composer open with “I didn’t catch that” |
-| Missing or invalid Z.AI key | Turn Visual AI off for the session; keep local chips and link to Settings |
-| Offline or Z.AI timeout | Keep the same chips and add “Visual interpretation unavailable—using local coaching” |
+| Missing or invalid Alibaba Cloud Model Studio key | Turn Visual AI off for the session; keep local chips and link to Settings |
+| Offline or Qwen timeout | Keep the same chips and add “Visual interpretation unavailable—using local coaching” |
 | Malformed or disallowed model output | Discard it silently, keep local chips, and record a redacted diagnostic |
 | Unsupported manual control | Explain, then offer closest automatic action or advice |
 | Subject lost during guidance | “I lost the face—point back at the person” and pause |
@@ -524,8 +527,8 @@ No mascot, conversational bubbles, or decorative generation is needed for the MV
 |---|---|---|---|---|
 | Too bright | highlight clipping + luma | darker EV | clipping falls | required |
 | Too dark | low luma/shadows | brighter EV | shadows/luma improve | required |
-| Too blue | chroma bias + scene check | capability-gated warmer WB/reset, otherwise advice | neutral bias improves when executable | required understanding; Apply is capability-gated |
-| Too yellow | inverse bias | capability-gated cooler WB/reset, otherwise advice | neutral bias improves when executable | required understanding; Apply is capability-gated |
+| Too blue | chroma bias + scene check | capability-gated warmer WB/reset, otherwise unavailable-control message | neutral bias improves when executable | required understanding; Apply is capability-gated |
+| Too yellow | inverse bias | capability-gated cooler WB/reset, otherwise unavailable-control message | neutral bias improves when executable | required understanding; Apply is capability-gated |
 | Face too big | face-width fraction | step back after per-action opt-in; otherwise distance/zoom advice | face fraction falls | required |
 | Face too small | face-width fraction | step closer after per-action opt-in; otherwise distance advice | face fraction rises | required |
 | Crooked | phone roll | rotate phone | roll enters band | required |
@@ -544,7 +547,7 @@ The reliable judged cut is live and post-capture exposure EV (including `Apply f
 - All executable actions remain inside the active camera's reported ranges.
 - Median user can complete the Apply flow in two taps after commenting.
 - Positional guidance finishes without left/right oscillation in the scripted setup.
-- Missing key, airplane mode, or Z.AI failure leaves the core local experience usable; color may be advisory on a camera without stable WB controls.
+- Missing key, airplane mode, or Qwen/Bailian failure leaves the core local experience usable; color may be advisory on a camera without stable WB controls.
 
 ### Small usability test
 
@@ -566,11 +569,11 @@ Measure:
 
 Ask one final forced comparison: original or coached photo, shown blind and in randomized order. Do not use “beauty” as the only outcome.
 
-### Z.AI visual-path evidence
+### Qwen/Bailian visual-path evidence
 
-Before wiring the Android client, run the exact 12-call real-key smoke described in the technical architecture. It must prove inline data-image input, the fixed model/options, JSON-object output, returned-model checks, quota behavior, and redacted errors. If inline image data is unsupported, keep visual coaching local; do not add an image-hosting service for the hackathon.
+The exact real-key smoke described in the technical architecture must cover the Beijing Chat Completions endpoint, inline Base64 image input, `enable_thinking: false`, `temperature: 0`, JSON-object output, color schema v2, face schema v3 boolean outcomes, the provider `id`/`object` envelope, exact returned-model checks, quota behavior, and redacted errors. Bailian does not echo a client `request_id`; local Complaint/provenance checks reject stale results. If inline image data fails in the deployed account, keep visual coaching local; do not add an image-hosting service for the hackathon.
 
-Then rehearse 24 ordinary owned/staged fixtures and 18 adversarial cases across only whole-frame color cast and face-size ambiguity. The direct path must improve useful interaction without producing unsafe or disallowed actions. A later non-hackathon study may use the larger sealed sets in the technical architecture; those results would still not establish production safety or generalization.
+The initial live face fixture gate found label-order bias when Qwen was asked to choose between `FACE_OCCUPANCY_LOWER` and `CLOSE_PERSPECTIVE_ADVISORY`; that contract is rejected. Rehearse the final binary Prompt v3 with visible-distortion, no-visible-distortion, tight-crop/large-face-without-distortion, and clarification cases. Android alone maps the boolean to the app intents. The direct path must improve useful interaction without producing unsafe or disallowed actions. A later non-hackathon study may use the larger sealed sets in the technical architecture; those results would still not establish production safety or generalization.
 
 ## 19. Demo script
 
@@ -611,11 +614,12 @@ Only after the exact lens passes five manual-control/rollback trials, begin in C
 - One-tap EV application.
 - Capture Review plus post-capture exposure coaching with capability-revalidated `Apply for retake`; the original stays saved.
 - Face-size and level guidance.
+- Capability-gated tap-to-focus marker for any visible preview subject.
 - Matching visible/haptic feedback, Cancel, and Reset; spoken feedback when TTS is available.
-- Direct Z.AI GLM-4.6V-Flash interpretation for only whole-frame color-cast and face-size ambiguity, with one reduced frame per eligible Complaint and local fallback.
+- Direct Qwen `qwen3.7-flash-2026-07-15` interpretation through Alibaba Cloud Model Studio in China (Beijing) for only whole-frame color-cast and face-size ambiguity, with color Prompt/schema v2, binary face Prompt/schema v3, one reduced frame per eligible Complaint, and local fallback.
 - Masked key entry, Test/Clear controls, Keystore-backed encrypted storage, no static key in the APK, and the Android INTERNET permission.
-- Persistent provenance on model-assisted cards: `AI-interpreted by Z.AI; camera controls checked on device`.
-- Judge disclosure: `This private demo uses Android on-device speech and face/frame analysis plus Z.AI GLM-4.6V-Flash for selected visual interpretation. It sends one reduced current frame for an eligible comment. Z.AI returns a fixed semantic label; camera decisions and verification stay on this phone.`
+- Persistent provenance on model-assisted cards: `AI-interpreted by Qwen via Alibaba Cloud; camera controls checked on device`.
+- Judge disclosure: `This private demo uses Android on-device speech and face/frame analysis plus Qwen3.7 Flash through Alibaba Cloud Model Studio for selected visual interpretation. Qwen returns a fixed semantic label; camera decisions and verification stay on this phone.`
 
 ### Add only if core acceptance passes
 
@@ -638,7 +642,7 @@ Only after the exact lens passes five manual-control/rollback trials, begin in C
 
 - [ ] The camera preview remains the largest visual element.
 - [ ] The shutter is usable during non-fatal coaching states.
-- [ ] Every recommendation has one primary action.
+- [ ] Every supported setting change has one `Apply` action; coached focus uses one target tap; physical changes use `Start guidance`; unavailable controls are not phrased as manual setting recommendations.
 - [ ] Camera settings do not change before the user taps Apply.
 - [ ] Manual changes expose Reset.
 - [ ] Reset restores the first coached-control baseline across chained Applies and never crosses a camera/lens/session boundary.
@@ -654,12 +658,13 @@ Only after the exact lens passes five manual-control/rollback trials, begin in C
 - [ ] Person-specific coaching requires exactly one stable face; zero or multiple faces produce reframe guidance, never selection or silent switching.
 - [ ] Direction copy names the photographer/camera action and is verified in one documented coordinate frame.
 - [ ] The screen holds one complete Complaint at a time; elliptical text cannot execute.
-- [ ] Installed build shows the private-demo Z.AI disclosure and exposes Visual AI/key status in Settings.
+- [ ] Installed build shows the private-demo Qwen/Alibaba Cloud disclosure and exposes Visual AI/key status in Settings.
 - [ ] No real or placeholder API key appears in source, resources, `BuildConfig`, logs, screenshots, or the APK; Clear removes ciphertext and revoke is rehearsed.
 - [ ] Visual AI sends at most one reduced Observation Image for only the two eligible families; no preview streaming exists.
 - [ ] Missing key, invalid key, offline, timeout, malformed output, and stale output all preserve local clarification.
-- [ ] Every card derived from a Visual Hint keeps `AI-interpreted by Z.AI; camera controls checked on device` after loading ends; local-only cards omit it.
-- [ ] No audio, EXIF, URI, landmarks, tracking ID, hardware ID, or local metrics leave the app.
+- [ ] Face schema v3 accepts only a JSON boolean, maps `false` to occupancy and `true` to perspective advice locally, and does not regress to model-selected app labels or label-order bias.
+- [ ] Every card derived from a Visual Hint keeps `AI-interpreted by Qwen via Alibaba Cloud; camera controls checked on device` after loading ends; local-only cards omit it.
+- [ ] Alibaba requests contain no audio, EXIF, URI, landmarks, tracking ID, hardware ID, or local metrics; ML Kit diagnostic collection is separately disclosed and represented accurately in Data Safety materials.
 - [ ] TalkBack order, large type, contrast, and 48 dp targets are verified.
 - [ ] Success is tied to a measurement, not the word “perfect.”
 
