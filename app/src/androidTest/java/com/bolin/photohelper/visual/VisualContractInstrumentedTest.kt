@@ -89,7 +89,7 @@ class VisualContractInstrumentedTest {
         )
         assertEquals(1, connections)
         assertTrue(key.all { it == '\u0000' })
-        assertFalse(fakeConnection.sentBody.toString(StandardCharsets.UTF_8).contains("disposable-api-key"))
+        assertFalse(String(fakeConnection.sentBody.toByteArray(), StandardCharsets.UTF_8).contains("disposable-api-key"))
         assertTrue(fakeConnection.disconnected)
     }
 
