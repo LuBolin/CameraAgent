@@ -56,7 +56,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -332,6 +335,7 @@ private fun CaptureContent(
     onRetake: () -> Unit,
     onDoneReview: () -> Unit,
 ) {
+    var guideOpen by rememberSaveable { mutableStateOf(false) }
     val cancellableWork = state.activeGuidance != null || state.coachingPhase in setOf(
         CoachingPhase.GUIDING,
         CoachingPhase.LISTENING,
@@ -363,7 +367,7 @@ private fun CaptureContent(
         ) {
             if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
                 Box(Modifier.fillMaxSize()) {
-                    PreviewPane(state, liveObservation, preview, onSettingsOpen, onCancelCoaching, onFocusTarget)
+                    PreviewPane(state, liveObservation, preview, onSettingsOpen, { guideOpen = true }, onCancelCoaching, onFocusTarget)
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
@@ -386,7 +390,7 @@ private fun CaptureContent(
                 }
             } else {
                 Box(Modifier.fillMaxSize()) {
-                    PreviewPane(state, liveObservation, preview, onSettingsOpen, onCancelCoaching, onFocusTarget)
+                    PreviewPane(state, liveObservation, preview, onSettingsOpen, { guideOpen = true }, onCancelCoaching, onFocusTarget)
                     Surface(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -436,6 +440,8 @@ private fun CaptureContent(
                 onDone = onDoneReview,
             )
         }
+
+        if (guideOpen) GuideSheet(state = state, onDismiss = { guideOpen = false })
     }
 }
 
@@ -445,6 +451,7 @@ private fun PreviewPane(
     liveObservation: StateFlow<FrameObservation?>?,
     preview: @Composable BoxScope.() -> Unit,
     onSettingsOpen: () -> Unit,
+    onGuideOpen: () -> Unit,
     onCancelCoaching: () -> Unit,
     onFocusTarget: (Float, Float) -> Unit,
     modifier: Modifier = Modifier,
@@ -474,12 +481,18 @@ private fun PreviewPane(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ScrimLabel(if (state.retakeSettingsActive) "LIVE · Retake settings active" else "LIVE")
-            OverlayAction(
-                text = "Settings",
-                onClick = onSettingsOpen,
-                modifier = Modifier
-                    .semantics { contentDescription = "Open settings" },
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OverlayAction(
+                    text = "?",
+                    onClick = onGuideOpen,
+                    contentDescription = "Open Photo Helper guide",
+                )
+                OverlayAction(
+                    text = "Settings",
+                    onClick = onSettingsOpen,
+                    contentDescription = "Open settings",
+                )
+            }
         }
 
         CameraPhaseStatus(state.cameraPhase)
@@ -656,6 +669,7 @@ private fun OverlayAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    contentDescription: String? = null,
 ) {
     Surface(
         modifier = modifier,
@@ -666,7 +680,13 @@ private fun OverlayAction(
         TextButton(
             onClick = onClick,
             enabled = enabled,
-            modifier = Modifier.heightIn(min = 48.dp),
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .then(
+                    if (contentDescription == null) Modifier else Modifier.semantics {
+                        this.contentDescription = contentDescription
+                    },
+                ),
             colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
         ) { Text(text) }
     }
@@ -1241,6 +1261,167 @@ private fun SavedCaptureImage(capture: SavedCapture, modifier: Modifier = Modifi
         ) {
             if (loading) CircularProgressIndicator() else Text("Captured photo unavailable", color = Color.White)
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
+    var technicalExpanded by rememberSaveable { mutableStateOf(false) }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                "Photo Helper guide",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.semantics { heading() },
+            )
+            Text("Describe one thing you want to change. Photo Helper will suggest one safe next step.")
+            Text(
+                "What you can ask",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.semantics { heading() },
+            )
+            GuideTopic("Brightness", "Say “too dark” or “too bright” for a whole-photo exposure change.")
+            GuideTopic("Focus", "Say “focus missed,” then tap the subject that should be sharp. A face is not required.")
+            GuideTopic("Zoom", "Say “too zoomed in” or “too zoomed out” for a wider or tighter digital crop.")
+            GuideTopic("Color", "Say “too blue” or “too yellow” for Warmer, Cooler, or Auto white balance.")
+            GuideTopic("Level and framing", "Ask to straighten the frame or follow movement guidance. You move the phone yourself.")
+            Text(
+                "Nothing changes until you tap Apply, tap a focus target, or start guidance. Reset restores supported exposure, zoom, and white-balance settings from before coaching.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            Text(
+                "On this camera",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.semantics { heading() },
+            )
+            CameraCapabilityGuide(state)
+            Text(
+                "Photo Helper checks the active camera again before every Apply. Controls can differ between phones, lenses, and camera sessions.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            OutlinedButton(
+                onClick = { technicalExpanded = !technicalExpanded },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .semantics { stateDescription = if (technicalExpanded) "Expanded" else "Collapsed" },
+            ) {
+                Text(if (technicalExpanded) "Camera technical details · Hide" else "Camera technical details · Show")
+            }
+            if (technicalExpanded) CameraTechnicalDetails()
+
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp)) {
+                Text("Close")
+            }
+            Spacer(Modifier.size(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun CameraCapabilityGuide(state: CaptureUiState) {
+    if (state.cameraPhase == CameraPhase.STARTING) {
+        Text("Checking camera controls…")
+        return
+    }
+
+    val capabilities = state.capabilities
+    val zoomRange = capabilities.zoomRatioRange
+    val zoomAvailable = zoomRange.start.isFinite() && zoomRange.endInclusive.isFinite() &&
+        zoomRange.endInclusive - zoomRange.start >= .01f
+    val whiteBalanceModes = listOf(
+        WhiteBalancePreset.AUTO to "Auto",
+        WhiteBalancePreset.WARMER to "Warmer",
+        WhiteBalancePreset.COOLER to "Cooler",
+    ).filter { it.first in capabilities.supportedWhiteBalancePresets }
+    val colorAvailable = whiteBalanceModes.any { it.first != WhiteBalancePreset.AUTO }
+
+    CapabilityStatus("Brightness", capabilities.supportsExposureCompensation)
+    CapabilityStatus("Tap to focus", capabilities.supportsFocusMetering)
+    Text(
+        if (zoomAvailable) {
+            "Digital zoom · Available · %.1f×–%.1f×".format(
+                java.util.Locale.US,
+                zoomRange.start,
+                zoomRange.endInclusive,
+            )
+        } else {
+            "Digital zoom · Unavailable on this camera"
+        },
+    )
+    Text(
+        when {
+            colorAvailable -> "White balance · Available · ${whiteBalanceModes.joinToString { it.second }}"
+            whiteBalanceModes.isNotEmpty() -> "White balance · Auto only · Warmer/Cooler unavailable"
+            else -> "White balance · Unavailable on this camera"
+        },
+    )
+    Text("Level and movement · Guidance only; the app cannot move the phone")
+    Text("ISO and shutter speed · Not adjustable in this version; phone support varies")
+    Text("Exact color temperature (Kelvin) · Not adjustable; available native presets are used instead")
+}
+
+@Composable
+private fun CapabilityStatus(name: String, available: Boolean) {
+    Text("$name · ${if (available) "Available" else "Unavailable on this camera"}")
+}
+
+@Composable
+private fun CameraTechnicalDetails() {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        GuideTopic(
+            "Exposure compensation (EV)",
+            "EV asks Auto exposure for a brighter or darker whole photo. Positive EV is brighter; negative EV is darker. The camera still chooses ISO and shutter speed.",
+        )
+        GuideTopic(
+            "Focus and blur",
+            "Focus chooses the distance that should look sharp. Tap-to-focus cannot fix blur caused by subject movement or camera shake.",
+        )
+        GuideTopic(
+            "Digital zoom",
+            "Digital zoom crops and enlarges the image. It does not move the camera or change perspective, and higher zoom can reduce detail.",
+        )
+        GuideTopic(
+            "White balance and color temperature",
+            "White balance compensates for the color of the light. Warmer reduces a blue cast; Cooler reduces a yellow or orange cast. Photo Helper uses native presets, not an exact Kelvin value.",
+        )
+        GuideTopic(
+            "ISO",
+            "At the same shutter speed, higher ISO records a brighter image but usually adds noise and reduces highlight headroom. Photo Helper does not adjust ISO in this version.",
+        )
+        GuideTopic(
+            "Shutter speed",
+            "A shorter exposure freezes movement but gathers less light. A longer exposure gathers more light but can blur motion or camera shake. Photo Helper does not adjust shutter speed in this version.",
+        )
+        Text(
+            "Safe manual exposure requires ISO and shutter speed to be controlled together with Auto exposure off, then restored to Auto. Photo Helper will not offer that control until the full transaction is qualified.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        GuideTopic(
+            "Level, distance, and angle",
+            "Level measures camera roll. Moving the phone changes perspective; tilting changes framing. These are guidance, not camera settings, and appear only when the needed sensor or subject is available.",
+        )
+    }
+}
+
+@Composable
+private fun GuideTopic(title: String, detail: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
+        Text(detail, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

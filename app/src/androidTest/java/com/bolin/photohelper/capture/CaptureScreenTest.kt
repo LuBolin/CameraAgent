@@ -563,6 +563,98 @@ class CaptureScreenTest {
     }
 
     @Test
+    fun guideOpensExplainsCoreControlsAndCloses() {
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(state = readyState())
+            }
+        }
+
+        compose.onNodeWithContentDescription("Open Photo Helper guide")
+            .assertIsDisplayed()
+            .assert(hasClickAction())
+            .performClick()
+        compose.onNodeWithText("Photo Helper guide").assertIsDisplayed()
+        compose.onNodeWithText("What you can ask")
+            .assertIsDisplayed()
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
+        compose.onNodeWithText("Brightness").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Focus").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Zoom").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Color").assertExists()
+        compose.onNodeWithText("Close").performScrollTo().performClick()
+        compose.onNodeWithText("Photo Helper guide").assertDoesNotExist()
+    }
+
+    @Test
+    fun guideReportsActiveCameraCapabilitiesAndCollapsesTechnicalDetails() {
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState().copy(
+                        capabilities = CameraCapabilities(
+                            exposureCompensationRange = -6..6,
+                            exposureCompensationStepEv = 1f / 3f,
+                            zoomRatioRange = 1f..4f,
+                            supportedWhiteBalancePresets = setOf(WhiteBalancePreset.AUTO, WhiteBalancePreset.WARMER),
+                            supportsFocusMetering = false,
+                        ),
+                    ),
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("Open Photo Helper guide").performClick()
+        compose.onNodeWithText("On this camera")
+            .assertExists()
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
+        compose.onNodeWithText("Brightness · Available").assertExists()
+        compose.onNodeWithText("Tap to focus · Unavailable on this camera").assertExists()
+        compose.onNodeWithText("Digital zoom · Available · 1.0×–4.0×").assertExists()
+        compose.onNodeWithText("White balance · Available · Auto, Warmer").assertExists()
+        compose.onNodeWithText("ISO and shutter speed · Not adjustable in this version; phone support varies").assertExists()
+        compose.onNodeWithText("Exact color temperature (Kelvin) · Not adjustable; available native presets are used instead").assertExists()
+        compose.onNodeWithText("ISO").assertDoesNotExist()
+
+        compose.onNodeWithText("Camera technical details · Show")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Collapsed"))
+            .performScrollTo()
+            .performClick()
+        compose.onNodeWithText("Exposure compensation (EV)").performScrollTo().assertExists()
+        compose.onNodeWithText("ISO").performScrollTo().assertExists()
+        compose.onNodeWithText("Shutter speed").performScrollTo().assertExists()
+
+        compose.onNodeWithText("Camera technical details · Hide")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Expanded"))
+            .performScrollTo()
+            .performClick()
+        compose.onNodeWithText("ISO").assertDoesNotExist()
+    }
+
+    @Test
+    fun guideRemainsUsableAtLargeTextWhileCameraCapabilitiesLoad() {
+        val portrait = Configuration().apply { orientation = Configuration.ORIENTATION_PORTRAIT }
+        compose.setContent {
+            val systemDensity = LocalDensity.current
+            CompositionLocalProvider(
+                LocalConfiguration provides portrait,
+                LocalDensity provides Density(systemDensity.density, fontScale = 2f),
+            ) {
+                PhotoHelperTheme {
+                    CaptureScreen(state = readyState(cameraPhase = CameraPhase.STARTING))
+                }
+            }
+        }
+
+        compose.onNodeWithContentDescription("Open Photo Helper guide").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Checking camera controls…").assertExists()
+        compose.onNodeWithText("Camera technical details · Show").performScrollTo().performClick()
+        compose.onNodeWithText("Shutter speed").performScrollTo().assertExists()
+        compose.onNodeWithText("Close").performScrollTo().performClick()
+        compose.onNodeWithText("Photo Helper guide").assertDoesNotExist()
+    }
+
+    @Test
     fun settingsMasksAndGatesVisualAiKey() {
         val key = mutableStateOf("")
         var tested = false

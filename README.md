@@ -2,6 +2,8 @@
 
 An Android camera coach that measures a live CameraX feed locally, suggests one concrete change, applies supported exposure, digital-zoom, or device-qualified white-balance changes with one confirmation tap, shows a user-selected tap-to-focus marker, guides physical camera movement, and verifies the result. Generic focus never requires a face. Optional strict Qwen semantic and visual interpretation through Alibaba Cloud Model Studio stays disabled until a user supplies and tests a demo API key.
 
+The **?** control beside **Settings** opens a scrollable, capability-aware guide. It gives example requests, reports which exposure, tap-focus, digital-zoom, and native white-balance controls the active camera exposes, separates guidance from camera settings, and expands into plain-language camera terms. ISO and shutter speed are identified as not adjustable in this version, while exact Kelvin control is represented only by native presets the active camera actually exposes.
+
 ## Build and test
 
 Requirements: JDK 17 and Android SDK 34.
@@ -30,10 +32,10 @@ The stage page starts with the required neutral portrait and hides its controls;
 ## Verification status
 
 - JVM: 131 tests pass with 0 failures, 0 errors, and 0 skips.
-- API 34 emulator: all 40 instrumentation tests pass, including strict complaint contracts, MediaStore capture/decode, EV apply/reset, focus metering, focus-target UI, deterministic TalkBack traversal, encrypted key storage, stalled-camera recovery, blocked-camera Retry, atomic Capture Review navigation, microphone error semantics, 512-character key bounding, and 200% font sizing for both Shutter and guidance Cancel.
+- API 34 emulator: all 43 instrumentation tests pass, including strict complaint contracts, MediaStore capture/decode, EV apply/reset, focus metering, focus-target UI, the capability-aware guide's open/close flow, active-camera status reporting, collapsed/expanded technical-detail semantics, deterministic TalkBack traversal, encrypted key storage, stalled-camera recovery, blocked-camera Retry, atomic Capture Review navigation, microphone error semantics, 512-character key bounding, and 200% text usability for Shutter, guidance Cancel, and the guide while controls load.
 - API 34 system integration: a clean install exercised the real permission dialog, denial recovery, App Info handoff, permission grant on resume, background/foreground camera recovery, and portrait↔landscape rotation; the shutter returned enabled without a camera-blocked state.
-- API 31 AOSP emulator: all 40 instrumentation tests pass, including strict virtual-camera capture/decode.
-- UI inspection on API 31, API 34, and the physical phone found no clipping. Android lint passes with 0 errors and 11 warnings.
+- API 31 AOSP emulator: all 43 instrumentation tests pass, including strict virtual-camera capture/decode and the capability-aware guide coverage above.
+- Fresh UI inspection of the guide and existing camera flows on API 31, API 34, and the physical phone found no clipping. Android lint passes with 0 errors and 11 warnings.
 - The OnePlus CPH2411/API 35 passed all six physical CameraX tests, including the typed zoom comment → Apply → verify → Reset chain and generic tap-to-focus. Separate qualifications passed five warmer, five cooler, and ten white-balance resets, plus five zoom cycles and adjusted-still telemetry.
 - Typed and injected voice-result paths reach the same safe intent chain. The secondary-display speaker also reached the phone microphone, and the phone's captured audio was intelligible and transcribed locally. Android's on-device and standard recognition providers detected the synthetic and human speech samples but returned no hypothesis, so the acoustic on-device speech-to-text gate is not green on this device/provider combination.
 - ISO and shutter time remain observe-only; the app does not expose them until coupled manual exposure passes its apply, still-metadata, and Auto-reset gate.
