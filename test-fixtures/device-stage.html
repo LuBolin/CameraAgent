@@ -21,6 +21,9 @@
     <img alt="Neutral portrait camera target" src="neutral-portrait.png">
   </main>
   <script>
+    // The acceptance runner is the only authority allowed to start playback.
+    // Cancel anything left queued by an older fixture tab before arming this page.
+    speechSynthesis.cancel();
     const targets = [
       ["Neutral portrait", "neutral-portrait.png"],
       ["Cold scene", "cold-blue-scene.png"],
@@ -42,7 +45,30 @@
       };
       nav.append(button);
     });
+    const voiceButton = document.createElement("button");
+    voiceButton.textContent = "V · Speak compound";
+    voiceButton.title = "Say: Make the picture brighter and zoom in";
+    voiceButton.onclick = () => {
+      speechSynthesis.cancel();
+      document.title = "Photo Helper device target · queued";
+      const utterance = new SpeechSynthesisUtterance("Make the picture brighter and zoom in.");
+      utterance.lang = "en-US";
+      utterance.rate = 0.85;
+      utterance.volume = 1;
+      utterance.voice = speechSynthesis.getVoices().find(
+        (voice) => voice.localService && voice.lang.toLowerCase().startsWith("en"),
+      ) || null;
+      utterance.onstart = () => { document.title = "Photo Helper device target · speaking"; };
+      utterance.onend = () => { document.title = "Photo Helper device target · spoken"; };
+      utterance.onerror = () => { document.title = "Photo Helper device target · speech error"; };
+      speechSynthesis.speak(utterance);
+    };
+    nav.append(voiceButton);
     addEventListener("keydown", (event) => {
+      if (event.key.toLowerCase() === "v") {
+        voiceButton.click();
+        return;
+      }
       const index = Number(event.key) - 1;
       if (targets[index]) nav.children[index].click();
     });

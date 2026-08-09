@@ -9,7 +9,8 @@ sealed interface VoiceResult {
 }
 interface VoiceIo : AutoCloseable {
     fun isOnDeviceRecognitionAvailable(): Boolean
-    suspend fun listenOnce(locale: Locale = Locale.US): VoiceResult
+    suspend fun listenOnce(locale: Locale = Locale.getDefault()): VoiceResult
+    fun finishListening()
     fun speak(text: String, utteranceId: String)
     fun stop()
 }

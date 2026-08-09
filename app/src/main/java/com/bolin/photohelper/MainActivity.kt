@@ -145,7 +145,7 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
         onSubmitComment = { viewModel.submitComment() },
         onMicrophone = {
             when {
-                state.coachingPhase == com.bolin.photohelper.capture.CoachingPhase.LISTENING -> viewModel.cancelCoaching()
+                state.coachingPhase == com.bolin.photohelper.capture.CoachingPhase.LISTENING -> viewModel.finishVoiceInput()
                 !viewModel.isVoiceInputAvailable() -> viewModel.reportVoiceUnavailable()
                 state.microphonePermission == PermissionState.GRANTED -> viewModel.startVoiceInput()
                 state.microphonePermission == PermissionState.DENIED -> startActivity(

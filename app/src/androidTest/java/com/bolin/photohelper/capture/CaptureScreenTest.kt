@@ -773,10 +773,10 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithContentDescription("Stop listening")
+        compose.onNodeWithContentDescription("Finish voice comment")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Listening"))
             .assert(hasClickAction())
-        compose.onNodeWithText("Stop").assertIsDisplayed()
+        compose.onNodeWithText("Done").assertIsDisplayed()
         compose.onNodeWithContentDescription("Take photo").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithTag(CaptureTestTags.PREVIEW).assertIsDisplayed()
     }

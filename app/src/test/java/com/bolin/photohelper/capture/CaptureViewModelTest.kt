@@ -1260,6 +1260,37 @@ class CaptureViewModelTest {
     }
 
     @Test
+    fun `finishing voice input requests a final result without cancelling it`() = runTest(dispatcher) {
+        val result = CompletableDeferred<VoiceResult>()
+        val voice = FakeVoice(available = true, result = { result.await() })
+        val camera = FakeCamera(observation(zoomRatio = 1f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 1f)
+        }
+        val viewModel = viewModel(camera, voice = voice)
+        viewModel.refreshPermissions(cameraGranted = true, microphoneGranted = true)
+
+        viewModel.startVoiceInput()
+        runCurrent()
+        val stopCallsWhileListening = voice.stopCalls
+
+        viewModel.finishVoiceInput()
+
+        assertEquals(1, voice.finishListeningCalls)
+        assertEquals(stopCallsWhileListening, voice.stopCalls)
+        assertEquals(CoachingPhase.LISTENING, viewModel.uiState.value.coachingPhase)
+
+        result.complete(VoiceResult.Heard("make it brighter and zoom in"))
+        runCurrent()
+
+        assertEquals(CoachingPhase.RECOMMENDATION, viewModel.uiState.value.coachingPhase)
+        assertEquals(
+            2,
+            (viewModel.uiState.value.recommendation?.action as com.bolin.photohelper.coach.RecommendationAction.ApplySettings).changes.size,
+        )
+    }
+
+    @Test
     fun `voice failure keeps typed fallback and shutter available`() = runTest(dispatcher) {
         val voice = FakeVoice(
             available = true,
@@ -1273,6 +1304,29 @@ class CaptureViewModelTest {
 
         assertEquals(CoachingPhase.TRANSIENT_ERROR, viewModel.uiState.value.coachingPhase)
         assertEquals("I didn’t catch that", viewModel.uiState.value.transientMessage)
+        assertTrue(viewModel.uiState.value.shutterEnabled)
+    }
+
+    @Test
+    fun `stalled voice input times out to the typed fallback`() = runTest(dispatcher) {
+        val voice = FakeVoice(available = true, result = { awaitCancellation() })
+        val viewModel = viewModel(FakeCamera(observation()), voice = voice)
+        viewModel.refreshPermissions(cameraGranted = true, microphoneGranted = true)
+
+        viewModel.startVoiceInput()
+        runCurrent()
+        assertEquals(CoachingPhase.LISTENING, viewModel.uiState.value.coachingPhase)
+        val stopCallsWhileListening = voice.stopCalls
+
+        advanceTimeBy(20_000)
+        runCurrent()
+
+        assertEquals(CoachingPhase.TRANSIENT_ERROR, viewModel.uiState.value.coachingPhase)
+        assertEquals(
+            "Voice input timed out. Try again or type your comment.",
+            viewModel.uiState.value.transientMessage,
+        )
+        assertEquals(stopCallsWhileListening + 1, voice.stopCalls)
         assertTrue(viewModel.uiState.value.shutterEnabled)
     }
 
@@ -1759,6 +1813,7 @@ class CaptureViewModelTest {
         private val result: suspend () -> VoiceResult = { VoiceResult.Unavailable("unavailable") },
     ) : VoiceIo {
         var stopCalls = 0
+        var finishListeningCalls = 0
         val spoken = mutableListOf<Pair<String, String>>()
 
         override fun isOnDeviceRecognitionAvailable() = available
@@ -1768,6 +1823,9 @@ class CaptureViewModelTest {
         }
         override fun stop() {
             stopCalls++
+        }
+        override fun finishListening() {
+            finishListeningCalls++
         }
         override fun close() = Unit
     }

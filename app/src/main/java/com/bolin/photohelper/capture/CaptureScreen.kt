@@ -1027,7 +1027,7 @@ private fun CommentComposer(
 ) {
     val canSubmit = comment.isNotBlank() && phase != CoachingPhase.APPLYING
     val micDescription = when (phase) {
-        CoachingPhase.LISTENING -> "Stop listening"
+        CoachingPhase.LISTENING -> "Finish voice comment"
         CoachingPhase.INTERPRETING -> "Voice input processing"
         else -> "Describe shot by voice"
     }
@@ -1068,7 +1068,7 @@ private fun CommentComposer(
                     }
                 },
             contentPadding = PaddingValues(horizontal = 8.dp),
-        ) { Text(if (phase == CoachingPhase.LISTENING) "Stop" else "Mic") }
+        ) { Text(if (phase == CoachingPhase.LISTENING) "Done" else "Mic") }
         Button(
             onClick = onSubmit,
             enabled = canSubmit,

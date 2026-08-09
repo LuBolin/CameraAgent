@@ -40,6 +40,8 @@ enum class Feedback { TICK, SUCCESS, ERROR }
 
 private const val CAPTURE_TIMEOUT_MS = 15_000L
 private const val CAPTURE_TIMEOUT_MESSAGE = "Camera did not finish saving the photo. Try again."
+private const val VOICE_INPUT_TIMEOUT_MS = 20_000L
+private const val VOICE_INPUT_TIMEOUT_MESSAGE = "Voice input timed out. Try again or type your comment."
 private val COMPOUND_SEPARATOR = Regex(
     "[,;]|[.!?]+(?=\\s+\\S)|\\b(and|also|plus|while|but|then)\\b",
     RegexOption.IGNORE_CASE,
@@ -85,6 +87,7 @@ class CaptureViewModel(
     private var guidanceSatisfiedSinceMs: Long? = null
     private var observedSessionId = camera.state.value.sessionId
     private var captureInFlight = false
+    private var voiceFinishRequested = false
     private var settingApplyInFlight = false
     private var resetInFlight = false
     private var restoreSettingAfterApply = false
@@ -347,6 +350,7 @@ class CaptureViewModel(
     fun cancelCoaching(clearDecision: Boolean = true) {
         if (settingApplyInFlight || resetInFlight) return
         cancelJobsOnly()
+        voiceFinishRequested = false
         activeComplaintId = null
         voice.stop()
         guidanceSatisfiedSinceMs = null
@@ -438,9 +442,13 @@ class CaptureViewModel(
             _uiState.value.coachingPhase == CoachingPhase.APPLYING
         ) return
         cancelCoaching(clearDecision = false)
+        voiceFinishRequested = false
         _uiState.update { it.copy(coachingPhase = CoachingPhase.LISTENING, transientMessage = null) }
         operationJob = viewModelScope.launch {
-            when (val result = voice.listenOnce()) {
+            val result = withTimeoutOrNull(VOICE_INPUT_TIMEOUT_MS) { voice.listenOnce() }
+                ?: VoiceResult.Failed(VOICE_INPUT_TIMEOUT_MESSAGE)
+            voiceFinishRequested = false
+            when (result) {
                 is VoiceResult.Heard -> {
                     updateComment(result.text)
                     submitComment(result.text)
@@ -449,6 +457,13 @@ class CaptureViewModel(
                 is VoiceResult.Failed -> failWork(result.message)
             }
         }
+    }
+
+    fun finishVoiceInput() {
+        if (_uiState.value.coachingPhase != CoachingPhase.LISTENING || voiceFinishRequested) return
+        voiceFinishRequested = true
+        voice.finishListening()
+        _uiState.update { it.copy(transientMessage = "Finishing voice input…") }
     }
 
     fun isVoiceInputAvailable(): Boolean = voice.isOnDeviceRecognitionAvailable()

@@ -2,6 +2,7 @@ package com.bolin.photohelper.voice
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.os.Build
 import android.os.Handler
@@ -13,6 +14,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -22,6 +24,7 @@ import kotlin.coroutines.resume
 class AndroidVoiceIo(context: Context) : VoiceIo {
     private val appContext = context.applicationContext
     private var recognizer: SpeechRecognizer? = null
+    private var finishListeningGate: FinishListeningGate? = null
     private var ttsReady = false
     private val tts = TextToSpeech(appContext) { status ->
         if (status == TextToSpeech.SUCCESS) {
@@ -37,7 +40,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
         if (!isOnDeviceRecognitionAvailable()) {
             return@withContext VoiceResult.Unavailable("On-device speech recognition is unavailable. Type your comment instead.")
         }
-        val languageTag = locale.toLanguageTag()
+        val languageTag = preferredEnglishRecognitionLocale(locale).toLanguageTag()
         val recognitionIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
@@ -52,13 +55,29 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                 continuation.resume(VoiceResult.Unavailable("On-device speech recognition could not start. Type your comment instead."))
                 return@suspendCancellableCoroutine
             }
+            finishListeningGate?.close()
+            finishListeningGate = null
             recognizer?.destroy()
             recognizer = speechRecognizer
             var finished = false
+            var maxRmsDb = Float.NEGATIVE_INFINITY
+            val sessionFinishGate = FinishListeningGate {
+                if (!finished && recognizer === speechRecognizer) {
+                    try {
+                        traceVoice("finish_requested")
+                        speechRecognizer.stopListening()
+                    } catch (_: RuntimeException) {
+                        speechRecognizer.cancel()
+                    }
+                }
+            }
+            finishListeningGate = sessionFinishGate
 
             fun finish(result: VoiceResult) {
                 if (finished) return
                 finished = true
+                sessionFinishGate.close()
+                if (finishListeningGate === sessionFinishGate) finishListeningGate = null
                 speechRecognizer.destroy()
                 if (recognizer === speechRecognizer) recognizer = null
                 if (continuation.isActive) continuation.resume(result)
@@ -67,6 +86,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
             fun startListening() {
                 if (finished) return
                 try {
+                    traceVoice("start_requested")
                     speechRecognizer.startListening(recognitionIntent)
                 } catch (_: RuntimeException) {
                     finish(VoiceResult.Failed("On-device speech recognition could not start. Type your comment instead."))
@@ -92,6 +112,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
             speechRecognizer.setRecognitionListener(object : RecognitionListener {
                 override fun onResults(results: Bundle) {
                     val text = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()
+                    traceVoice("results count=${results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.size ?: 0} nonEmpty=${!text.isNullOrEmpty()} maxRmsDb=$maxRmsDb")
                     finish(
                         if (text.isNullOrEmpty()) {
                             VoiceResult.Failed("I didn’t catch that")
@@ -102,6 +123,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                 }
 
                 override fun onError(error: Int) {
+                    traceVoice("error code=$error maxRmsDb=$maxRmsDb")
                     when (error) {
                         SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> requestModelDownload()
                         SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> finish(
@@ -115,19 +137,35 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                     }
                 }
 
-                override fun onReadyForSpeech(params: Bundle?) = Unit
-                override fun onBeginningOfSpeech() = Unit
-                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onReadyForSpeech(params: Bundle?) {
+                    traceVoice("ready")
+                    sessionFinishGate.onReady()
+                }
+                override fun onBeginningOfSpeech() {
+                    traceVoice("speech_begin")
+                }
+                override fun onRmsChanged(rmsdB: Float) {
+                    if (rmsdB.isFinite() && rmsdB > maxRmsDb) maxRmsDb = rmsdB
+                }
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
-                override fun onEndOfSpeech() = Unit
+                override fun onEndOfSpeech() {
+                    traceVoice("speech_end maxRmsDb=$maxRmsDb")
+                    sessionFinishGate.close()
+                }
                 override fun onPartialResults(partialResults: Bundle?) = Unit
                 override fun onEvent(eventType: Int, params: Bundle?) = Unit
             })
             continuation.invokeOnCancellation {
-                finished = true
-                speechRecognizer.cancel()
-                speechRecognizer.destroy()
-                if (recognizer === speechRecognizer) recognizer = null
+                runOnMain {
+                    if (!finished) {
+                        finished = true
+                        sessionFinishGate.close()
+                        if (finishListeningGate === sessionFinishGate) finishListeningGate = null
+                        speechRecognizer.cancel()
+                        speechRecognizer.destroy()
+                        if (recognizer === speechRecognizer) recognizer = null
+                    }
+                }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 try {
@@ -182,15 +220,29 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
         }
     }
 
+    override fun finishListening() {
+        runOnMain {
+            finishListeningGate?.request()
+        }
+    }
+
     override fun stop() {
-        recognizer?.cancel()
-        tts.stop()
+        runOnMain {
+            finishListeningGate?.close()
+            finishListeningGate = null
+            recognizer?.cancel()
+            tts.stop()
+        }
     }
 
     override fun close() {
-        recognizer?.destroy()
-        recognizer = null
-        tts.shutdown()
+        runOnMain {
+            finishListeningGate?.close()
+            finishListeningGate = null
+            recognizer?.destroy()
+            recognizer = null
+            tts.shutdown()
+        }
     }
 
     private fun selectOfflineVoice() {
@@ -199,9 +251,52 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
             ?.maxByOrNull { it.quality }
         if (voice != null) tts.voice = voice
     }
+
+    private fun traceVoice(message: String) {
+        if (appContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            Log.i("PhotoHelperVoice", message)
+        }
+    }
+
+    private fun runOnMain(action: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) action()
+        else Handler(Looper.getMainLooper()).post { action() }
+    }
+}
+
+internal class FinishListeningGate(private val dispatch: () -> Unit) {
+    private var requested = false
+    private var ready = false
+    private var dispatched = false
+    private var closed = false
+
+    fun request() {
+        if (closed) return
+        requested = true
+        dispatchIfReady()
+    }
+
+    fun onReady() {
+        if (closed) return
+        ready = true
+        dispatchIfReady()
+    }
+
+    fun close() {
+        closed = true
+    }
+
+    private fun dispatchIfReady() {
+        if (!requested || !ready || dispatched || closed) return
+        dispatched = true
+        dispatch()
+    }
 }
 
 internal enum class OnDeviceLanguageState { INSTALLED, PENDING, DOWNLOADABLE, UNSUPPORTED }
+
+internal fun preferredEnglishRecognitionLocale(deviceLocale: Locale): Locale =
+    deviceLocale.takeIf { it.language.equals(Locale.ENGLISH.language, ignoreCase = true) } ?: Locale.US
 
 internal fun normalizeVoiceComplaint(text: String): String {
     val trimmed = text.trim()
