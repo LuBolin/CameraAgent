@@ -9,6 +9,7 @@ param(
     [string] $PlaybackFile,
     [string] $ExpectedTranscript,
     [ValidateRange(250, 5000)] [int] $ReadyGuardMilliseconds = 750,
+    [switch] $ReuseInstalledApks,
     [switch] $KeepTestPackage
 )
 
@@ -399,9 +400,40 @@ try {
     $null = Invoke-Adb -Arguments @(
         "-s", $device.Serial, "shell", "settings", "put", "global", "stay_on_while_plugged_in", ($originalStayAwake -bor 2).ToString()
     )
-    $null = Invoke-Adb -Arguments @("-s", $device.Serial, "uninstall", "com.bolin.photohelper.test") -AllowFailure
-    $null = Invoke-Adb -Arguments @("-s", $device.Serial, "install", "-r", "-t", $appApk) -TimeoutSeconds 180
-    $null = Invoke-Adb -Arguments @("-s", $device.Serial, "install", "-r", "-t", $testApk) -TimeoutSeconds 180
+    if ($ReuseInstalledApks) {
+        foreach ($installed in @(
+            @{ Package = "com.bolin.photohelper"; LocalPath = $appApk },
+            @{ Package = "com.bolin.photohelper.test"; LocalPath = $testApk }
+        )) {
+            $packagePathText = (Invoke-Adb -Arguments @(
+                "-s", $device.Serial, "shell", "pm", "path", $installed.Package
+            )).Text
+            if ($packagePathText -notmatch "(?m)^package:(.+)$") {
+                throw "Installed package $($installed.Package) has no readable base APK."
+            }
+            $installedPath = $Matches[1].Trim()
+            $installedHashText = (Invoke-Adb -Arguments @(
+                "-s", $device.Serial, "shell", "sha256sum", $installedPath
+            )).Text
+            $installedHash = ($installedHashText -split "\s+", 2)[0].ToUpperInvariant()
+            $localHash = (Get-FileHash -LiteralPath $installed.LocalPath -Algorithm SHA256).Hash
+            if ($installedHash -ne $localHash) {
+                throw "Installed package $($installed.Package) does not match the current APK."
+            }
+        }
+    } else {
+        $null = Invoke-Adb -Arguments @("-s", $device.Serial, "uninstall", "com.bolin.photohelper.test") -AllowFailure
+        $remoteAppApk = "/data/local/tmp/photohelper-$voiceRunId-app.apk"
+        $remoteTestApk = "/data/local/tmp/photohelper-$voiceRunId-test.apk"
+        try {
+            $null = Invoke-Adb -Arguments @("-s", $device.Serial, "push", $appApk, $remoteAppApk) -TimeoutSeconds 180
+            $null = Invoke-Adb -Arguments @("-s", $device.Serial, "shell", "pm", "install", "-r", "-t", $remoteAppApk) -TimeoutSeconds 180
+            $null = Invoke-Adb -Arguments @("-s", $device.Serial, "push", $testApk, $remoteTestApk) -TimeoutSeconds 180
+            $null = Invoke-Adb -Arguments @("-s", $device.Serial, "shell", "pm", "install", "-r", "-t", $remoteTestApk) -TimeoutSeconds 180
+        } finally {
+            $null = Invoke-Adb -Arguments @("-s", $device.Serial, "shell", "rm", "-f", $remoteAppApk, $remoteTestApk) -AllowFailure
+        }
+    }
     $null = Invoke-Adb -Arguments @("-s", $device.Serial, "logcat", "-c")
 
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
@@ -441,20 +473,24 @@ try {
     }
     if (-not $listening) { throw "The phone never published the voice playback marker." }
 
-    $recognizerReady = $false
-    $recognizerReadyDeadline = [DateTime]::UtcNow.AddSeconds(8)
-    while ([DateTime]::UtcNow -lt $recognizerReadyDeadline -and -not $instrumentProcess.HasExited) {
+    $captureReady = $false
+    $captureReadyDeadline = [DateTime]::UtcNow.AddSeconds(8)
+    while ([DateTime]::UtcNow -lt $captureReadyDeadline -and -not $instrumentProcess.HasExited) {
         $voiceLog = Invoke-Adb -Arguments @(
             "-s", $device.Serial, "logcat", "-d", "-v", "brief", "-s", "PhotoHelperVoice:I", "*:S"
         ) -AllowFailure -TimeoutSeconds 10
-        if ($voiceLog.Text -match "PhotoHelperVoice.*\bready\b") {
-            $recognizerReady = $true
-            $recognizerReadyAt = Get-Date
+        if ($voiceLog.Text -match "(?m)PhotoHelperVoice\([^)]*\): ready source=APP_PCM_CAPTURE\r?$") {
+            $captureReady = $true
+            $captureReadyAt = Get-Date
+            $captureReadyEvidence = @(
+                $voiceLog.Text -split "\r?\n" |
+                    Where-Object { $_ -match "PhotoHelperVoice\([^)]*\): ready source=APP_PCM_CAPTURE\r?$" }
+            )[-1]
             break
         }
         Start-Sleep -Milliseconds 250
     }
-    if (-not $recognizerReady) { throw "Android never reported that speech recognition was ready." }
+    if (-not $captureReady) { throw "Android never reported that app-owned microphone capture was ready." }
 
     Start-Sleep -Milliseconds $ReadyGuardMilliseconds
     $playbackTriggeredAt = Get-Date
@@ -510,14 +546,39 @@ true
     $voiceTrace = (Invoke-Adb -Arguments @(
         "-s", $device.Serial, "logcat", "-d", "-v", "time", "-s", "PhotoHelperVoice:I", "*:S"
     ) -AllowFailure -TimeoutSeconds 10).Text
-    $requiredVoiceMarker = if ($ExpectedTranscript) {
-        "VOICE_GATE transcript=EXPECTED_CONTROL source=EDGE_SECONDARY_DISPLAY"
+    $requiredVoiceMarkers = if ($ExpectedTranscript) {
+        @("VOICE_GATE transcript=EXPECTED_CONTROL source=EDGE_SECONDARY_DISPLAY")
     } else {
-        "VOICE_GATE chain=EDGE_SPEAKER>PHONE_MIC>ON_DEVICE_STT>COMPOUND>APPLY_BOTH>VERIFY_SETPOINTS>RESET"
+        @(
+            "VOICE_GATE chain=EDGE_SPEAKER>PHONE_MIC>APP_PCM_CAPTURE>PFD_ON_DEVICE_STT>COMPOUND>APPLY_BOTH>VERIFY_SETPOINTS>RESET",
+            "VOICE_GATE silence=NO_TRANSCRIPT stale_buffer=false camera_unchanged=true"
+        )
     }
+    $captureReadyCount = ([regex]::Matches(
+        $voiceTrace,
+        "(?m)PhotoHelperVoice\([^)]*\): ready source=APP_PCM_CAPTURE\r?$"
+    )).Count
+    $finishRequestedCount = ([regex]::Matches(
+        $voiceTrace,
+        "(?m)PhotoHelperVoice\([^)]*\): finish_requested source=APP_PCM_CAPTURE\r?$"
+    )).Count
+    $captureCompleteCount = ([regex]::Matches(
+        $voiceTrace,
+        "(?m)PhotoHelperVoice\([^)]*\): capture_complete speech=(?:true|false)\r?$"
+    )).Count
+    $voiceTracePassed = $ExpectedTranscript -or (
+        $captureReady -and
+        $captureReadyCount -ge 1 -and
+        $finishRequestedCount -eq 2 -and
+        $captureCompleteCount -eq 2 -and
+        $voiceTrace -match "capture_complete speech=true" -and
+        $voiceTrace -match "decode_ready source=APP_PCM_CAPTURE" -and
+        $voiceTrace -match "results count=.*nonEmpty=true"
+    )
     $passed = $instrumentProcess.ExitCode -eq 0 -and
         $instrumentText -match "OK \(1 test\)" -and
-        $instrumentText.Contains($requiredVoiceMarker) -and
+        @($requiredVoiceMarkers | Where-Object { -not $instrumentText.Contains($_) }).Count -eq 0 -and
+        $voiceTracePassed -and
         $instrumentText -notmatch "FAILURES!!!|INSTRUMENTATION_FAILED"
     if (-not $passed) {
         $failure = if ($ExpectedTranscript) {
@@ -531,6 +592,7 @@ true
     $report.Add("Started: $timestamp")
     $report.Add("Device: $((Invoke-Adb -Arguments @('-s', $device.Serial, 'shell', 'getprop', 'ro.product.model')).Text)")
     $report.Add("Serial fingerprint: $serialHash")
+    $report.Add("APK preparation: $(if ($ReuseInstalledApks) { 'installed SHA-256 values verified' } else { 'fresh app/test install' })")
     $report.Add("Display: $($display.DeviceName) $($display.Bounds.Width)x$($display.Bounds.Height) at $($display.Bounds.X),$($display.Bounds.Y)")
     $report.Add("Playback endpoint: $PlaybackEndpointName ($($targetEndpoint.Id))")
     $report.Add("Playback source: $(if ($resolvedPlaybackFile) { $resolvedPlaybackFile } else { 'Edge local speech synthesis' })")
@@ -538,9 +600,10 @@ true
         $report.Add("Playback file SHA-256: $((Get-FileHash -LiteralPath $resolvedPlaybackFile -Algorithm SHA256).Hash)")
     }
     $report.Add("Playback volume during test: 60%")
-    $report.Add("Android recognizer ready before playback: confirmed")
+    $report.Add("Android app-owned microphone capture ready before playback: confirmed")
     $report.Add("Post-ready playback guard: $ReadyGuardMilliseconds ms")
-    $report.Add("Recognizer ready observed (host clock): $($recognizerReadyAt.ToString('o'))")
+    $report.Add("Microphone capture ready observed (host clock): $($captureReadyAt.ToString('o'))")
+    $report.Add("Microphone capture ready evidence: $captureReadyEvidence")
     $report.Add("Playback trigger (host clock): $($playbackTriggeredAt.ToString('o'))")
     $report.Add("Playback complete (host clock): $($playbackCompletedAt.ToString('o'))")
     $report.Add("Recognizer trace (device clock):")
@@ -641,6 +704,6 @@ if (-not $passed) { throw "Voice acoustic acceptance failed. Report: $reportPath
 if ($ExpectedTranscript) {
     Write-Host "PASS: secondary-display speech produced the expected transcript."
 } else {
-    Write-Host "PASS: secondary-display speech reached one compound Apply and Reset."
+    Write-Host "PASS: secondary-display speech reached one compound Apply and Reset; silence reused no audio."
 }
 Write-Host "Report: $reportPath"

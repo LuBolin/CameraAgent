@@ -1289,7 +1289,7 @@ private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
                 "Describe what you want to change. You can combine brightness, zoom, and color in one request; " +
                     "ask for focus or movement separately.",
             )
-            Text("Voice is not always on: tap Mic for one comment. Android may finish automatically, or tap Done when you finish.")
+            Text("Voice is not always on: tap Mic for one comment, then tap Done when you finish.")
             Text(
                 "What you can ask",
                 style = MaterialTheme.typography.titleMedium,

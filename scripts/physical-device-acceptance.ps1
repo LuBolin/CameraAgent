@@ -185,6 +185,8 @@ $originallyAwake = (Read-DeviceValue @("dumpsys", "power")) -match "mWakefulness
 $failure = $null
 $passed = $false
 $stayAwakeChanged = $false
+$remoteAppApk = "/data/local/tmp/photohelper-$timestamp-app.apk"
+$remoteTestApk = "/data/local/tmp/photohelper-$timestamp-test.apk"
 
 Write-Host "Testing $manufacturer $model on Android $android (API $sdk)..."
 try {
@@ -194,8 +196,10 @@ try {
     $stayAwakeChanged = $true
     $null = Invoke-Adb -AdbArguments @("-s", $device.Serial, "uninstall", "com.bolin.photohelper.test") -AllowFailure
 
-    $installApp = Invoke-Adb -AdbArguments @("-s", $device.Serial, "install", "-r", "-t", $appApk) -TimeoutSeconds 180
-    $installTest = Invoke-Adb -AdbArguments @("-s", $device.Serial, "install", "-r", "-t", $testApk) -TimeoutSeconds 180
+    $null = Invoke-Adb -AdbArguments @("-s", $device.Serial, "push", $appApk, $remoteAppApk) -TimeoutSeconds 180
+    $installApp = Invoke-Adb -AdbArguments @("-s", $device.Serial, "shell", "pm", "install", "-r", "-t", $remoteAppApk) -TimeoutSeconds 180
+    $null = Invoke-Adb -AdbArguments @("-s", $device.Serial, "push", $testApk, $remoteTestApk) -TimeoutSeconds 180
+    $installTest = Invoke-Adb -AdbArguments @("-s", $device.Serial, "shell", "pm", "install", "-r", "-t", $remoteTestApk) -TimeoutSeconds 180
     $report.Add("Existing app explicitly allowed: $appAlreadyInstalled")
     $report.Add("App install: $($installApp.Lines -join ' ')")
     $report.Add("Test install: $($installTest.Lines -join ' ')")
@@ -226,6 +230,7 @@ try {
 } catch {
     $failure = $_.Exception.Message
 } finally {
+    $null = Invoke-Adb -AdbArguments @("-s", $device.Serial, "shell", "rm", "-f", $remoteAppApk, $remoteTestApk) -AllowFailure
     $null = Invoke-Adb -AdbArguments @("-s", $device.Serial, "shell", "am", "force-stop", "com.bolin.photohelper.test") -AllowFailure
     $null = Invoke-Adb -AdbArguments @("-s", $device.Serial, "shell", "am", "force-stop", "com.bolin.photohelper") -AllowFailure
     $testCleanup = Invoke-Adb -AdbArguments @("-s", $device.Serial, "uninstall", "com.bolin.photohelper.test") -AllowFailure

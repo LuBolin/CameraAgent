@@ -55,9 +55,13 @@
       utterance.lang = "en-US";
       utterance.rate = 0.85;
       utterance.volume = 1;
-      utterance.voice = speechSynthesis.getVoices().find(
-        (voice) => voice.localService && voice.lang.toLowerCase().startsWith("en"),
-      ) || null;
+      const englishVoices = speechSynthesis.getVoices().filter(
+        (voice) => voice.lang.toLowerCase().startsWith("en"),
+      );
+      utterance.voice = englishVoices.find(
+        (voice) => !voice.localService && voice.name.toLowerCase().includes("natural"),
+      ) || englishVoices.find((voice) => !voice.localService) ||
+        englishVoices.find((voice) => voice.localService) || null;
       utterance.onstart = () => { document.title = "Photo Helper device target · speaking"; };
       utterance.onend = () => { document.title = "Photo Helper device target · spoken"; };
       utterance.onerror = () => { document.title = "Photo Helper device target · speech error"; };

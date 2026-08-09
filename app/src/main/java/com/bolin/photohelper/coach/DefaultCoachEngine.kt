@@ -745,12 +745,14 @@ internal fun classifyComplaint(raw: String): IntentClassification {
     val fullTextIntents = buildSet {
         if (text.containsAnyText(
                 "too dark", "too dim", "so dark", "so dim", "underexposed", "shadows gone",
-                "brighten", "make it brighter", "make brighter",
-            ) || text in setOf("dark", "dim", "brighter")
+                "brighten", "make it brighter", "make brighter", "make the picture brighter",
+                "make the photo brighter", "make the image brighter",
+            ) || text in setOf("dark", "dim") || Regex("\\bbrighter\\b").containsMatchIn(text)
         ) add(ControlIntent.EXPOSURE_BRIGHTER)
         if (text.containsAnyText(
                 "too bright", "overexposed", "washed out", "highlights gone", "darken", "make it darker", "make darker",
-            ) || text in setOf("bright", "darker")
+                "make the picture darker", "make the photo darker", "make the image darker",
+            ) || text == "bright" || Regex("\\bdarker\\b").containsMatchIn(text)
         ) add(ControlIntent.EXPOSURE_DARKER)
         if (text.containsAnyText("too zoomed out", "zoom in", "zoom closer")) add(ControlIntent.ZOOM_IN)
         if (text.containsAnyText("too zoomed in", "zoom out", "zoom wider")) add(ControlIntent.ZOOM_OUT)

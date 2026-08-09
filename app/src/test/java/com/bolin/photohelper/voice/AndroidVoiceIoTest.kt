@@ -48,4 +48,17 @@ class AndroidVoiceIoTest {
         assertEquals("two blue lights", normalizeVoiceComplaint("two blue lights"))
         assertEquals("two people", normalizeVoiceComplaint("two people"))
     }
+
+    @Test
+    fun `recognition uses the last partial only when the final result is empty`() {
+        assertEquals(
+            "make the picture brighter and zoom in",
+            selectRecognitionText(emptyList(), " make the picture brighter and zoom in "),
+        )
+        assertEquals(
+            "final wording",
+            selectRecognitionText(listOf(" final wording "), "older partial wording"),
+        )
+        assertEquals(null, selectRecognitionText(emptyList(), "  "))
+    }
 }

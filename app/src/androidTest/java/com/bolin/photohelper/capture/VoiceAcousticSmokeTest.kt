@@ -3,6 +3,7 @@ package com.bolin.photohelper.capture
 import android.Manifest
 import android.app.Instrumentation
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -19,7 +20,9 @@ import com.bolin.photohelper.coach.RecommendationAction
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -77,19 +80,26 @@ class VoiceAcousticSmokeTest {
             reportVoiceGate("VOICE_GATE playback=COMPLETED action=FINISH_LISTENING")
 
             compose.waitUntil(timeoutMillis = 25_000) {
-                viewModel.uiState.value.coachingPhase != CoachingPhase.LISTENING
+                val phase = viewModel.uiState.value.coachingPhase
+                if (expectedTranscript != null) {
+                    phase != CoachingPhase.LISTENING
+                } else {
+                    phase != CoachingPhase.LISTENING &&
+                        phase != CoachingPhase.INTERPRETING &&
+                        phase != CoachingPhase.REQUESTING_VISUAL_INTERPRETATION
+                }
             }
             val state = viewModel.uiState.value
             if (expectedTranscript != null) {
                 assertTrue(
-                    "Expected-transcript acoustic control did not match",
+                    "Expected-transcript acoustic control did not match: actual='${state.comment}'",
                     normalizeTranscript(expectedTranscript) == normalizeTranscript(state.comment),
                 )
                 reportVoiceGate("VOICE_GATE transcript=EXPECTED_CONTROL source=EDGE_SECONDARY_DISPLAY")
                 return
             }
             assertEquals(
-                "Voice did not produce a recommendation: ${state.transientMessage}",
+                "Voice did not produce a recommendation: comment='${state.comment}' message='${state.transientMessage}'",
                 CoachingPhase.RECOMMENDATION,
                 state.coachingPhase,
             )
@@ -106,6 +116,7 @@ class VoiceAcousticSmokeTest {
             assertNotNull("Voice recommendation omitted zoom", zoom)
             assertTrue("Voice recommendation did not brighten", exposure!!.targetIndex > baseline.exposureCompensationIndex)
             assertTrue("Voice recommendation did not zoom in", zoom!!.ratio > baseline.zoomRatio)
+            val recognizedComment = state.comment
 
             compose.onNodeWithText("Apply both").performClick()
             compose.waitUntil(timeoutMillis = 15_000) {
@@ -124,10 +135,33 @@ class VoiceAcousticSmokeTest {
                     abs(telemetry.zoomRatio - baseline.zoomRatio) <= 0.01f
             }
             reportVoiceGate(
-                "VOICE_GATE chain=EDGE_SPEAKER>PHONE_MIC>ON_DEVICE_STT>COMPOUND>APPLY_BOTH>VERIFY_SETPOINTS>RESET " +
+                "VOICE_GATE chain=EDGE_SPEAKER>PHONE_MIC>APP_PCM_CAPTURE>PFD_ON_DEVICE_STT>COMPOUND>" +
+                    "APPLY_BOTH>VERIFY_SETPOINTS>RESET " +
                     "ev=${baseline.exposureCompensationIndex}>${exposure.targetIndex}>${baseline.exposureCompensationIndex} " +
                     "zoom=${baseline.zoomRatio}>${zoom.ratio}>${baseline.zoomRatio}",
             )
+
+            compose.onNodeWithContentDescription("Describe shot by voice").performClick()
+            compose.waitUntil(timeoutMillis = 5_000) {
+                viewModel.uiState.value.coachingPhase == CoachingPhase.LISTENING
+            }
+            SystemClock.sleep(1_500)
+            compose.onNodeWithContentDescription("Finish voice comment").performClick()
+            compose.waitUntil(timeoutMillis = 25_000) {
+                val phase = viewModel.uiState.value.coachingPhase
+                phase != CoachingPhase.LISTENING &&
+                    phase != CoachingPhase.INTERPRETING &&
+                    phase != CoachingPhase.REQUESTING_VISUAL_INTERPRETATION
+            }
+            val silenceState = viewModel.uiState.value
+            assertEquals(CoachingPhase.TRANSIENT_ERROR, silenceState.coachingPhase)
+            assertEquals("I didn’t catch that", silenceState.transientMessage)
+            assertEquals(recognizedComment, silenceState.comment)
+            assertNull(silenceState.recommendation)
+            assertFalse(silenceState.resetAvailable)
+            assertEquals(baseline.exposureCompensationIndex, camera.telemetry.value.exposureCompensationIndex)
+            assertTrue(abs(camera.telemetry.value.zoomRatio - baseline.zoomRatio) <= 0.01f)
+            reportVoiceGate("VOICE_GATE silence=NO_TRANSCRIPT stale_buffer=false camera_unchanged=true")
         } finally {
             playbackMarker.delete()
             playbackCompletedMarker.delete()

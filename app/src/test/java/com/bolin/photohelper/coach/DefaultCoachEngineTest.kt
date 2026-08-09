@@ -76,6 +76,24 @@ class DefaultCoachEngineTest {
             ),
             classifyComplaint("It's too warm, and too zoomed in!"),
         )
+        assertEquals(
+            IntentClassification.Intent(
+                listOf(
+                    ControlIntent.EXPOSURE_BRIGHTER,
+                    ControlIntent.ZOOM_IN,
+                ),
+            ),
+            classifyComplaint("Make the picture brighter and zoom in"),
+        )
+        assertEquals(
+            IntentClassification.Intent(
+                listOf(
+                    ControlIntent.EXPOSURE_BRIGHTER,
+                    ControlIntent.ZOOM_IN,
+                ),
+            ),
+            classifyComplaint("Naked picture brighter and zoom in"),
+        )
     }
 
     @Test

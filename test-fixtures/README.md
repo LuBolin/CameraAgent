@@ -2,7 +2,7 @@
 
 These synthetic, non-sensitive images were created with the built-in image-generation tool for repeatable camera, face-detection, and Qwen smoke tests.
 
-Open `device-stage.html` full-screen to stage any fixture without visible controls; use number keys 1–6 to switch targets or move the pointer to the top edge to reveal the buttons. Press `V` (or use **V · Speak compound**) to make Edge say “Make the picture brighter and zoom in” through the selected Windows output. The acoustic acceptance runner can use that local voice or replay its pinned neural and human controls through the same Edge window and secondary-display speaker.
+Open `device-stage.html` full-screen to stage any fixture without visible controls; use number keys 1–6 to switch targets or move the pointer to the top edge to reveal the buttons. Press `V` (or use **V · Speak compound**) to make Edge say “Make the picture brighter and zoom in” through the selected Windows output. The page prefers an English Edge Natural voice, then another English browser voice. The acoustic acceptance runner can use that default path or replay pinned audio controls through the same Edge window and secondary-display speaker.
 
 - `neutral-portrait.png`: one centered adult at normal distance, neutral gray room, even daylight, neutral white balance, no text or watermark. Use as the face-detection and neutral-color control.
 - `cold-blue-scene.png`: white mug, gray card, paper, and plant under a deliberately strong blue/cyan cast, normal exposure, no text or watermark. With `This looks too cold`, the expected visual hint is `WHITE_BALANCE_WARMER`.
@@ -15,7 +15,9 @@ The Android observation path scales inputs to a 768-pixel long edge and encodes 
 
 ## Physical voice check — 2026-08-09
 
-The reports under `outputs/qa/voice-acoustic/` for runs `20260809-162043`, `20260809-163230`, `20260809-163717`, and the rebuilt real-UI run `20260809-170120` establish the causal order: Android reported the recognizer ready before Edge started playback, and Edge reported playback complete before the runner pressed **Done** for the final transcript. The runner preserved the phone's existing English locale. Local Edge TTS, an Edge neural-TTS recording, and the commit-pinned CMUSphinx-derived human recording all reached the OnePlus microphone and SODA, but this provider returned an empty final result followed by error 7 in every case. The repeatable acoustic speech-to-text gate remains red; typed and injected transcripts cover the downstream intent and camera-control chain.
+The final OnePlus CPH2411/API 35 reports under `outputs/qa/voice-acoustic/` for runs `20260809-185305`, `20260809-185406`, `20260809-190327`, and final-APK run `20260809-191527` are green. In all four, the runner waited for app-owned capture, then Edge spoke “Make the picture brighter and zoom in” through the portrait display's speaker; **Done** completed phone-mic capture, and a local PFD supplied the in-memory PCM to Android's installed on-device recognizer. The usable transcript drove one compound **Apply both**, EV `0 → 4`, zoom `1.00× → 1.25×`, and one Reset to both baselines. A silent second capture in the same app instance produced no transcript or recommendation, reused no prior audio, and changed no camera control in all four runs. The runner preserved the phone's English locale and never persisted or uploaded the captured audio.
+
+The earlier `20260809-162043`, `20260809-163230`, `20260809-163717`, and `20260809-170120` reports remain diagnostic provenance for the superseded recognizer-owned live-microphone route, which returned empty finals/error 7 for local, neural, and human playback. They no longer describe the product gate. Android's optional injected-audio contract still requires qualification on other phones.
 
 ## Live Qwen check — 2026-08-05
 

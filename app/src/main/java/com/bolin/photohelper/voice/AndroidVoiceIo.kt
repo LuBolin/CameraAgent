@@ -1,5 +1,6 @@
 package com.bolin.photohelper.voice
 
+import android.annotation.TargetApi
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -7,6 +8,7 @@ import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.speech.RecognitionListener
 import android.speech.RecognitionSupport
 import android.speech.RecognitionSupportCallback
@@ -16,8 +18,10 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.util.Locale
 import kotlin.coroutines.resume
 
@@ -25,6 +29,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
     private val appContext = context.applicationContext
     private var recognizer: SpeechRecognizer? = null
     private var finishListeningGate: FinishListeningGate? = null
+    private val pcmCapture = PcmCapture()
     private var ttsReady = false
     private val tts = TextToSpeech(appContext) { status ->
         if (status == TextToSpeech.SUCCESS) {
@@ -41,14 +46,44 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
             return@withContext VoiceResult.Unavailable("On-device speech recognition is unavailable. Type your comment instead.")
         }
         val languageTag = preferredEnglishRecognitionLocale(locale).toLanguageTag()
-        val recognitionIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        val supportIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
-        suspendCancellableCoroutine<VoiceResult> { continuation ->
+        val captureResult = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            captureForRecognition()
+        } else {
+            PcmCaptureResult.Unsupported
+        }
+        val capturedPcm = when (captureResult) {
+            is PcmCaptureResult.Ready -> captureResult.pcm
+            PcmCaptureResult.Unsupported -> null
+            PcmCaptureResult.NoSpeech -> return@withContext VoiceResult.Failed("I didn’t catch that")
+            PcmCaptureResult.Failed -> return@withContext VoiceResult.Failed(
+                "Voice input is unavailable. Type your comment instead.",
+            )
+        }
+        var pcmPipe: PcmPipe? = null
+        try {
+            if (capturedPcm != null) {
+                pcmPipe = try {
+                    PcmPipe(capturedPcm.bytes)
+                } catch (_: IOException) {
+                    return@withContext VoiceResult.Failed(
+                        "Voice input is unavailable. Type your comment instead.",
+                    )
+                }
+            }
+            val activePipe = pcmPipe
+            val recognitionIntent = Intent(supportIntent).apply {
+                if (capturedPcm != null && activePipe != null) {
+                    putCapturedAudioSource(capturedPcm, activePipe)
+                }
+            }
+            suspendCancellableCoroutine<VoiceResult> { continuation ->
             val speechRecognizer = try {
                 SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
             } catch (_: RuntimeException) {
@@ -61,23 +96,30 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
             recognizer = speechRecognizer
             var finished = false
             var maxRmsDb = Float.NEGATIVE_INFINITY
-            val sessionFinishGate = FinishListeningGate {
-                if (!finished && recognizer === speechRecognizer) {
-                    try {
-                        traceVoice("finish_requested")
-                        speechRecognizer.stopListening()
-                    } catch (_: RuntimeException) {
-                        speechRecognizer.cancel()
+            var lastPartialText: String? = null
+            val sessionFinishGate = if (capturedPcm == null) {
+                FinishListeningGate {
+                    if (!finished && recognizer === speechRecognizer) {
+                        try {
+                            traceVoice("finish_requested")
+                            speechRecognizer.stopListening()
+                        } catch (_: RuntimeException) {
+                            speechRecognizer.cancel()
+                        }
                     }
                 }
+            } else {
+                null
             }
-            finishListeningGate = sessionFinishGate
+            if (sessionFinishGate != null) finishListeningGate = sessionFinishGate
 
             fun finish(result: VoiceResult) {
                 if (finished) return
                 finished = true
-                sessionFinishGate.close()
-                if (finishListeningGate === sessionFinishGate) finishListeningGate = null
+                sessionFinishGate?.close()
+                if (sessionFinishGate != null && finishListeningGate === sessionFinishGate) {
+                    finishListeningGate = null
+                }
                 speechRecognizer.destroy()
                 if (recognizer === speechRecognizer) recognizer = null
                 if (continuation.isActive) continuation.resume(result)
@@ -88,6 +130,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                 try {
                     traceVoice("start_requested")
                     speechRecognizer.startListening(recognitionIntent)
+                    pcmPipe?.startWriting()
                 } catch (_: RuntimeException) {
                     finish(VoiceResult.Failed("On-device speech recognition could not start. Type your comment instead."))
                 }
@@ -100,7 +143,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                     return
                 }
                 try {
-                    speechRecognizer.triggerModelDownload(recognitionIntent)
+                    speechRecognizer.triggerModelDownload(supportIntent)
                     Handler(Looper.getMainLooper()).post {
                         finish(VoiceResult.Unavailable("Android is preparing the on-device English model. Try the microphone again after the download finishes."))
                     }
@@ -111,8 +154,12 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
 
             speechRecognizer.setRecognitionListener(object : RecognitionListener {
                 override fun onResults(results: Bundle) {
-                    val text = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()
-                    traceVoice("results count=${results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.size ?: 0} nonEmpty=${!text.isNullOrEmpty()} maxRmsDb=$maxRmsDb")
+                    val candidates = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val text = selectRecognitionText(candidates, lastPartialText)
+                    traceVoice(
+                        "results count=${candidates?.size ?: 0} nonEmpty=${!text.isNullOrEmpty()} " +
+                            "partialFallback=${candidates.isNullOrEmpty() && !lastPartialText.isNullOrEmpty()} maxRmsDb=$maxRmsDb",
+                    )
                     finish(
                         if (text.isNullOrEmpty()) {
                             VoiceResult.Failed("I didn’t catch that")
@@ -138,8 +185,8 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                 }
 
                 override fun onReadyForSpeech(params: Bundle?) {
-                    traceVoice("ready")
-                    sessionFinishGate.onReady()
+                    traceVoice(if (capturedPcm == null) "ready source=ANDROID_RECOGNIZER" else "decode_ready source=APP_PCM_CAPTURE")
+                    sessionFinishGate?.onReady()
                 }
                 override fun onBeginningOfSpeech() {
                     traceVoice("speech_begin")
@@ -150,17 +197,26 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
                 override fun onEndOfSpeech() {
                     traceVoice("speech_end maxRmsDb=$maxRmsDb")
-                    sessionFinishGate.close()
+                    sessionFinishGate?.close()
                 }
-                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onPartialResults(partialResults: Bundle?) {
+                    partialResults
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull()
+                        ?.trim()
+                        ?.takeIf(String::isNotEmpty)
+                        ?.let { lastPartialText = it }
+                }
                 override fun onEvent(eventType: Int, params: Bundle?) = Unit
             })
             continuation.invokeOnCancellation {
                 runOnMain {
                     if (!finished) {
                         finished = true
-                        sessionFinishGate.close()
-                        if (finishListeningGate === sessionFinishGate) finishListeningGate = null
+                        sessionFinishGate?.close()
+                        if (sessionFinishGate != null && finishListeningGate === sessionFinishGate) {
+                            finishListeningGate = null
+                        }
                         speechRecognizer.cancel()
                         speechRecognizer.destroy()
                         if (recognizer === speechRecognizer) recognizer = null
@@ -170,7 +226,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 try {
                     speechRecognizer.checkRecognitionSupport(
-                        recognitionIntent,
+                        supportIntent,
                         appContext.mainExecutor,
                         object : RecognitionSupportCallback {
                             override fun onSupportResult(recognitionSupport: RecognitionSupport) {
@@ -211,6 +267,39 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
             } else {
                 startListening()
             }
+            }
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) {
+                if (pcmPipe?.closeAndJoin() == false) traceVoice("pcm_writer_shutdown_timeout")
+            }
+            capturedPcm?.bytes?.fill(0)
+        }
+    }
+
+    private suspend fun captureForRecognition(): PcmCaptureResult {
+        val captureGate = FinishListeningGate {
+            traceVoice("finish_requested source=APP_PCM_CAPTURE")
+            pcmCapture.finish()
+        }
+        finishListeningGate?.close()
+        finishListeningGate = captureGate
+        return try {
+            pcmCapture.capture {
+                traceVoice("ready source=APP_PCM_CAPTURE")
+                captureGate.onReady()
+            }.also { result ->
+                traceVoice(
+                    when (result) {
+                        is PcmCaptureResult.Ready -> "capture_complete speech=true"
+                        PcmCaptureResult.NoSpeech -> "capture_complete speech=false"
+                        PcmCaptureResult.Unsupported -> "capture_unavailable"
+                        PcmCaptureResult.Failed -> "capture_failed"
+                    },
+                )
+            }
+        } finally {
+            captureGate.close()
+            if (finishListeningGate === captureGate) finishListeningGate = null
         }
     }
 
@@ -230,6 +319,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
         runOnMain {
             finishListeningGate?.close()
             finishListeningGate = null
+            pcmCapture.cancel()
             recognizer?.cancel()
             tts.stop()
         }
@@ -239,6 +329,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
         runOnMain {
             finishListeningGate?.close()
             finishListeningGate = null
+            pcmCapture.close()
             recognizer?.destroy()
             recognizer = null
             tts.shutdown()
@@ -261,6 +352,54 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
     private fun runOnMain(action: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) action()
         else Handler(Looper.getMainLooper()).post { action() }
+    }
+}
+
+@TargetApi(Build.VERSION_CODES.TIRAMISU)
+private fun Intent.putCapturedAudioSource(pcm: CapturedPcm, pipe: PcmPipe) {
+    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, pipe.readDescriptor)
+    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, pcm.channelCount)
+    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, pcm.encoding)
+    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, pcm.sampleRate)
+}
+
+private class PcmPipe(private val bytes: ByteArray) {
+    private val descriptors = ParcelFileDescriptor.createPipe()
+    val readDescriptor: ParcelFileDescriptor = descriptors[0]
+    private val writeDescriptor: ParcelFileDescriptor = descriptors[1]
+    private var writer: Thread? = null
+    @Volatile private var closing = false
+
+    @Synchronized
+    fun startWriting() {
+        if (writer != null) return
+        writer = Thread({
+            runCatching {
+                ParcelFileDescriptor.AutoCloseOutputStream(writeDescriptor).use { output ->
+                    var offset = 0
+                    while (!closing && offset < bytes.size) {
+                        val count = minOf(PIPE_WRITE_CHUNK_BYTES, bytes.size - offset)
+                        output.write(bytes, offset, count)
+                        offset += count
+                    }
+                }
+            }
+        }, "photo-helper-pcm-writer").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    fun closeAndJoin(): Boolean {
+        closing = true
+        runCatching { readDescriptor.close() }
+        runCatching { writeDescriptor.close() }
+        writer?.join(3_000)
+        return writer?.isAlive != true
+    }
+
+    private companion object {
+        const val PIPE_WRITE_CHUNK_BYTES = 4_096
     }
 }
 
@@ -306,6 +445,13 @@ internal fun normalizeVoiceComplaint(text: String): String {
         else -> trimmed
     }
 }
+
+internal fun selectRecognitionText(finalCandidates: List<String>?, lastPartialText: String?): String? =
+    finalCandidates
+        ?.firstOrNull()
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?: lastPartialText?.trim()?.takeIf(String::isNotEmpty)
 
 internal fun onDeviceLanguageState(
     requestedLanguageTag: String,

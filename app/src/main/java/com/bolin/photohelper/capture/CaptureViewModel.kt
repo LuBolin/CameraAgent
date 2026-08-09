@@ -479,7 +479,9 @@ class CaptureViewModel(
 
     fun setSpokenGuidance(enabled: Boolean) {
         preferences.setSpokenGuidance(enabled)
-        if (!enabled) voice.stop()
+        if (!enabled) {
+            if (_uiState.value.coachingPhase == CoachingPhase.LISTENING) cancelCoaching() else voice.stop()
+        }
         updateSettings { it.copy(spokenGuidance = enabled) }
     }
 
