@@ -239,6 +239,57 @@ class CaptureViewModelTest {
     }
 
     @Test
+    fun `configured model interprets known wording before local rules`() = runTest(dispatcher) {
+        var modelCalls = 0
+        val camera = FakeCamera(observation(zoomRatio = 1f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 1f)
+        }
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            complaintResult = {
+                modelCalls++
+                ComplaintResult.Available(IntentClassification.Intent(ControlIntent.ZOOM_IN))
+            },
+        )
+
+        viewModel.updateComment("too dark")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(1, modelCalls)
+        assertEquals(
+            CameraAdjustment.ZoomRatio(1.25f),
+            viewModel.uiState.value.recommendation?.action
+                ?.let { it as com.bolin.photohelper.coach.RecommendationAction.ApplySettings }
+                ?.adjustment,
+        )
+    }
+
+    @Test
+    fun `configured model failure preserves the known local recommendation`() = runTest(dispatcher) {
+        var modelCalls = 0
+        val viewModel = viewModel(
+            FakeCamera(observation()),
+            visualEnabled = true,
+            complaintResult = {
+                modelCalls++
+                ComplaintResult.Unavailable
+            },
+        )
+
+        viewModel.updateComment("too dark")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(1, modelCalls)
+        assertTrue(viewModel.uiState.value.decision is LocalDecision.Recommend)
+        assertEquals(CoachingPhase.RECOMMENDATION, viewModel.uiState.value.coachingPhase)
+        assertEquals("AI interpretation unavailable—using local coaching.", viewModel.uiState.value.transientMessage)
+    }
+
+    @Test
     fun `unknown compound wording can use strict model intents then one local atomic plan`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(zoomRatio = 2f)).apply {
             capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
@@ -363,7 +414,7 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `unsafe wording never reaches the hosted classifier`() = runTest(dispatcher) {
+    fun `configured model sees guarded wording before local clarification fallback`() = runTest(dispatcher) {
         var modelCalls = 0
         val viewModel = viewModel(
             FakeCamera(observation()),
@@ -378,7 +429,7 @@ class CaptureViewModelTest {
         viewModel.submitComment()
         runCurrent()
 
-        assertEquals(0, modelCalls)
+        assertEquals(1, modelCalls)
         assertTrue(viewModel.uiState.value.decision is LocalDecision.Clarify)
     }
 
@@ -1351,8 +1402,11 @@ class CaptureViewModelTest {
     fun `key test clears input and storage copies`() = runTest(dispatcher) {
         val input = "secret-key".toCharArray()
         var storageCopy: CharArray? = null
+        val camera = FakeCamera(observation())
+        val preferences = FakePreferences(false)
         val viewModel = viewModel(
-            camera = FakeCamera(observation()),
+            camera = camera,
+            preferences = preferences,
             visualResult = { VisualResult.Available(VisualHint.Intent(VisualIntent.WHITE_BALANCE_WARMER)) },
             saveApiKey = { storageCopy = it },
         )
@@ -1364,6 +1418,9 @@ class CaptureViewModelTest {
         assertTrue(storageCopy!!.all { it == '\u0000' })
         assertFalse(viewModel.uiState.value.settings.testingKey)
         assertTrue(viewModel.uiState.value.settings.keyConfigured)
+        assertTrue(viewModel.uiState.value.settings.visualAiEnabled)
+        assertEquals(listOf(true), preferences.visualAiEnabledWrites)
+        assertTrue(camera.observationImagesEnabled)
     }
 
     @Test

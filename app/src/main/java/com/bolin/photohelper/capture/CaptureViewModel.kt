@@ -207,21 +207,14 @@ class CaptureViewModel(
         }
         operationJob = viewModelScope.launch {
             val input = coachingInput(complaintId, comment)
-            val classification = coach.classifyComplaint(comment)
-            val controlIntents = (classification as? IntentClassification.Intent)?.values.orEmpty()
-            val decision = coach.evaluateLocal(input).withProvenance(input, controlIntents = controlIntents)
+            val decision = coach.evaluateLocal(input).withProvenance(input)
             if (activeComplaintId != complaintId) return@launch
-            val phase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE
-            _uiState.update { it.copy(decision = decision, coachingPhase = phase) }
             val eligibility = (decision as? LocalDecision.Clarify)?.visualEligibility
             val compoundLooking = commentLooksCompound(comment)
             when {
-                compoundLooking && classification == IntentClassification.Unknown &&
-                    decision is LocalDecision.Clarify && canUseVisualAi() ->
-                    requestComplaintIntent(input, decision)
                 eligibility != null && canUseVisualAi() -> requestVisualHint(input, eligibility, decision)
-                classification == IntentClassification.Unknown && decision is LocalDecision.Clarify && canUseVisualAi() ->
-                    requestComplaintIntent(input, decision)
+                canUseVisualAi() -> requestComplaintIntent(input, decision, compoundLooking)
+                else -> publishLocalDecision(decision)
             }
         }
     }
@@ -512,9 +505,18 @@ class CaptureViewModel(
             visualJob?.cancel()
             visualJob = null
             if (_uiState.value.coachingPhase == CoachingPhase.REQUESTING_VISUAL_INTERPRETATION) {
+                val fallback = activeComplaintId?.let { complaintId ->
+                    val input = coachingInput(complaintId, _uiState.value.comment)
+                    coach.evaluateLocal(input).withProvenance(input)
+                }
                 _uiState.update {
                     it.copy(
-                        coachingPhase = CoachingPhase.IDLE,
+                        decision = fallback,
+                        coachingPhase = if (fallback is LocalDecision.Recommend) {
+                            CoachingPhase.RECOMMENDATION
+                        } else {
+                            CoachingPhase.IDLE
+                        },
                         transientMessage = "AI interpretation turned off—using local coaching.",
                     )
                 }
@@ -585,10 +587,13 @@ class CaptureViewModel(
                         runCatching { saveApiKey(storageKey) }
                             .onSuccess {
                                 visualCredentialsRejected = false
+                                preferences.setVisualAiEnabled(true)
+                                camera.setObservationImageEnabled(true)
                                 updateSettings {
                                     it.copy(
+                                        visualAiEnabled = true,
                                         keyConfigured = true,
-                                        keyStatus = "Key tested and saved",
+                                        keyStatus = "Key tested, saved, and enabled",
                                     )
                                 }
                             }
@@ -759,7 +764,11 @@ class CaptureViewModel(
         }
     }
 
-    private fun requestComplaintIntent(originalInput: CoachingInput, fallback: LocalDecision.Clarify) {
+    private fun requestComplaintIntent(
+        originalInput: CoachingInput,
+        fallback: LocalDecision,
+        compoundLooking: Boolean,
+    ) {
         visualJob?.cancel()
         visualJob = viewModelScope.launch {
             _uiState.update { it.copy(coachingPhase = CoachingPhase.REQUESTING_VISUAL_INTERPRETATION) }
@@ -789,9 +798,7 @@ class CaptureViewModel(
                     is ComplaintResult.Available -> when (val classification = result.classification) {
                         is IntentClassification.Intent -> {
                             val freshInput = coachingInput(originalInput.complaintId, originalInput.complaint)
-                            val localCheck = coach.classifyComplaint(originalInput.complaint)
-                            val modelCoversRequest = localCheck == IntentClassification.Unknown &&
-                                (!commentLooksCompound(originalInput.complaint) || classification.values.size > 1)
+                            val modelCoversRequest = !compoundLooking || classification.values.size > 1
                             if (!modelCoversRequest) {
                                 keepVisualFallback(fallback, "AI interpretation did not cover every requested change.")
                                 return@launch
@@ -828,13 +835,20 @@ class CaptureViewModel(
     }
 
     private fun keepVisualFallback(
-        fallback: LocalDecision.Clarify,
+        fallback: LocalDecision,
         message: String = "AI interpretation unavailable—using local coaching.",
     ) = _uiState.update {
         it.copy(
             decision = fallback,
-            coachingPhase = CoachingPhase.IDLE,
+            coachingPhase = if (fallback is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
             transientMessage = message,
+        )
+    }
+
+    private fun publishLocalDecision(decision: LocalDecision) = _uiState.update {
+        it.copy(
+            decision = decision,
+            coachingPhase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
         )
     }
 

@@ -94,8 +94,9 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
         if (it) viewModel.startVoiceInput()
     }
 
-    DisposableEffect(state.settingsOpen) {
-        if (state.settingsOpen) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    val protectsApiKey = state.settingsOpen || state.onboardingStep == 1
+    DisposableEffect(protectsApiKey) {
+        if (protectsApiKey) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
     DisposableEffect(lifecycleOwner) {

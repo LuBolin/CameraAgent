@@ -68,8 +68,10 @@ class CaptureScreenTest {
 
         compose.onNodeWithText("Tell the camera what looks wrong.").assertIsDisplayed()
         compose.onNodeWithText("Continue").performClick()
-        compose.onNodeWithText("You stay in control.").assertIsDisplayed()
-        compose.onNodeWithText("Open camera").performClick()
+        compose.onNodeWithText("Connect Qwen. You stay in control.").assertIsDisplayed()
+        compose.onNodeWithText("Alibaba Cloud Model Studio (Bailian) API key").assertIsDisplayed()
+        compose.onNodeWithText("Photo Helper is designed to use an image-capable LLM.", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Open camera").performScrollTo().performClick()
         compose.runOnIdle { assertTrue(openedCamera) }
     }
 
@@ -431,7 +433,7 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Qwen checking frame…").assertIsDisplayed()
+        compose.onNodeWithText("Qwen interpreting request…").assertIsDisplayed()
         compose.onNodeWithText("Size").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText("Cancel").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle {
@@ -719,9 +721,11 @@ class CaptureScreenTest {
 
         compose.onNodeWithTag(CaptureTestTags.SETTINGS).assertExists()
         compose.onNodeWithText("AI interpretation enabled").assertIsNotEnabled()
-        compose.onNodeWithText("Test key").assertIsNotEnabled()
-        compose.onNodeWithText("Alibaba Cloud Model Studio API key").performScrollTo().performTextInput("disposable-key")
-        compose.onNodeWithText("Test key").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("Test, save & enable").assertIsNotEnabled()
+        compose.onNodeWithText("Alibaba Cloud Model Studio (Bailian) API key")
+            .performScrollTo()
+            .performTextInput("disposable-key")
+        compose.onNodeWithText("Test, save & enable").performScrollTo().assertIsEnabled().performClick()
         compose.onNodeWithText("Haptics").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertTrue(tested)
@@ -742,7 +746,7 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Alibaba Cloud Model Studio API key")
+        compose.onNodeWithText("Alibaba Cloud Model Studio (Bailian) API key")
             .performScrollTo()
             .performTextInput("x".repeat(513))
 
@@ -761,7 +765,7 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Test key").assertIsNotEnabled()
+        compose.onNodeWithText("Test, save & enable").assertIsNotEnabled()
         compose.onNodeWithText("Clear key").assertIsEnabled()
     }
 

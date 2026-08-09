@@ -164,8 +164,14 @@ fun CaptureScreen(
         when {
             state.onboardingStep < 2 -> Onboarding(
                 step = state.onboardingStep,
+                settings = state.settings,
+                apiKeyInput = apiKeyInput,
                 onContinue = onOnboardingContinue,
                 onOpenCamera = onOpenCamera,
+                onApiKeyChanged = onApiKeyChanged,
+                onTestKey = onTestKey,
+                onClearKey = onClearKey,
+                onOpenVisualAiPolicy = onOpenVisualAiPolicy,
             )
 
             state.cameraPermission != PermissionState.GRANTED -> CameraPermission(
@@ -218,14 +224,25 @@ fun CaptureScreen(
 }
 
 @Composable
-private fun Onboarding(step: Int, onContinue: () -> Unit, onOpenCamera: () -> Unit) {
+private fun Onboarding(
+    step: Int,
+    settings: SettingsUiState,
+    apiKeyInput: String,
+    onContinue: () -> Unit,
+    onOpenCamera: () -> Unit,
+    onApiKeyChanged: (String) -> Unit,
+    onTestKey: () -> Unit,
+    onClearKey: () -> Unit,
+    onOpenVisualAiPolicy: () -> Unit,
+) {
     val secondStep = step == 1
     Column(
         modifier = Modifier
             .fillMaxSize()
             .safeDrawingPadding()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         Text(
             text = if (secondStep) "Step 2 of 2" else "Step 1 of 2",
@@ -234,20 +251,33 @@ private fun Onboarding(step: Int, onContinue: () -> Unit, onOpenCamera: () -> Un
         )
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(
-                text = if (secondStep) "You stay in control." else "Tell the camera what looks wrong.",
+                text = if (secondStep) "Connect Qwen. You stay in control." else "Tell the camera what looks wrong.",
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.semantics { heading() },
             )
             Text(
                 text = if (secondStep) {
-                    "Nothing changes until you tap Apply, a focus target, or Start guidance.\n\n" +
-                        "AI interpretation is off until you add your Alibaba Cloud Model Studio key in Settings."
+                    "Photo Helper is designed to use an image-capable LLM. Its prompts and strict response contracts " +
+                        "are tuned for Qwen3.7 Flash; other models may produce different results and are not supported " +
+                        "by this build. Without Qwen, Photo Helper uses a limited local wording fallback. Nothing changes " +
+                        "until you tap Apply, a focus target, or Start guidance."
                 } else {
                     "Photo Helper can adjust supported settings or guide your position."
                 },
                 style = MaterialTheme.typography.bodyLarge,
             )
+            if (secondStep) {
+                Text("Qwen3.7 Flash (2026-07-15) · Alibaba Cloud Model Studio, China (Beijing)")
+                QwenKeySetup(
+                    settings = settings,
+                    apiKeyInput = apiKeyInput,
+                    onApiKeyChanged = onApiKeyChanged,
+                    onTestKey = onTestKey,
+                    onClearKey = onClearKey,
+                    onOpenVisualAiPolicy = onOpenVisualAiPolicy,
+                )
+            }
         }
         Button(
             onClick = if (secondStep) onOpenCamera else onContinue,
@@ -760,7 +790,7 @@ private fun VisualLoading(onCancel: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-            Text("Qwen checking frame…", modifier = Modifier.weight(1f).padding(horizontal = 12.dp), fontWeight = FontWeight.SemiBold)
+            Text("Qwen interpreting request…", modifier = Modifier.weight(1f).padding(horizontal = 12.dp), fontWeight = FontWeight.SemiBold)
             TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) { Text("Cancel") }
         }
     }
@@ -960,7 +990,7 @@ private fun RecommendationContent(
             style = MaterialTheme.typography.bodyMedium,
         )
     }
-    if (recommendation.fromVisualHint) {
+    if (recommendation.fromVisualHint || recommendation.controlIntents.isNotEmpty()) {
         Text(
             "AI-interpreted by Qwen via Alibaba Cloud; camera controls checked on device",
             style = MaterialTheme.typography.labelMedium,
@@ -1477,57 +1507,14 @@ private fun SettingsSheet(
                 onCheckedChange = onVisualAiEnabledChanged,
                 enabled = state.settings.keyConfigured && !state.settings.testingKey,
             )
-            OutlinedTextField(
-                value = apiKeyInput,
-                onValueChange = { onApiKeyChanged(it.take(MAX_API_KEY_CHARACTERS)) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Alibaba Cloud Model Studio API key") },
-                placeholder = {
-                    Text(if (state.settings.keyConfigured) "Saved key is hidden" else "Enter disposable demo key")
-                },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    autoCorrect = false,
-                    keyboardType = KeyboardType.Password,
-                ),
-                singleLine = true,
-                enabled = !state.settings.testingKey,
+            QwenKeySetup(
+                settings = state.settings,
+                apiKeyInput = apiKeyInput,
+                onApiKeyChanged = onApiKeyChanged,
+                onTestKey = onTestKey,
+                onClearKey = onClearKey,
+                onOpenVisualAiPolicy = onOpenVisualAiPolicy,
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    state.settings.keyStatus,
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics { liveRegion = LiveRegionMode.Polite },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (state.settings.testingKey) {
-                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onTestKey,
-                    enabled = !state.settings.testingKey && apiKeyInput.isNotBlank(),
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text("Test key") }
-                OutlinedButton(
-                    onClick = onClearKey,
-                    enabled = !state.settings.testingKey && (apiKeyInput.isNotBlank() || state.settings.keyConfigured),
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text("Clear key") }
-            }
-
-            Text(
-                "When local wording is not understood, Photo Helper may send the typed or transcribed comment to " +
-                    "Alibaba Cloud Model Studio in China (Beijing). For two visual questions it also sends one reduced " +
-                    "live frame or one reduced copy of the saved photo under review. It never sends audio or streams the preview. " +
-                    "Alibaba Cloud may retain request data; see its privacy notice.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            TextButton(onClick = onOpenVisualAiPolicy, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("View Alibaba Cloud privacy notice")
-            }
             Text(
                 "Face detection runs on-device with bundled Google ML Kit. Google documents collection of " +
                     "device/app information and diagnostic usage metrics; camera images and face results are not sent to Google.",
@@ -1543,8 +1530,10 @@ private fun SettingsSheet(
                 }
             }
             Text(
-                "This private demo uses Android on-device speech and face/frame analysis plus Qwen3.7 Flash " +
-                    "through Alibaba Cloud Model Studio for selected visual interpretation. Qwen returns a fixed " +
+                "Photo Helper is designed around an image-capable LLM. This build implements only Qwen3.7 Flash " +
+                    "through Alibaba Cloud Model Studio (Bailian), with prompts and response contracts tuned for that " +
+                    "model. Other models may produce different results and have no implemented provider integration. " +
+                    "Qwen returns a fixed " +
                     "semantic label; camera decisions and verification stay on this phone.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1554,6 +1543,72 @@ private fun SettingsSheet(
             }
             Spacer(Modifier.size(16.dp))
         }
+    }
+}
+
+@Composable
+private fun QwenKeySetup(
+    settings: SettingsUiState,
+    apiKeyInput: String,
+    onApiKeyChanged: (String) -> Unit,
+    onTestKey: () -> Unit,
+    onClearKey: () -> Unit,
+    onOpenVisualAiPolicy: () -> Unit,
+) {
+    OutlinedTextField(
+        value = apiKeyInput,
+        onValueChange = { onApiKeyChanged(it.take(MAX_API_KEY_CHARACTERS)) },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Alibaba Cloud Model Studio (Bailian) API key") },
+        placeholder = {
+            Text(if (settings.keyConfigured) "Saved key is hidden" else "Enter your API key")
+        },
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(
+            autoCorrect = false,
+            keyboardType = KeyboardType.Password,
+        ),
+        singleLine = true,
+        enabled = !settings.testingKey,
+    )
+    Text(
+        "Only an Alibaba Cloud Model Studio (Bailian) API key with access to Qwen3.7 Flash is supported. " +
+            "Keys for other providers or models will not work because their API adapters are not implemented.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            settings.keyStatus,
+            modifier = Modifier
+                .weight(1f)
+                .semantics { liveRegion = LiveRegionMode.Polite },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (settings.testingKey) {
+            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = onTestKey,
+            enabled = !settings.testingKey && apiKeyInput.isNotBlank(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text("Test, save & enable") }
+        OutlinedButton(
+            onClick = onClearKey,
+            enabled = !settings.testingKey && (apiKeyInput.isNotBlank() || settings.keyConfigured),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text("Clear key") }
+    }
+    Text(
+        "When enabled, Photo Helper sends each typed or transcribed comment to Alibaba Cloud Model Studio (Bailian) " +
+            "in China (Beijing). For eligible visual questions it also sends one reduced live frame or one reduced " +
+            "copy of the saved photo under review. It never sends audio or streams the preview. Alibaba Cloud may " +
+            "retain request data; see its privacy notice.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    TextButton(onClick = onOpenVisualAiPolicy, modifier = Modifier.heightIn(min = 48.dp)) {
+        Text("View Alibaba Cloud privacy notice")
     }
 }
 
