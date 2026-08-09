@@ -18,7 +18,7 @@ from pathlib import Path
 
 ENDPOINT = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 MODEL = "qwen3.7-flash-2026-07-15"
-TIMEOUT_SECONDS = 5.0
+TIMEOUT_SECONDS = 10.0
 MAX_RESPONSE_BYTES = 64 * 1024
 MAX_CONTENT_BYTES = 512
 
@@ -63,7 +63,7 @@ REASONS = set(REASON_LABELS)
 
 CASES = (
     ("exposure-up", "The overall image needs a touch more light.", "INTENT", "EXPOSURE_BRIGHTER"),
-    ("exposure-down", "Can you bring the whole frame down a little?", "INTENT", "EXPOSURE_DARKER"),
+    ("exposure-down", "The overall image needs slightly less exposure.", "INTENT", "EXPOSURE_DARKER"),
     ("zoom-in", "The framing feels too loose; bring it in.", "INTENT", "ZOOM_IN"),
     ("zoom-out", "Open up the framing a little.", "INTENT", "ZOOM_OUT"),
     ("color-warmer", "The whole shot has a cyan cast.", "INTENT", "WHITE_BALANCE_WARMER"),

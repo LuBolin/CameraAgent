@@ -30,7 +30,7 @@ class BailianVisualClient internal constructor(
     )
 
     suspend fun interpret(request: VisualRequest, apiKey: CharArray): VisualResult =
-        when (val result = call(apiKey) { buildVisualRequestBody(request) }) {
+        when (val result = call(apiKey, VISUAL_NETWORK_TIMEOUT_MS) { buildVisualRequestBody(request) }) {
             is ProviderCall.Available -> parseVisualResponse(result.response, request.family)
                 ?.let(VisualResult::Available) ?: VisualResult.Unavailable
             ProviderCall.CredentialsRejected -> VisualResult.CredentialsRejected
@@ -38,14 +38,18 @@ class BailianVisualClient internal constructor(
         }
 
     suspend fun classify(request: ComplaintRequest, apiKey: CharArray): ComplaintResult =
-        when (val result = call(apiKey) { buildComplaintRequestBody(request) }) {
+        when (val result = call(apiKey, COMPLAINT_NETWORK_TIMEOUT_MS) { buildComplaintRequestBody(request) }) {
             is ProviderCall.Available -> parseComplaintResponse(result.response)
                 ?.let(ComplaintResult::Available) ?: ComplaintResult.Unavailable
             ProviderCall.CredentialsRejected -> ComplaintResult.CredentialsRejected
             ProviderCall.Unavailable -> ComplaintResult.Unavailable
         }
 
-    private suspend fun call(apiKey: CharArray, buildBody: () -> ByteArray): ProviderCall {
+    private suspend fun call(
+        apiKey: CharArray,
+        timeoutMs: Long,
+        buildBody: () -> ByteArray,
+    ): ProviderCall {
         val authorization = try {
             apiKey.takeIf(::isValidApiKey)?.concatToString()?.let { "Bearer $it" }
         } finally {
@@ -65,9 +69,9 @@ class BailianVisualClient internal constructor(
         }
 
         return try {
-            withTimeout(NETWORK_TIMEOUT_MS) {
+            withTimeout(timeoutMs) {
                 runInterruptible(Dispatchers.IO) {
-                    execute(body, authorization)
+                    execute(body, authorization, timeoutMs)
                 }
             }
         } catch (_: TimeoutCancellationException) {
@@ -82,13 +86,14 @@ class BailianVisualClient internal constructor(
     private fun execute(
         body: ByteArray,
         authorization: String,
+        timeoutMs: Long,
     ): ProviderCall {
         val connection = connectionFactory(URL(BAILIAN_ENDPOINT))
         return try {
             connection.requestMethod = "POST"
             connection.instanceFollowRedirects = false
-            connection.connectTimeout = NETWORK_TIMEOUT_MS.toInt()
-            connection.readTimeout = NETWORK_TIMEOUT_MS.toInt()
+            connection.connectTimeout = timeoutMs.toInt()
+            connection.readTimeout = timeoutMs.toInt()
             connection.doOutput = true
             connection.useCaches = false
             connection.setRequestProperty("Authorization", authorization)
@@ -130,7 +135,8 @@ class BailianVisualClient internal constructor(
     }
 
     private companion object {
-        const val NETWORK_TIMEOUT_MS = 5_000L
+        const val VISUAL_NETWORK_TIMEOUT_MS = 5_000L
+        const val COMPLAINT_NETWORK_TIMEOUT_MS = 10_000L
         const val MAX_HTTP_RESPONSE_BYTES = 64 * 1024
         val PROCESS_CALL_LIMITER = VisualCallLimiter()
     }
