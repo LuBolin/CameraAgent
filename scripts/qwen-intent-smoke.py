@@ -18,7 +18,7 @@ from pathlib import Path
 
 ENDPOINT = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 MODEL = "qwen3.7-flash-2026-07-15"
-TIMEOUT_SECONDS = 10.0
+TIMEOUT_SECONDS = 15.0
 MAX_RESPONSE_BYTES = 64 * 1024
 MAX_CONTENT_BYTES = 512
 
@@ -75,7 +75,7 @@ CASES = (
     ("blur", "It is blurry.", "CLARIFY", "BLUR_TYPE"),
     ("negation", "Do not make it any brighter.", "CLARIFY", "NEGATED_DIRECTION"),
     ("regional", "The face is dark but the window is bright.", "CLARIFY", "REGIONAL_REQUEST"),
-    ("multiple", "Move closer and make it warmer.", "CLARIFY", "MULTIPLE_COMPLAINTS"),
+    ("multiple", "Raise the camera and make the image warmer.", "CLARIFY", "MULTIPLE_COMPLAINTS"),
 )
 
 

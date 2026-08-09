@@ -130,8 +130,8 @@ class VisualContractInstrumentedTest {
             result,
         )
         assertEquals(1, connections)
-        assertEquals(10_000, fakeConnection.connectTimeout)
-        assertEquals(10_000, fakeConnection.readTimeout)
+        assertEquals(15_000, fakeConnection.connectTimeout)
+        assertEquals(15_000, fakeConnection.readTimeout)
         assertTrue(key.all { it == '\u0000' })
         assertFalse(String(fakeConnection.sentBody.toByteArray(), StandardCharsets.UTF_8).contains("disposable-api-key"))
         assertTrue(fakeConnection.disconnected)

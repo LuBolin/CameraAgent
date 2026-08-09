@@ -136,7 +136,7 @@ class BailianVisualClient internal constructor(
 
     private companion object {
         const val VISUAL_NETWORK_TIMEOUT_MS = 5_000L
-        const val COMPLAINT_NETWORK_TIMEOUT_MS = 10_000L
+        const val COMPLAINT_NETWORK_TIMEOUT_MS = 15_000L
         const val MAX_HTTP_RESPONSE_BYTES = 64 * 1024
         val PROCESS_CALL_LIMITER = VisualCallLimiter()
     }
