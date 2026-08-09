@@ -53,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -1269,7 +1270,8 @@ private fun SavedCaptureImage(capture: SavedCapture, modifier: Modifier = Modifi
 @Composable
 private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
     var technicalExpanded by rememberSaveable { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1287,6 +1289,7 @@ private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
                 "Describe what you want to change. You can combine brightness, zoom, and color in one request; " +
                     "ask for focus or movement separately.",
             )
+            Text("Voice is not always on: tap Mic for one comment. Android may finish automatically, or tap Done when you finish.")
             Text(
                 "What you can ask",
                 style = MaterialTheme.typography.titleMedium,
