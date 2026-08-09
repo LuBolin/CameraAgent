@@ -40,6 +40,12 @@ enum class Feedback { TICK, SUCCESS, ERROR }
 
 private const val CAPTURE_TIMEOUT_MS = 15_000L
 private const val CAPTURE_TIMEOUT_MESSAGE = "Camera did not finish saving the photo. Try again."
+private val COMPOUND_SEPARATOR = Regex(
+    "[,;]|[.!?]+(?=\\s+\\S)|\\b(and|also|plus|while|but|then)\\b",
+    RegexOption.IGNORE_CASE,
+)
+
+private fun commentLooksCompound(comment: String): Boolean = COMPOUND_SEPARATOR.containsMatchIn(comment)
 
 class CaptureViewModel(
     internal val camera: CaptureHardware,
@@ -199,13 +205,17 @@ class CaptureViewModel(
         operationJob = viewModelScope.launch {
             val input = coachingInput(complaintId, comment)
             val classification = coach.classifyComplaint(comment)
-            val controlIntent = (classification as? IntentClassification.Intent)?.value
-            val decision = coach.evaluateLocal(input).withProvenance(input, controlIntent = controlIntent)
+            val controlIntents = (classification as? IntentClassification.Intent)?.values.orEmpty()
+            val decision = coach.evaluateLocal(input).withProvenance(input, controlIntents = controlIntents)
             if (activeComplaintId != complaintId) return@launch
             val phase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE
             _uiState.update { it.copy(decision = decision, coachingPhase = phase) }
             val eligibility = (decision as? LocalDecision.Clarify)?.visualEligibility
+            val compoundLooking = commentLooksCompound(comment)
             when {
+                compoundLooking && classification == IntentClassification.Unknown &&
+                    decision is LocalDecision.Clarify && canUseVisualAi() ->
+                    requestComplaintIntent(input, decision)
                 eligibility != null && canUseVisualAi() -> requestVisualHint(input, eligibility, decision)
                 classification == IntentClassification.Unknown && decision is LocalDecision.Clarify && canUseVisualAi() ->
                     requestComplaintIntent(input, decision)
@@ -224,13 +234,13 @@ class CaptureViewModel(
     fun applyRecommendation() {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
         val recommendation = currentRecommendation() ?: return
-        val action = recommendation.action as? RecommendationAction.ApplySetting ?: return
+        val action = recommendation.action as? RecommendationAction.ApplySettings ?: return
         cancelJobsOnly()
         _uiState.update { it.copy(coachingPhase = CoachingPhase.APPLYING, transientMessage = null) }
         settingApplyInFlight = true
         operationJob = viewModelScope.launch {
             try {
-                val result = camera.apply(action.adjustment)
+                val result = camera.applyAtomically(action.changes.map { it.adjustment })
                 if (restoreSettingAfterApply) {
                     restoreAfterBackground()
                     return@launch
@@ -239,6 +249,21 @@ class CaptureViewModel(
                     ApplyResult.Applied -> {
                         val wasReview = _uiState.value.review != null
                         if (wasReview) camera.setAnalysisPaused(false)
+                        if (action.changes.size > 1) {
+                            _uiState.update {
+                                it.copy(
+                                    review = null,
+                                    cameraPhase = CameraPhase.READY,
+                                    resetAvailable = true,
+                                    retakeSettingsActive = wasReview,
+                                )
+                            }
+                            completeWork(
+                                "${action.changes.size} camera changes applied. Check the shot; Reset restores the previous settings.",
+                                Feedback.TICK,
+                            )
+                            return@launch
+                        }
                         verificationStartObservationId = latestLiveObservation?.id
                         verificationStartedAtMs = nowMs()
                         verificationSatisfiedSamples = 0
@@ -357,7 +382,7 @@ class CaptureViewModel(
                         )
                     }
                     is CaptureResult.Failed -> {
-                        _uiState.update { it.copy(cameraPhase = CameraPhase.READY) }
+                        _uiState.update { it.copy(cameraPhase = camera.state.value.phase) }
                         failWork(result.message)
                     }
                 }
@@ -374,7 +399,7 @@ class CaptureViewModel(
         _uiState.update {
             it.copy(
                 review = null,
-                cameraPhase = CameraPhase.READY,
+                cameraPhase = camera.state.value.phase,
                 comment = "",
                 decision = null,
                 retakeSettingsActive = false,
@@ -748,13 +773,15 @@ class CaptureViewModel(
                         is IntentClassification.Intent -> {
                             val freshInput = coachingInput(originalInput.complaintId, originalInput.complaint)
                             val localCheck = coach.classifyComplaint(originalInput.complaint)
-                            val decision = if (localCheck == IntentClassification.Unknown) {
-                                coach.planIntent(freshInput, classification.value)
-                            } else {
-                                coach.evaluateLocal(freshInput)
-                            }.withProvenance(
+                            val modelCoversRequest = localCheck == IntentClassification.Unknown &&
+                                (!commentLooksCompound(originalInput.complaint) || classification.values.size > 1)
+                            if (!modelCoversRequest) {
+                                keepVisualFallback(fallback, "AI interpretation did not cover every requested change.")
+                                return@launch
+                            }
+                            val decision = coach.planIntents(freshInput, classification.values).withProvenance(
                                 freshInput,
-                                controlIntent = classification.value.takeIf { localCheck == IntentClassification.Unknown },
+                                controlIntents = classification.values,
                             )
                             _uiState.update {
                                 it.copy(
@@ -953,8 +980,8 @@ class CaptureViewModel(
         when {
             (recommendation?.action as? RecommendationAction.GuidePosition)?.target is VerificationTarget.StepBack ->
                 "The face is smaller after the step. Reframe and decide whether the proportions look better."
-            (recommendation?.action as? RecommendationAction.ApplySetting)?.target is VerificationTarget.Zoom -> {
-                val target = (recommendation.action as RecommendationAction.ApplySetting).target as VerificationTarget.Zoom
+            (recommendation?.action as? RecommendationAction.ApplySettings)?.target is VerificationTarget.Zoom -> {
+                val target = (recommendation.action as RecommendationAction.ApplySettings).target as VerificationTarget.Zoom
                 val ratio = String.format(java.util.Locale.US, "%.2f", target.targetRatio).trimEnd('0').trimEnd('.')
                 "Zoom changed to $ratio×. Is the framing closer?"
             }
@@ -1091,7 +1118,7 @@ class CaptureViewModel(
         if (!changed) return recommendation
 
         val decision = when {
-            recommendation.controlIntent != null -> coach.planIntent(currentInput, recommendation.controlIntent)
+            recommendation.controlIntents.isNotEmpty() -> coach.planIntents(currentInput, recommendation.controlIntents)
             recommendation.fromVisualHint && recommendation.visualFamily != null && recommendation.visualHint != null ->
                 coach.continueWithVisualHint(currentInput, recommendation.visualFamily, recommendation.visualHint)
             else -> coach.evaluateLocal(currentInput)
@@ -1099,7 +1126,7 @@ class CaptureViewModel(
             currentInput,
             recommendation.visualFamily,
             recommendation.visualHint,
-            recommendation.controlIntent,
+            recommendation.controlIntents,
         )
         _uiState.update {
             it.copy(
@@ -1130,7 +1157,7 @@ class CaptureViewModel(
         input: CoachingInput,
         visualFamily: VisualFamily? = null,
         visualHint: com.bolin.photohelper.coach.VisualHint? = null,
-        controlIntent: ControlIntent? = null,
+        controlIntents: List<ControlIntent> = emptyList(),
     ): LocalDecision = if (this is LocalDecision.Recommend) {
         copy(
             recommendation = recommendation.copy(
@@ -1140,7 +1167,7 @@ class CaptureViewModel(
                 capabilitiesSnapshot = input.capabilities,
                 telemetrySnapshot = input.telemetry,
                 createdAtMs = nowMs(),
-                controlIntent = controlIntent,
+                controlIntents = controlIntents,
                 visualFamily = visualFamily,
                 visualHint = visualHint,
             ),

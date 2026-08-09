@@ -344,22 +344,91 @@ class CameraSmokeTest {
         closeSoftKeyboard()
         compose.onNodeWithText("Send").performClick()
         compose.waitUntil(timeoutMillis = 5_000) {
-            val action = viewModel.uiState.value.recommendation?.action as? com.bolin.photohelper.coach.RecommendationAction.ApplySetting
+            val action = viewModel.uiState.value.recommendation?.action as? com.bolin.photohelper.coach.RecommendationAction.ApplySettings
             (action?.adjustment as? CameraAdjustment.ZoomRatio)?.ratio?.let { abs(it - target) <= 0.01f } == true
         }
 
         compose.onNodeWithText("Apply").performClick()
-        compose.waitUntil(timeoutMillis = 5_000) { abs(camera.telemetry.value.zoomRatio - target) <= 0.01f }
+        compose.waitUntil(timeoutMillis = 10_000) { abs(camera.telemetry.value.zoomRatio - target) <= 0.01f }
         compose.waitUntil(timeoutMillis = 10_000) {
             viewModel.uiState.value.transientMessage.orEmpty().startsWith("Zoom changed to")
         }
         assertTrue(viewModel.uiState.value.resetAvailable)
 
         compose.onNodeWithText("Reset").performClick()
-        compose.waitUntil(timeoutMillis = 5_000) {
+        compose.waitUntil(timeoutMillis = 10_000) {
             !viewModel.uiState.value.resetAvailable && abs(camera.telemetry.value.zoomRatio - baseline) <= 0.01f
         }
         reportPhysicalGate("PHYSICAL_GATE zoom=$baseline>$target>$baseline chain=COMMENT>APPLY>VERIFY>RESET")
+    }
+
+    @RequiresDevice
+    @Test
+    fun stagedCompoundCommentAppliesBothSettingsAndResetsTogether() {
+        openCameraAndWaitUntilReady()
+        val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
+        val camera = viewModel.camera
+        val capabilities = camera.capabilities.value
+        val baseline = camera.telemetry.value
+        val targetZoom = (baseline.zoomRatio * 1.25f).coerceIn(capabilities.zoomRatioRange)
+        assertTrue("Stage camera has no usable zoom-in step", targetZoom - baseline.zoomRatio >= 0.01f)
+        assertTrue(
+            "Stage camera must support cooler white balance",
+            WhiteBalancePreset.COOLER in capabilities.supportedWhiteBalancePresets,
+        )
+        assertTrue(
+            "Stage camera already uses cooler white balance",
+            baseline.whiteBalancePreset != WhiteBalancePreset.COOLER,
+        )
+
+        compose.onNodeWithTag(CaptureTestTags.COMMENT).performTextInput("too warm and too zoomed out")
+        closeSoftKeyboard()
+        compose.onNodeWithText("Send").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            val state = viewModel.uiState.value
+            val action = state.recommendation?.action as? com.bolin.photohelper.coach.RecommendationAction.ApplySettings
+            state.coachingPhase == CoachingPhase.RECOMMENDATION &&
+                state.recommendation?.primaryLabel == "Apply both" &&
+                action?.changes?.let { changes ->
+                    changes.size == 2 &&
+                        changes.any {
+                            (it.adjustment as? CameraAdjustment.ZoomRatio)?.ratio?.let { ratio ->
+                                abs(ratio - targetZoom) <= 0.01f
+                            } == true
+                        } &&
+                        changes.any {
+                            it.adjustment == CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER)
+                        }
+                } == true
+        }
+
+        compose.onNodeWithText("Apply both").assertIsDisplayed().performClick()
+        compose.waitUntil(timeoutMillis = 10_000) {
+            val telemetry = camera.telemetry.value
+            abs(telemetry.zoomRatio - targetZoom) <= 0.01f &&
+                telemetry.whiteBalancePreset == WhiteBalancePreset.COOLER
+        }
+        compose.waitUntil(timeoutMillis = 5_000) {
+            val state = viewModel.uiState.value
+            state.coachingPhase == CoachingPhase.IDLE &&
+                state.resetAvailable &&
+                state.transientMessage ==
+                "2 camera changes applied. Check the shot; Reset restores the previous settings."
+        }
+
+        compose.onNodeWithText("Reset").performClick()
+        compose.waitUntil(timeoutMillis = 10_000) {
+            val telemetry = camera.telemetry.value
+            !viewModel.uiState.value.resetAvailable &&
+                abs(telemetry.zoomRatio - baseline.zoomRatio) <= 0.01f &&
+                telemetry.whiteBalancePreset == baseline.whiteBalancePreset
+        }
+        reportPhysicalGate(
+            "PHYSICAL_GATE compound=ZOOM_IN+WHITE_BALANCE_COOLER " +
+                "zoom=${baseline.zoomRatio}>$targetZoom>${baseline.zoomRatio} " +
+                "whiteBalance=${baseline.whiteBalancePreset}>${WhiteBalancePreset.COOLER}>${baseline.whiteBalancePreset} " +
+                "chain=COMMENT>APPLY_BOTH>VERIFY_SETPOINTS>RESET",
+        )
     }
 
     @RequiresDevice

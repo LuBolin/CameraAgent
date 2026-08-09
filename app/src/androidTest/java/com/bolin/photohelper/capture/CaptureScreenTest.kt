@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertAll
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -38,6 +39,7 @@ import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.Recommendation
 import com.bolin.photohelper.coach.RecommendationAction
 import com.bolin.photohelper.coach.RecommendationBasis
+import com.bolin.photohelper.coach.SettingChange
 import com.bolin.photohelper.coach.VerificationTarget
 import com.bolin.photohelper.ui.PhotoHelperTheme
 import org.junit.Assert.assertEquals
@@ -174,6 +176,46 @@ class CaptureScreenTest {
         }
 
         compose.onNodeWithText("Apply").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, applied) }
+    }
+
+    @Test
+    fun compoundRecommendationShowsEveryChangeWithOneApplyAction() {
+        var applied = 0
+        val recommendation = exposureRecommendation().copy(
+            headline = "2 camera changes ready",
+            actionText = "Zoom · 1.6× digital zoom\nColor · Cooler white balance",
+            consequence = "These changes affect the whole photo and can be reset together.",
+            primaryLabel = "Apply both",
+            action = RecommendationAction.ApplySettings(
+                listOf(
+                    SettingChange(
+                        CameraAdjustment.ZoomRatio(1.6f),
+                        VerificationTarget.Zoom(direction = -1, baselineRatio = 2f, targetRatio = 1.6f),
+                    ),
+                    SettingChange(
+                        CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER),
+                        VerificationTarget.ColorBalance(direction = -1, baselineBlueBias = 0f),
+                    ),
+                ),
+            ),
+        )
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState(
+                        coachingPhase = CoachingPhase.RECOMMENDATION,
+                        decision = LocalDecision.Recommend(recommendation),
+                    ),
+                    onApplyRecommendation = { applied++ },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Zoom · 1.6× digital zoom", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Color · Cooler white balance", substring = true).assertIsDisplayed()
+        compose.onAllNodesWithText("Apply both").assertCountEquals(1)
+        compose.onNodeWithText("Apply both").performClick()
         compose.runOnIdle { assertEquals(1, applied) }
     }
 
@@ -575,12 +617,13 @@ class CaptureScreenTest {
             .assert(hasClickAction())
             .performClick()
         compose.onNodeWithText("Photo Helper guide").assertIsDisplayed()
+        compose.onNodeWithText("You can combine brightness, zoom, and color", substring = true).assertExists()
         compose.onNodeWithText("What you can ask")
             .assertIsDisplayed()
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
         compose.onNodeWithText("Brightness").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Focus").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Zoom").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Zoom").assertExists()
         compose.onNodeWithText("Color").assertExists()
         compose.onNodeWithText("Close").performScrollTo().performClick()
         compose.onNodeWithText("Photo Helper guide").assertDoesNotExist()
@@ -851,7 +894,7 @@ class CaptureScreenTest {
         actionText = "Darken by 0.7 EV",
         consequence = "This should reduce clipping across the photo.",
         primaryLabel = "Apply",
-        action = RecommendationAction.ApplySetting(
+        action = RecommendationAction.ApplySettings(
             adjustment = CameraAdjustment.ExposureCompensation(-2),
             target = VerificationTarget.Exposure(
                 direction = -1,

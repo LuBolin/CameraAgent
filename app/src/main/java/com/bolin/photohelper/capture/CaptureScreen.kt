@@ -911,8 +911,9 @@ private fun RecommendationContent(
     ) {
         val primaryLabel = when {
             applying -> "Applying…"
-            reviewMode && action is RecommendationAction.ApplySetting -> "Apply for retake"
-            action is RecommendationAction.ApplySetting -> recommendation.primaryLabel ?: "Apply"
+            reviewMode && action is RecommendationAction.ApplySettings && action.changes.size == 1 -> "Apply for retake"
+            reviewMode && action is RecommendationAction.ApplySettings -> recommendation.primaryLabel ?: "Apply all for retake"
+            action is RecommendationAction.ApplySettings -> recommendation.primaryLabel ?: "Apply"
             action is RecommendationAction.GuidePosition -> recommendation.primaryLabel ?: "Start guidance"
             action is RecommendationAction.TapToFocus -> null
             else -> null
@@ -920,7 +921,7 @@ private fun RecommendationContent(
         if (primaryLabel != null && !walkingBlocked) {
             Button(
                 onClick = when (action) {
-                    is RecommendationAction.ApplySetting -> onApply
+                    is RecommendationAction.ApplySettings -> onApply
                     is RecommendationAction.GuidePosition -> onStartGuidance
                     RecommendationAction.TapToFocus -> onDismiss
                 },
@@ -1282,7 +1283,10 @@ private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.semantics { heading() },
             )
-            Text("Describe one thing you want to change. Photo Helper will suggest one safe next step.")
+            Text(
+                "Describe what you want to change. You can combine brightness, zoom, and color in one request; " +
+                    "ask for focus or movement separately.",
+            )
             Text(
                 "What you can ask",
                 style = MaterialTheme.typography.titleMedium,

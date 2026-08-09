@@ -74,7 +74,7 @@ class CaptureViewModelTest {
         val recommendation = (viewModel.uiState.value.decision as LocalDecision.Recommend).recommendation
         assertEquals(
             CameraAdjustment.ZoomRatio(1.25f),
-            (recommendation.action as com.bolin.photohelper.coach.RecommendationAction.ApplySetting).adjustment,
+            (recommendation.action as com.bolin.photohelper.coach.RecommendationAction.ApplySettings).adjustment,
         )
 
         viewModel.applyRecommendation()
@@ -92,6 +92,121 @@ class CaptureViewModelTest {
         viewModel.reset()
         runCurrent()
         assertEquals(1, camera.resetCalls)
+        assertFalse(viewModel.uiState.value.resetAvailable)
+    }
+
+    @Test
+    fun `compound complaint applies every setting with one approval and one reset`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(zoomRatio = 2f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 2f)
+        }
+        val viewModel = viewModel(camera)
+        viewModel.setCameraPermission(true)
+
+        viewModel.updateComment("It's too warm, and too zoomed in!")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(0, camera.appliedBatches.size)
+        assertEquals("Apply both", viewModel.uiState.value.recommendation?.primaryLabel)
+
+        viewModel.applyRecommendation()
+        runCurrent()
+
+        assertEquals(
+            listOf(
+                CameraAdjustment.ZoomRatio(1.6f),
+                CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER),
+            ),
+            camera.appliedBatches.single(),
+        )
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+        assertEquals("2 camera changes applied. Check the shot; Reset restores the previous settings.", viewModel.uiState.value.transientMessage)
+        assertTrue(viewModel.uiState.value.resetAvailable)
+
+        viewModel.reset()
+        runCurrent()
+        assertEquals(1, camera.resetCalls)
+        assertFalse(viewModel.uiState.value.resetAvailable)
+    }
+
+    @Test
+    fun `compound apply replans every setting from fresh telemetry`() = runTest(dispatcher) {
+        var now = 1_000L
+        val camera = FakeCamera(observation(timestamp = now, zoomRatio = 2f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 2f)
+        }
+        val viewModel = viewModel(camera, nowMs = { now })
+        viewModel.updateComment("too warm and too zoomed in")
+        viewModel.submitComment()
+        runCurrent()
+
+        now = 1_250L
+        camera.telemetry.value = CameraTelemetry(
+            zoomRatio = 4f,
+            whiteBalancePreset = WhiteBalancePreset.WARMER,
+        )
+        camera.observation.value = observation(id = 2, timestamp = now, zoomRatio = 4f)
+        runCurrent()
+        viewModel.applyRecommendation()
+        runCurrent()
+
+        assertEquals(
+            listOf(
+                CameraAdjustment.ZoomRatio(3.2f),
+                CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER),
+            ),
+            camera.appliedBatches.single(),
+        )
+    }
+
+    @Test
+    fun `backgrounding an in flight compound apply resets after acknowledgement`() = runTest(dispatcher) {
+        val result = CompletableDeferred<ApplyResult>()
+        val camera = FakeCamera(observation(zoomRatio = 2f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 2f)
+            applyGate = result
+        }
+        val viewModel = viewModel(camera)
+        viewModel.updateComment("too warm and too zoomed in")
+        viewModel.submitComment()
+        runCurrent()
+
+        viewModel.applyRecommendation()
+        runCurrent()
+        assertEquals(CoachingPhase.APPLYING, viewModel.uiState.value.coachingPhase)
+
+        viewModel.onBackground()
+        result.complete(ApplyResult.Applied)
+        runCurrent()
+
+        assertEquals(1, camera.appliedBatches.size)
+        assertEquals(1, camera.resetCalls)
+        assertFalse(viewModel.uiState.value.resetAvailable)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+    }
+
+    @Test
+    fun `failed compound transaction never claims success or offers reset`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(zoomRatio = 2f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 2f)
+            applyGate = CompletableDeferred(ApplyResult.Failed("Original camera settings restored."))
+        }
+        val viewModel = viewModel(camera)
+        viewModel.updateComment("too warm and too zoomed in")
+        viewModel.submitComment()
+        runCurrent()
+
+        viewModel.applyRecommendation()
+        runCurrent()
+
+        assertEquals(1, camera.appliedBatches.size)
+        assertEquals(CoachingPhase.TRANSIENT_ERROR, viewModel.uiState.value.coachingPhase)
+        assertEquals("Original camera settings restored.", viewModel.uiState.value.transientMessage)
         assertFalse(viewModel.uiState.value.resetAvailable)
     }
 
@@ -121,6 +236,130 @@ class CaptureViewModelTest {
 
         assertEquals(1, camera.applyCalls)
         assertEquals(CameraAdjustment.ExposureCompensation(2), camera.lastAdjustment)
+    }
+
+    @Test
+    fun `unknown compound wording can use strict model intents then one local atomic plan`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(zoomRatio = 2f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 2f)
+        }
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            complaintResult = {
+                ComplaintResult.Available(
+                    IntentClassification.Intent(
+                        listOf(
+                            ControlIntent.ZOOM_OUT,
+                            ControlIntent.WHITE_BALANCE_COOLER,
+                        ),
+                    ),
+                )
+            },
+        )
+        viewModel.setCameraPermission(true)
+
+        viewModel.updateComment("Could you reduce the amber cast while opening the crop slightly?")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals("Apply both", viewModel.uiState.value.recommendation?.primaryLabel)
+        assertEquals(0, camera.appliedBatches.size)
+
+        viewModel.applyRecommendation()
+        runCurrent()
+
+        assertEquals(
+            listOf(
+                CameraAdjustment.ZoomRatio(1.6f),
+                CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER),
+            ),
+            camera.appliedBatches.single(),
+        )
+    }
+
+    @Test
+    fun `unknown compound semantics take priority over a single family visual hint`() = runTest(dispatcher) {
+        var complaintCalls = 0
+        var visualCalls = 0
+        val camera = FakeCamera(observation(blueBias = .08f, zoomRatio = 2f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 2f)
+        }
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            complaintResult = {
+                complaintCalls++
+                ComplaintResult.Available(
+                    IntentClassification.Intent(
+                        listOf(ControlIntent.ZOOM_OUT, ControlIntent.WHITE_BALANCE_WARMER),
+                    ),
+                )
+            },
+            visualResult = {
+                visualCalls++
+                VisualResult.Available(VisualHint.Intent(VisualIntent.WHITE_BALANCE_WARMER))
+            },
+        )
+
+        viewModel.updateComment("cold but the framing feels cramped")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(1, complaintCalls)
+        assertEquals(0, visualCalls)
+        assertEquals("Apply both", viewModel.uiState.value.recommendation?.primaryLabel)
+    }
+
+    @Test
+    fun `hosted scalar intent cannot partially satisfy an unknown compound complaint`() = runTest(dispatcher) {
+        var complaintCalls = 0
+        val camera = FakeCamera(observation(zoomRatio = 2f))
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            complaintResult = {
+                complaintCalls++
+                ComplaintResult.Available(IntentClassification.Intent(ControlIntent.WHITE_BALANCE_WARMER))
+            },
+        )
+
+        viewModel.updateComment("The crop feels cramped. Move higher.")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(1, complaintCalls)
+        assertTrue(viewModel.uiState.value.decision is LocalDecision.Clarify)
+        assertEquals(null, viewModel.uiState.value.recommendation)
+        assertEquals(0, camera.applyCalls)
+    }
+
+    @Test
+    fun `single eligible visual family still uses frame interpretation`() = runTest(dispatcher) {
+        var complaintCalls = 0
+        var visualCalls = 0
+        val viewModel = viewModel(
+            camera = FakeCamera(observation(blueBias = .08f)),
+            visualEnabled = true,
+            complaintResult = {
+                complaintCalls++
+                ComplaintResult.Unavailable
+            },
+            visualResult = {
+                visualCalls++
+                VisualResult.Available(VisualHint.Intent(VisualIntent.WHITE_BALANCE_WARMER))
+            },
+        )
+
+        viewModel.updateComment("looks blue")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(0, complaintCalls)
+        assertEquals(1, visualCalls)
+        assertTrue(viewModel.uiState.value.decision is LocalDecision.Recommend)
     }
 
     @Test
@@ -219,6 +458,24 @@ class CaptureViewModelTest {
 
         assertNotNull(viewModel.uiState.value.review)
         assertEquals(CoachingPhase.APPLYING, viewModel.uiState.value.coachingPhase)
+    }
+
+    @Test
+    fun `leaving a completed review preserves a blocked hardware state`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val viewModel = viewModel(camera)
+        viewModel.setCameraPermission(true)
+        runCurrent()
+        viewModel.capture()
+        runCurrent()
+        assertNotNull(viewModel.uiState.value.review)
+
+        camera.state.value = CameraState(CameraPhase.BLOCKED, "Retry the camera", sessionId = 0)
+        runCurrent()
+        viewModel.leaveReview()
+
+        assertEquals(CameraPhase.BLOCKED, viewModel.uiState.value.cameraPhase)
+        assertEquals(null, viewModel.uiState.value.review)
     }
 
     @Test
@@ -423,7 +680,7 @@ class CaptureViewModelTest {
         runCurrent()
 
         val recommendation = (viewModel.uiState.value.decision as LocalDecision.Recommend).recommendation
-        val action = recommendation.action as com.bolin.photohelper.coach.RecommendationAction.ApplySetting
+        val action = recommendation.action as com.bolin.photohelper.coach.RecommendationAction.ApplySettings
         val target = action.target as com.bolin.photohelper.coach.VerificationTarget.Exposure
         assertEquals(null, target.baselineObservation)
     }
@@ -499,7 +756,7 @@ class CaptureViewModelTest {
         assertEquals(4, viewModel.uiState.value.review?.telemetry?.exposureCompensationIndex)
 
         val recommendation = (viewModel.uiState.value.decision as LocalDecision.Recommend).recommendation
-        val adjustment = (recommendation.action as com.bolin.photohelper.coach.RecommendationAction.ApplySetting).adjustment
+        val adjustment = (recommendation.action as com.bolin.photohelper.coach.RecommendationAction.ApplySettings).adjustment
         assertEquals(CameraAdjustment.ExposureCompensation(2), adjustment)
     }
 
@@ -1438,6 +1695,7 @@ class CaptureViewModelTest {
         var focusPoint: Pair<Float, Float>? = null
         var focusCalls = 0
         var applyCalls = 0
+        val appliedBatches = mutableListOf<List<CameraAdjustment>>()
         var captureCalls = 0
         var resetCalls = 0
         val savedUris = mutableListOf<String>()
@@ -1452,6 +1710,13 @@ class CaptureViewModelTest {
         override suspend fun apply(adjustment: CameraAdjustment): ApplyResult {
             applyCalls++
             lastAdjustment = adjustment
+            return applyGate?.await() ?: ApplyResult.Applied
+        }
+
+        override suspend fun applyAtomically(adjustments: List<CameraAdjustment>): ApplyResult {
+            appliedBatches += adjustments.toList()
+            applyCalls++
+            lastAdjustment = adjustments.singleOrNull()
             return applyGate?.await() ?: ApplyResult.Applied
         }
 

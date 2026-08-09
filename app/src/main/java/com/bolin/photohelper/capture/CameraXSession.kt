@@ -56,9 +56,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -101,7 +101,7 @@ internal fun gravityRollDegrees(x: Float, y: Float, displayRotation: Int): Float
 }
 
 internal fun physicalCameraChanged(previousId: String?, reportedId: String?): Boolean =
-    previousId != null && reportedId != null && previousId != reportedId
+    reportedId != null && previousId != reportedId
 
 internal fun controlBaselineMatchesPhysicalCamera(
     baseline: CameraTelemetry,
@@ -131,6 +131,57 @@ internal suspend fun <T> awaitCameraControl(block: suspend () -> T): T = try {
     currentCoroutineContext().ensureActive()
     throw CameraControlTimeoutException()
 }
+
+internal suspend fun <T> runCameraControlTransaction(
+    commands: List<T>,
+    isCurrent: () -> Boolean,
+    applyCommand: suspend (T) -> Unit,
+    rollback: suspend () -> Boolean,
+    finishRollback: (Boolean) -> Unit,
+    commit: () -> Unit,
+): ApplyResult {
+    return try {
+        commands.forEach { command ->
+            check(isCurrent()) { "Camera session changed. Check the shot and try again." }
+            applyCommand(command)
+        }
+        currentCoroutineContext().ensureActive()
+        check(isCurrent()) { "Camera session changed. Check the shot and try again." }
+        commit()
+        ApplyResult.Applied
+    } catch (cancelled: CancellationException) {
+        val restored = withContext(NonCancellable) { runCatching { rollback() }.getOrDefault(false) }
+        finishRollback(restored)
+        throw cancelled
+    } catch (error: Throwable) {
+        val restored = withContext(NonCancellable) { runCatching { rollback() }.getOrDefault(false) }
+        finishRollback(restored)
+        ApplyResult.Failed(
+            if (restored) error.message ?: "Camera rejected the adjustment"
+            else "Camera controls could not be restored. Retry the camera before shooting.",
+        )
+    }
+}
+
+internal fun validateAdjustmentBatchStructure(adjustments: List<CameraAdjustment>): String? {
+    if (adjustments.size !in 1..3) return "Choose one to three camera settings"
+    val axes = adjustments.map { adjustment ->
+        when (adjustment) {
+            is CameraAdjustment.ExposureCompensation -> "exposure"
+            is CameraAdjustment.ZoomRatio -> "zoom"
+            is CameraAdjustment.WhiteBalance -> "white-balance"
+        }
+    }
+    return "A grouped change can adjust each camera setting only once"
+        .takeIf { axes.distinct().size != axes.size }
+}
+
+internal fun captureTerminalState(
+    current: CameraState,
+    phase: CameraPhase,
+    message: String? = null,
+    sessionId: Long,
+): CameraState = if (current.phase == CameraPhase.BLOCKED) current else CameraState(phase, message, sessionId)
 
 @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
 class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
@@ -214,8 +265,20 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             val exposureTimeNanos = result.get(Camera2CaptureResult.SENSOR_EXPOSURE_TIME)
             val captureIntent = request.get(CaptureRequest.CONTROL_CAPTURE_INTENT)
             if (physicalCameraChanged(activePhysicalCameraId, physicalCameraId)) {
+                val invalidatedControls = controlBaseline != null
                 controlBaseline = null
-                _state.update { it.copy(sessionId = cameraSessionId.incrementAndGet()) }
+                val newSessionId = cameraSessionId.incrementAndGet()
+                _state.update {
+                    if (invalidatedControls) {
+                        CameraState(
+                            CameraPhase.BLOCKED,
+                            "The active camera lens changed. Retry the camera before shooting.",
+                            newSessionId,
+                        )
+                    } else {
+                        it.copy(sessionId = newSessionId)
+                    }
+                }
             }
             if (physicalCameraId != null) activePhysicalCameraId = physicalCameraId
             val lensId = activePhysicalCameraId ?: activeCameraId
@@ -295,6 +358,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
 
         val generation = bindingGeneration.incrementAndGet()
         val sessionId = cameraSessionId.incrementAndGet()
+        pendingControl.getAndSet(null)?.cancel(true)
         pendingStillTelemetry.getAndSet(null)?.cancel()
         this.focusPointFactory = focusPointFactory
         this.previewWidth = previewWidth
@@ -368,7 +432,9 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                 imageAnalysis = analysis
                 publishCameraInfo(boundCamera.cameraInfo)
                 if (!analysisPaused.get()) startRollSensor()
-                _state.value = CameraState(CameraPhase.READY, sessionId = sessionId)
+                _state.update { current ->
+                    captureTerminalState(current, CameraPhase.READY, sessionId = cameraSessionId.get())
+                }
             } catch (error: Throwable) {
                 previewUseCase = null
                 imageAnalysis?.clearAnalyzer()
@@ -386,7 +452,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                 _state.value = CameraState(
                     CameraPhase.BLOCKED,
                     error.message ?: "Unable to start the rear camera",
-                    sessionId,
+                    cameraSessionId.get(),
                 )
             }
         }, mainExecutor)
@@ -408,84 +474,44 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         }
     }
 
-    override suspend fun apply(adjustment: CameraAdjustment): ApplyResult = operationMutex.withLock {
+    override suspend fun apply(adjustment: CameraAdjustment): ApplyResult =
+        applyAtomically(listOf(adjustment))
+
+    override suspend fun applyAtomically(adjustments: List<CameraAdjustment>): ApplyResult = operationMutex.withLock {
         val activeCamera = camera ?: return@withLock ApplyResult.Failed("Camera is not ready")
         if (_state.value.phase !in setOf(CameraPhase.READY, CameraPhase.REVIEWING)) {
             return@withLock ApplyResult.Failed("Camera is busy")
         }
 
+        val generation = bindingGeneration.get()
+        val sessionId = cameraSessionId.get()
         val committedState = _telemetry.value
-        val startedBaseline = controlBaseline == null
-        try {
-            when (adjustment) {
-                is CameraAdjustment.ExposureCompensation -> {
-                    val range = _capabilities.value.exposureCompensationRange
-                    if (!_capabilities.value.supportsExposureCompensation || adjustment.targetIndex !in range) {
-                        return@withLock ApplyResult.Failed("Exposure adjustment is outside this camera's range")
-                    }
-                    controlBaseline = controlBaseline ?: _telemetry.value
-                    val applied = awaitControl(
-                        activeCamera.cameraControl.setExposureCompensationIndex(adjustment.targetIndex),
-                    )
-                    _telemetry.value = _telemetry.value.copy(exposureCompensationIndex = applied)
-                }
-
-                is CameraAdjustment.ZoomRatio -> {
-                    val range = _capabilities.value.zoomRatioRange
-                    if (adjustment.ratio !in range) {
-                        return@withLock ApplyResult.Failed("Zoom adjustment is outside this camera's range")
-                    }
-                    controlBaseline = controlBaseline ?: _telemetry.value
-                    awaitControl(activeCamera.cameraControl.setZoomRatio(adjustment.ratio))
-                    _telemetry.value = _telemetry.value.copy(zoomRatio = adjustment.ratio)
-                }
-
-                is CameraAdjustment.WhiteBalance -> {
-                    if (adjustment.preset !in _capabilities.value.supportedWhiteBalancePresets) {
-                        return@withLock ApplyResult.Failed("White-balance adjustment is unavailable on this camera")
-                    }
-                    val awbMode = selectAwbMode(activeCamera.cameraInfo, adjustment.preset)
-                        ?: return@withLock ApplyResult.Failed("White-balance adjustment is unavailable on this camera")
-                    controlBaseline = controlBaseline ?: _telemetry.value
-                    awaitControl(
-                        Camera2CameraControl.from(activeCamera.cameraControl).setCaptureRequestOptions(
-                            CaptureRequestOptions.Builder()
-                                .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, awbMode)
-                                .build(),
-                        ),
-                    )
-                    _telemetry.value = _telemetry.value.copy(whiteBalancePreset = adjustment.preset)
-                }
-            }
-            ApplyResult.Applied
-        } catch (cancelled: CancellationException) {
-            withContext(NonCancellable) {
-                val restored = rollbackOrRestoreAuto(activeCamera, committedState)
-                if (startedBaseline || !restored) controlBaseline = null
-                if (!restored && !closed.get()) {
-                    _state.value = CameraState(
-                        CameraPhase.BLOCKED,
-                        "Camera controls could not be restored. Retry the camera before shooting.",
-                        cameraSessionId.get(),
-                    )
-                }
-            }
-            throw cancelled
-        } catch (error: Throwable) {
-            val restored = rollbackOrRestoreAuto(activeCamera, committedState)
-            if (startedBaseline || !restored) controlBaseline = null
-            if (!restored && !closed.get()) {
-                _state.value = CameraState(
-                    CameraPhase.BLOCKED,
-                    "Camera controls could not be restored. Retry the camera before shooting.",
-                    cameraSessionId.get(),
-                )
-            }
-            ApplyResult.Failed(
-                if (restored) error.message ?: "Camera rejected the adjustment"
-                else "Camera controls could not be restored. Retry the camera before shooting.",
-            )
+        val previousBaseline = controlBaseline
+        val capabilities = _capabilities.value
+        validateAdjustments(activeCamera, adjustments, capabilities)?.let {
+            return@withLock ApplyResult.Failed(it)
         }
+        if (!transactionIsCurrent(activeCamera, generation, sessionId, committedState)) {
+            return@withLock ApplyResult.Failed("Camera session changed. Check the shot and try again.")
+        }
+
+        runCameraControlTransaction(
+            commands = adjustments,
+            isCurrent = { transactionIsCurrent(activeCamera, generation, sessionId, committedState) },
+            applyCommand = { applyLocked(activeCamera, it) },
+            rollback = { rollbackExact(activeCamera, generation, sessionId, committedState) },
+            finishRollback = { restored ->
+                finishAdjustmentRollback(restored, activeCamera, generation, sessionId, previousBaseline)
+            },
+            commit = {
+                check(transactionIsCurrent(activeCamera, generation, sessionId, committedState))
+                controlBaseline = previousBaseline ?: committedState
+                if (!transactionIsCurrent(activeCamera, generation, sessionId, committedState)) {
+                    controlBaseline = null
+                    error("Camera session changed. Check the shot and try again.")
+                }
+            },
+        )
     }
 
     override suspend fun focusAt(xFraction: Float, yFraction: Float): ApplyResult = operationMutex.withLock {
@@ -509,10 +535,20 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
 
     override suspend fun reset(): ApplyResult = operationMutex.withLock {
         val activeCamera = camera ?: return@withLock ApplyResult.Failed("Camera is not ready")
+        if (_state.value.phase == CameraPhase.BLOCKED) {
+            return@withLock ApplyResult.Failed(
+                _state.value.message ?: "Camera controls cannot be reset until the camera is retried",
+            )
+        }
         val baseline = controlBaseline ?: return@withLock ApplyResult.Applied
         if (!controlBaselineMatchesPhysicalCamera(baseline, activePhysicalCameraId)) {
             controlBaseline = null
-            return@withLock ApplyResult.Applied
+            _state.value = CameraState(
+                CameraPhase.BLOCKED,
+                "The active camera lens changed. Retry the camera before shooting.",
+                cameraSessionId.get(),
+            )
+            return@withLock ApplyResult.Failed("The active camera lens changed. Retry the camera before shooting.")
         }
         try {
             restoreControlState(activeCamera, baseline)
@@ -554,20 +590,31 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                 telemetry = captureTelemetry,
             )
             updateAnalysisPause(pauseGate.finishCapture(keepPausedForReview = true))
-            if (!closed.get()) _state.value = CameraState(CameraPhase.REVIEWING, sessionId = cameraSessionId.get())
+            if (!closed.get()) {
+                _state.update { current ->
+                    captureTerminalState(current, CameraPhase.REVIEWING, sessionId = cameraSessionId.get())
+                }
+            }
             CaptureResult.Saved(saved)
         } catch (cancelled: CancellationException) {
             updateAnalysisPause(pauseGate.finishCapture(keepPausedForReview = false))
-            if (!closed.get()) _state.value = CameraState(CameraPhase.READY, sessionId = cameraSessionId.get())
+            if (!closed.get()) {
+                _state.update { current ->
+                    captureTerminalState(current, CameraPhase.READY, sessionId = cameraSessionId.get())
+                }
+            }
             throw cancelled
         } catch (error: Throwable) {
             updateAnalysisPause(pauseGate.finishCapture(keepPausedForReview = false))
             if (!closed.get()) {
-                _state.value = CameraState(
-                    CameraPhase.READY,
-                    error.message ?: "Photo capture failed",
-                    cameraSessionId.get(),
-                )
+                _state.update { current ->
+                    captureTerminalState(
+                        current,
+                        CameraPhase.READY,
+                        error.message ?: "Photo capture failed",
+                        cameraSessionId.get(),
+                    )
+                }
             }
             CaptureResult.Failed(error.message ?: "Photo capture failed")
         } finally {
@@ -899,6 +946,117 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         }
     }
 
+    private fun validateAdjustments(
+        activeCamera: Camera,
+        adjustments: List<CameraAdjustment>,
+        capabilities: CameraCapabilities,
+    ): String? {
+        validateAdjustmentBatchStructure(adjustments)?.let { return it }
+        return adjustments.firstNotNullOfOrNull { adjustment ->
+            when (adjustment) {
+                is CameraAdjustment.ExposureCompensation ->
+                    "Exposure adjustment is outside this camera's range".takeIf {
+                        !capabilities.supportsExposureCompensation ||
+                            adjustment.targetIndex !in capabilities.exposureCompensationRange
+                    }
+                is CameraAdjustment.ZoomRatio ->
+                    "Zoom adjustment is outside this camera's range".takeIf {
+                        !adjustment.ratio.isFinite() || adjustment.ratio !in capabilities.zoomRatioRange
+                    }
+                is CameraAdjustment.WhiteBalance ->
+                    "White-balance adjustment is unavailable on this camera".takeIf {
+                        adjustment.preset !in capabilities.supportedWhiteBalancePresets ||
+                            selectAwbMode(activeCamera.cameraInfo, adjustment.preset) == null
+                    }
+            }
+        }
+    }
+
+    private suspend fun applyLocked(activeCamera: Camera, adjustment: CameraAdjustment) {
+        when (adjustment) {
+            is CameraAdjustment.ExposureCompensation -> {
+                val applied = awaitControl(
+                    activeCamera.cameraControl.setExposureCompensationIndex(adjustment.targetIndex),
+                )
+                _telemetry.value = _telemetry.value.copy(exposureCompensationIndex = applied)
+            }
+            is CameraAdjustment.ZoomRatio -> {
+                awaitControl(activeCamera.cameraControl.setZoomRatio(adjustment.ratio))
+                _telemetry.value = _telemetry.value.copy(zoomRatio = adjustment.ratio)
+            }
+            is CameraAdjustment.WhiteBalance -> {
+                val awbMode = selectAwbMode(activeCamera.cameraInfo, adjustment.preset)
+                    ?: error("White-balance adjustment is unavailable on this camera")
+                awaitControl(
+                    Camera2CameraControl.from(activeCamera.cameraControl).setCaptureRequestOptions(
+                        CaptureRequestOptions.Builder()
+                            .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, awbMode)
+                            .build(),
+                    ),
+                )
+                _telemetry.value = _telemetry.value.copy(whiteBalancePreset = adjustment.preset)
+            }
+        }
+    }
+
+    private fun transactionIsCurrent(
+        activeCamera: Camera,
+        generation: Long,
+        sessionId: Long,
+        committedState: CameraTelemetry,
+    ): Boolean = !closed.get() &&
+        camera === activeCamera &&
+        bindingGeneration.get() == generation &&
+        cameraSessionId.get() == sessionId &&
+        _state.value.sessionId == sessionId &&
+        _state.value.phase in setOf(CameraPhase.READY, CameraPhase.REVIEWING) &&
+        controlBaselineMatchesPhysicalCamera(committedState, activePhysicalCameraId)
+
+    private suspend fun rollbackExact(
+        activeCamera: Camera,
+        generation: Long,
+        sessionId: Long,
+        committedState: CameraTelemetry,
+    ): Boolean {
+        if (!transactionIsCurrent(activeCamera, generation, sessionId, committedState)) return false
+        return runCatching {
+            restoreControlState(activeCamera, committedState)
+            check(transactionIsCurrent(activeCamera, generation, sessionId, committedState))
+            check(telemetryMatches(_telemetry.value, committedState))
+        }.isSuccess
+    }
+
+    private fun telemetryMatches(actual: CameraTelemetry, expected: CameraTelemetry): Boolean {
+        val zoomTolerance = (expected.zoomRatio * 0.01f).coerceAtLeast(0.01f)
+        return actual.exposureCompensationIndex == expected.exposureCompensationIndex &&
+            kotlin.math.abs(actual.zoomRatio - expected.zoomRatio) <= zoomTolerance &&
+            actual.whiteBalancePreset == expected.whiteBalancePreset &&
+            actual.lensId == expected.lensId
+    }
+
+    private fun finishAdjustmentRollback(
+        restored: Boolean,
+        activeCamera: Camera,
+        generation: Long,
+        sessionId: Long,
+        previousBaseline: CameraTelemetry?,
+    ) {
+        val sameBinding = !closed.get() &&
+            bindingGeneration.get() == generation &&
+            camera === activeCamera
+        val sameSession = sameBinding && cameraSessionId.get() == sessionId
+        if (restored && sameSession) {
+            controlBaseline = previousBaseline
+        } else if (sameBinding) {
+            controlBaseline = null
+            _state.value = CameraState(
+                CameraPhase.BLOCKED,
+                "Camera controls could not be restored. Retry the camera before shooting.",
+                cameraSessionId.get(),
+            )
+        }
+    }
+
     private suspend fun restoreControlState(activeCamera: Camera, state: CameraTelemetry) {
         val capabilities = _capabilities.value
         if (capabilities.supportsExposureCompensation && state.exposureCompensationIndex in capabilities.exposureCompensationRange) {
@@ -922,18 +1080,6 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             )
         }
         refreshTelemetry(activeCamera.cameraInfo, state.whiteBalancePreset)
-    }
-
-    private suspend fun rollbackOrRestoreAuto(activeCamera: Camera, committedState: CameraTelemetry): Boolean {
-        if (runCatching { restoreControlState(activeCamera, committedState) }.isSuccess) return true
-        return runCatching {
-            val capabilities = _capabilities.value
-            if (capabilities.supportsExposureCompensation && 0 in capabilities.exposureCompensationRange) {
-                awaitControl(activeCamera.cameraControl.setExposureCompensationIndex(0))
-            }
-            awaitControl(Camera2CameraControl.from(activeCamera.cameraControl).clearCaptureRequestOptions())
-            refreshTelemetry(activeCamera.cameraInfo, WhiteBalancePreset.AUTO)
-        }.isSuccess
     }
 
     private fun availableAwbModes(cameraInfo: CameraInfo): Set<Int> =

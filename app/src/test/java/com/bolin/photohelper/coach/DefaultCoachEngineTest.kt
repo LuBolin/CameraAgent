@@ -24,7 +24,7 @@ class DefaultCoachEngineTest {
     fun `clipped bright frame gets bounded darker EV recommendation`() {
         val decision = engine.evaluateLocal(input("the whole shot is too bright", observation(highlights = .25f)))
         val recommendation = (decision as LocalDecision.Recommend).recommendation
-        val action = recommendation.action as RecommendationAction.ApplySetting
+        val action = recommendation.action as RecommendationAction.ApplySettings
 
         assertEquals(RecommendationBasis.MEASURED_DIAGNOSIS, recommendation.basis)
         assertEquals(CameraAdjustment.ExposureCompensation(-2), action.adjustment)
@@ -43,7 +43,7 @@ class DefaultCoachEngineTest {
     @Test
     fun `literal too dim gets a brighter exposure recommendation`() {
         val decision = engine.evaluateLocal(input("too dim", observation(luma = .5f)))
-        val action = ((decision as LocalDecision.Recommend).recommendation.action as RecommendationAction.ApplySetting).adjustment
+        val action = ((decision as LocalDecision.Recommend).recommendation.action as RecommendationAction.ApplySettings).adjustment
 
         assertEquals(CameraAdjustment.ExposureCompensation(2), action)
     }
@@ -66,15 +66,80 @@ class DefaultCoachEngineTest {
     }
 
     @Test
+    fun `compatible direct setting complaints classify together`() {
+        assertEquals(
+            IntentClassification.Intent(
+                listOf(
+                    ControlIntent.ZOOM_OUT,
+                    ControlIntent.WHITE_BALANCE_COOLER,
+                ),
+            ),
+            classifyComplaint("It's too warm, and too zoomed in!"),
+        )
+    }
+
+    @Test
+    fun `short aliases in compound complaints are all retained in canonical order`() {
+        mapOf(
+            "warmer and zoom out" to listOf(
+                ControlIntent.ZOOM_OUT,
+                ControlIntent.WHITE_BALANCE_WARMER,
+            ),
+            "warmer but zoom out" to listOf(
+                ControlIntent.ZOOM_OUT,
+                ControlIntent.WHITE_BALANCE_WARMER,
+            ),
+            "warmer. zoom out." to listOf(
+                ControlIntent.ZOOM_OUT,
+                ControlIntent.WHITE_BALANCE_WARMER,
+            ),
+            "dark and zoom in" to listOf(
+                ControlIntent.EXPOSURE_BRIGHTER,
+                ControlIntent.ZOOM_IN,
+            ),
+        ).forEach { (complaint, intents) ->
+            assertEquals(IntentClassification.Intent(intents), classifyComplaint(complaint))
+        }
+    }
+
+    @Test
+    fun `compatible direct settings produce one compound recommendation`() {
+        val decision = engine.evaluateLocal(
+            input(
+                "It's too warm, and too zoomed in!",
+                observation(),
+                capabilities.copy(zoomRatioRange = 1f..10f),
+                CameraTelemetry(zoomRatio = 2f),
+            ),
+        ) as LocalDecision.Recommend
+        val action = decision.recommendation.action as RecommendationAction.ApplySettings
+
+        assertEquals(
+            listOf(
+                CameraAdjustment.ZoomRatio(1.6f),
+                CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER),
+            ),
+            action.changes.map { it.adjustment },
+        )
+        assertEquals("Apply both", decision.recommendation.primaryLabel)
+        assertEquals(
+            "Zoom · 1.6× digital zoom\nColor · Cooler white balance",
+            decision.recommendation.actionText,
+        )
+    }
+
+    @Test
     fun `unsafe complaint boundaries fail closed before planning`() {
         mapOf(
             "too blur" to ClarificationReason.BLUR_TYPE,
+            "too warm or too zoomed in" to ClarificationReason.AMBIGUOUS,
             "no longer too dark" to ClarificationReason.NEGATED_DIRECTION,
             "isn't overexposed" to ClarificationReason.NEGATED_DIRECTION,
             "too dark and too bright" to ClarificationReason.CONFLICTING_DIRECTIONS,
             "too blue and too yellow" to ClarificationReason.CONFLICTING_DIRECTIONS,
+            "warmer and auto white balance" to ClarificationReason.CONFLICTING_DIRECTIONS,
             "too zoomed in and too zoomed out" to ClarificationReason.CONFLICTING_DIRECTIONS,
-            "too dark and too blue" to ClarificationReason.MULTIPLE_COMPLAINTS,
+            "too dark and focus missed" to ClarificationReason.MULTIPLE_COMPLAINTS,
             "the sky is too bright" to ClarificationReason.REGIONAL_REQUEST,
             "this looks cool" to ClarificationReason.AMBIGUOUS,
             "too close" to ClarificationReason.ZOOM_OR_DISTANCE,
@@ -82,6 +147,75 @@ class DefaultCoachEngineTest {
             assertEquals(IntentClassification.Clarify(reason), classifyComplaint(complaint))
             assertFalse(engine.evaluateLocal(input(complaint, observation())) is LocalDecision.Recommend)
         }
+    }
+
+    @Test
+    fun `compound recommendation is all or nothing when one setting is unavailable`() {
+        val decision = engine.evaluateLocal(
+            input(
+                "too warm and too zoomed in",
+                observation(),
+                capabilities.copy(
+                    zoomRatioRange = 1f..10f,
+                    supportedWhiteBalancePresets = setOf(WhiteBalancePreset.AUTO),
+                ),
+                CameraTelemetry(zoomRatio = 2f),
+            ),
+        )
+
+        assertTrue(decision is LocalDecision.Advisory)
+        assertEquals("Not all requested changes are available", (decision as LocalDecision.Advisory).headline)
+    }
+
+    @Test
+    fun `compound planner rejects conflicting or interactive axes at its authority boundary`() {
+        listOf(
+            listOf(ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.EXPOSURE_DARKER),
+            listOf(ControlIntent.ZOOM_IN, ControlIntent.ZOOM_OUT),
+            listOf(ControlIntent.WHITE_BALANCE_WARMER, ControlIntent.WHITE_BALANCE_COOLER),
+            listOf(ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.FOCUS_POINT_REQUIRED),
+            listOf(ControlIntent.ZOOM_IN, ControlIntent.LEVEL_FRAME),
+        ).forEach { intents ->
+            assertFalse(
+                "$intents must not become executable",
+                engine.planIntents(
+                    input(
+                        "model wording",
+                        observation(),
+                        capabilities.copy(zoomRatioRange = 1f..10f),
+                        CameraTelemetry(zoomRatio = 2f),
+                    ),
+                    intents,
+                ) is LocalDecision.Recommend,
+            )
+        }
+    }
+
+    @Test
+    fun `recognized setting plus an unrecognized clause never silently drops the clause`() {
+        listOf(
+            "too warm and move the camera higher",
+            "too warm but move the camera higher",
+            "too warm. Move the camera higher.",
+            "too warm, and the framing feels tight",
+            "too warm and more",
+            "too warm and do the opposite",
+        ).forEach { complaint ->
+            assertTrue(classifyComplaint(complaint) is IntentClassification.Clarify)
+            assertFalse(engine.evaluateLocal(input(complaint, observation())) is LocalDecision.Recommend)
+        }
+    }
+
+    @Test
+    fun `compound legacy guidance never executes only its first movement`() {
+        val decision = engine.evaluateLocal(
+            input(
+                "person too high and person too far left",
+                observation(faces = listOf(face(.3f))),
+            ),
+        )
+
+        assertTrue(decision is LocalDecision.Clarify)
     }
 
     @Test
@@ -94,7 +228,7 @@ class DefaultCoachEngineTest {
     @Test
     fun `an allowlisted intent is still planned locally`() {
         val decision = engine.planIntent(input("model wording", observation()), ControlIntent.EXPOSURE_BRIGHTER)
-        val action = ((decision as LocalDecision.Recommend).recommendation.action as RecommendationAction.ApplySetting).adjustment
+        val action = ((decision as LocalDecision.Recommend).recommendation.action as RecommendationAction.ApplySettings).adjustment
 
         assertEquals(CameraAdjustment.ExposureCompensation(2), action)
     }
@@ -107,7 +241,7 @@ class DefaultCoachEngineTest {
             val decision = engine.evaluateLocal(
                 input(complaint, observation(), zoomCapabilities, CameraTelemetry(zoomRatio = currentRatio)),
             ) as LocalDecision.Recommend
-            return (decision.recommendation.action as RecommendationAction.ApplySetting).adjustment as CameraAdjustment.ZoomRatio
+            return (decision.recommendation.action as RecommendationAction.ApplySettings).adjustment as CameraAdjustment.ZoomRatio
         }
 
         assertEquals(1.6f, adjustment("too zoomed in", 2f).ratio, .001f)
@@ -359,7 +493,7 @@ class DefaultCoachEngineTest {
             val decision = engine.evaluateLocal(input(complaint, observation())) as LocalDecision.Recommend
             val recommendation = decision.recommendation
 
-            assertEquals(expected, (recommendation.action as RecommendationAction.ApplySetting).adjustment)
+            assertEquals(expected, (recommendation.action as RecommendationAction.ApplySettings).adjustment)
             assertEquals("Apply", recommendation.primaryLabel)
         }
     }
@@ -387,7 +521,7 @@ class DefaultCoachEngineTest {
             ),
         )
         val recommendation = (decision as LocalDecision.Recommend).recommendation
-        val action = recommendation.action as RecommendationAction.ApplySetting
+        val action = recommendation.action as RecommendationAction.ApplySettings
 
         assertEquals(CameraAdjustment.WhiteBalance(WhiteBalancePreset.AUTO), action.adjustment)
         assertEquals("Apply", recommendation.primaryLabel)

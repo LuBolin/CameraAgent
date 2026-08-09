@@ -212,15 +212,16 @@ try {
     foreach ($line in $instrument.Lines) { $report.Add($line) }
     $instrumentText = $instrument.Lines -join "`n"
     $passed = $instrument.ExitCode -eq 0 -and
-        $instrumentText -match "OK \(6 tests\)" -and
+        $instrumentText -match "OK \(7 tests\)" -and
         $instrumentText -match "INSTRUMENTATION_CODE: -1" -and
         $instrumentText -match "PHYSICAL_GATE cameraId=.*horizontalFovDegrees=.*jankPercent=" -and
         $instrumentText -match "chainedEv=.*lumaTrials=.*captureEv=.*captureIso=.*captureExposureNs=" -and
         $instrumentText -match "PHYSICAL_GATE zoom=.*chain=COMMENT>APPLY>VERIFY>RESET" -and
+        $instrumentText -match "PHYSICAL_GATE compound=ZOOM_IN\+WHITE_BALANCE_COOLER .*chain=COMMENT>APPLY_BOTH>VERIFY_SETPOINTS>RESET" -and
         $instrumentText -match "PHYSICAL_GATE tapFraction=.*tapPx=.*markerPx=.*focus=LOCKED" -and
         $instrumentText -notmatch "FAILURES!!!|INSTRUMENTATION_FAILED"
     if (-not $passed) {
-        $failure = if ($instrument.TimedOut) { "Instrumentation exceeded 600 seconds." } else { "Instrumentation or its required evidence did not report a complete 6-test pass." }
+        $failure = if ($instrument.TimedOut) { "Instrumentation exceeded 600 seconds." } else { "Instrumentation or its required evidence did not report a complete 7-test pass." }
     }
 } catch {
     $failure = $_.Exception.Message
@@ -246,6 +247,6 @@ try {
 }
 
 if (-not $passed) { throw "Physical-camera acceptance failed. Report: $reportPath" }
-Write-Host "PASS: all 6 physical CameraX tests passed."
+Write-Host "PASS: all 7 physical CameraX tests passed."
 Write-Host "Report: $reportPath"
 Write-Host "The test package and exact test-created photos were removed; the debug app remains installed."

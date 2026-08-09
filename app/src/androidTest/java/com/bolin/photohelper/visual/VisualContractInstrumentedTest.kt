@@ -51,28 +51,66 @@ class VisualContractInstrumentedTest {
     fun complaintParserAcceptsOnlyTheSemanticUnion() {
         assertEquals(
             IntentClassification.Intent(ControlIntent.ZOOM_OUT),
-            parseComplaintResponse(response("""{"schemaVersion":1,"outcome":"INTENT","intent":"ZOOM_OUT"}""")),
+            parseComplaintResponse(response("""{"schemaVersion":2,"outcome":"INTENT","intent":"ZOOM_OUT"}""")),
         )
         assertEquals(
             IntentClassification.Clarify(ClarificationReason.BLUR_TYPE),
-            parseComplaintResponse(response("""{"schemaVersion":1,"outcome":"CLARIFY","reason":"BLUR_TYPE"}""")),
+            parseComplaintResponse(response("""{"schemaVersion":2,"outcome":"CLARIFY","reason":"BLUR_TYPE"}""")),
         )
 
         listOf(
-            """{"schemaVersion":1,"outcome":"INTENT","intent":"WHITE_BALANCE_AUTO"}""",
-            """{"schemaVersion":1,"outcome":"INTENT","intent":"ZOOM_OUT","ratio":1.5}""",
-            """{"schemaVersion":1,"outcome":"INTENT","intent":"FOCUS_POINT_REQUIRED","x":0.5}""",
-            """{"schemaVersion":1,"outcome":"CLARIFY","reason":"UNKNOWN"}""",
-            """{"schemaVersion":2,"outcome":"INTENT","intent":"ZOOM_OUT"}""",
-            """{"schemaVersion":1,"outcome":"UNSUPPORTED","reason":"MANUAL_EXPOSURE"}""",
-            """{"schemaVersion":1,"outcome":"INTENT","intent":"ZOOM_OUT"} trailing""",
+            """{"schemaVersion":2,"outcome":"INTENT","intent":"WHITE_BALANCE_AUTO"}""",
+            """{"schemaVersion":2,"outcome":"INTENT","intent":"ZOOM_OUT","ratio":1.5}""",
+            """{"schemaVersion":2,"outcome":"INTENT","intent":"FOCUS_POINT_REQUIRED","x":0.5}""",
+            """{"schemaVersion":2,"outcome":"CLARIFY","reason":"UNKNOWN"}""",
+            """{"schemaVersion":1,"outcome":"INTENT","intent":"ZOOM_OUT"}""",
+            """{"schemaVersion":2,"outcome":"UNSUPPORTED","reason":"MANUAL_EXPOSURE"}""",
+            """{"schemaVersion":2,"outcome":"INTENT","intent":"ZOOM_OUT"} trailing""",
+        ).forEach { assertNull(parseComplaintResponse(response(it))) }
+    }
+
+    @Test
+    fun complaintParserAcceptsOnlyBoundedDirectSettingCompounds() {
+        assertEquals(
+            IntentClassification.Intent(
+                listOf(
+                    ControlIntent.EXPOSURE_BRIGHTER,
+                    ControlIntent.ZOOM_OUT,
+                    ControlIntent.WHITE_BALANCE_COOLER,
+                ),
+            ),
+            parseComplaintResponse(
+                response(
+                    """{"schemaVersion":2,"outcome":"INTENTS","intents":["WHITE_BALANCE_COOLER","ZOOM_OUT","EXPOSURE_BRIGHTER"]}""",
+                ),
+            ),
+        )
+
+        listOf(
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":[]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["ZOOM_OUT"]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["ZOOM_OUT","ZOOM_OUT"]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["ZOOM_IN","ZOOM_OUT"]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["FOCUS_POINT_REQUIRED","ZOOM_OUT"]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["LEVEL_FRAME","ZOOM_OUT"]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["WHITE_BALANCE_AUTO","ZOOM_OUT"]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["UNKNOWN","ZOOM_OUT"]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER","ZOOM_OUT","WHITE_BALANCE_COOLER","ZOOM_IN"]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER",7]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER",null]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER",{}]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intent":"ZOOM_OUT"}""",
+            """{"schemaVersion":2,"outcome":"INTENT","intents":["ZOOM_OUT","WHITE_BALANCE_COOLER"]}""",
+            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER","ZOOM_OUT"],"extra":true}""",
         ).forEach { assertNull(parseComplaintResponse(response(it))) }
     }
 
     @Test
     fun complaintClientUsesOneBoundedRedactedHttpsRequest() = runBlocking {
         val fakeConnection = FakeHttpsConnection(
-            response = response("""{"schemaVersion":1,"outcome":"INTENT","intent":"EXPOSURE_BRIGHTER"}"""),
+            response = response(
+                """{"schemaVersion":2,"outcome":"INTENTS","intents":["ZOOM_OUT","WHITE_BALANCE_COOLER"]}""",
+            ),
         )
         var connections = 0
         val client = BailianVisualClient(connectionFactory = {
@@ -81,10 +119,14 @@ class VisualContractInstrumentedTest {
         })
         val key = "disposable-api-key".toCharArray()
 
-        val result = client.classify(ComplaintRequest("The photo needs more light"), key)
+        val result = client.classify(ComplaintRequest("The crop is tight and the light is amber"), key)
 
         assertEquals(
-            ComplaintResult.Available(IntentClassification.Intent(ControlIntent.EXPOSURE_BRIGHTER)),
+            ComplaintResult.Available(
+                IntentClassification.Intent(
+                    listOf(ControlIntent.ZOOM_OUT, ControlIntent.WHITE_BALANCE_COOLER),
+                ),
+            ),
             result,
         )
         assertEquals(1, connections)

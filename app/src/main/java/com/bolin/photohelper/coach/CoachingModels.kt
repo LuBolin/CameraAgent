@@ -35,7 +35,13 @@ enum class ClarificationReason {
 enum class UnsupportedReason { MANUAL_EXPOSURE, NOISE_REDUCTION }
 
 sealed interface IntentClassification {
-    data class Intent(val value: ControlIntent) : IntentClassification
+    data class Intent(val values: List<ControlIntent>) : IntentClassification {
+        constructor(value: ControlIntent) : this(listOf(value))
+
+        init {
+            require(values.isNotEmpty() && values.distinct().size == values.size)
+        }
+    }
     data class Clarify(val reason: ClarificationReason) : IntentClassification
     data class Unsupported(val reason: UnsupportedReason) : IntentClassification
     data object Unknown : IntentClassification
@@ -82,12 +88,14 @@ data class CoachingInput(
 data class ClarificationChip(val label: String, val replacementComplaint: String)
 
 sealed interface VerificationTarget {
+    sealed interface Setting : VerificationTarget
+
     data class Exposure(
         val direction: Int,
         val baselineLuma: Float,
         val baselineClipFraction: Float,
         val baselineObservation: FrameObservation? = null,
-    ) : VerificationTarget
+    ) : Setting
 
     data class FaceOccupancy(val min: Float, val max: Float) : VerificationTarget
     data class FacePosition(val xRange: ClosedFloatingPointRange<Float>, val yRange: ClosedFloatingPointRange<Float>) : VerificationTarget
@@ -97,20 +105,32 @@ sealed interface VerificationTarget {
         val direction: Int,
         val baselineBlueBias: Float?,
         val baselineObservation: FrameObservation? = null,
-    ) : VerificationTarget
+    ) : Setting
 
     data class Zoom(
         val direction: Int,
         val baselineRatio: Float,
         val targetRatio: Float,
-    ) : VerificationTarget
+    ) : Setting
 }
 
+data class SettingChange(
+    val adjustment: CameraAdjustment,
+    val target: VerificationTarget.Setting,
+)
+
 sealed interface RecommendationAction {
-    data class ApplySetting(
-        val adjustment: CameraAdjustment,
-        val target: VerificationTarget,
-    ) : RecommendationAction
+    data class ApplySettings(val changes: List<SettingChange>) : RecommendationAction {
+        constructor(adjustment: CameraAdjustment, target: VerificationTarget.Setting) :
+            this(listOf(SettingChange(adjustment, target)))
+
+        init {
+            require(changes.isNotEmpty())
+        }
+
+        val adjustment: CameraAdjustment get() = changes.single().adjustment
+        val target: VerificationTarget.Setting get() = changes.single().target
+    }
 
     data class GuidePosition(
         val instruction: String,
@@ -139,7 +159,7 @@ data class Recommendation(
     val capabilitiesSnapshot: CameraCapabilities? = null,
     val telemetrySnapshot: CameraTelemetry? = null,
     val createdAtMs: Long? = null,
-    val controlIntent: ControlIntent? = null,
+    val controlIntents: List<ControlIntent> = emptyList(),
     val visualFamily: VisualFamily? = null,
     val visualHint: VisualHint? = null,
 )

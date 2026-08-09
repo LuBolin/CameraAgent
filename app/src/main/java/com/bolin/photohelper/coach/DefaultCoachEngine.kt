@@ -8,6 +8,9 @@ import com.bolin.photohelper.capture.WhiteBalancePreset
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+private val COMPLAINT_CLAUSE_SEPARATOR =
+    Regex("\\s*(?:,|;|[.!?]+(?=\\s+\\S)|\\b(?:and|plus|also|while|but|then)\\b)\\s*")
+
 class DefaultCoachEngine(
     private val thresholds: CoachThresholds = CoachThresholds(),
 ) : CoachEngine {
@@ -22,10 +25,13 @@ class DefaultCoachEngine(
             return LocalDecision.Advisory("Use Reset", "Reset restores the first coached camera setting from this camera session.")
         }
         when (val classification = classifyComplaint(text)) {
-            is IntentClassification.Intent -> return planIntent(input, classification.value)
+            is IntentClassification.Intent -> return planIntents(input, classification.values)
             is IntentClassification.Clarify -> return clarify(classification.reason, text)
             is IntentClassification.Unsupported -> return unsupported(classification.reason)
             IntentClassification.Unknown -> Unit
+        }
+        if (COMPLAINT_CLAUSE_SEPARATOR.containsMatchIn(text)) {
+            return clarify(ClarificationReason.MULTIPLE_COMPLAINTS, text)
         }
 
         return when {
@@ -119,6 +125,66 @@ class DefaultCoachEngine(
         ControlIntent.WHITE_BALANCE_AUTO -> colorAdjustment(input, WhiteBalancePreset.AUTO, fromVisual = false)
         ControlIntent.FOCUS_POINT_REQUIRED -> focus(input)
         ControlIntent.LEVEL_FRAME -> level(input)
+    }
+
+    override fun planIntents(input: CoachingInput, intents: List<ControlIntent>): LocalDecision {
+        if (intents.isEmpty() || intents.distinct().size != intents.size) return clarifyCurrentShot()
+        if (intents.size == 1) return planIntent(input, intents.single())
+        val axes = intents.mapNotNull(::directSettingAxis)
+        if (axes.size != intents.size || axes.distinct().size != axes.size) {
+            return clarify(ClarificationReason.MULTIPLE_COMPLAINTS, input.complaint.lowercase())
+        }
+
+        val recommendations = intents.map { planIntent(input, it) }
+            .mapNotNull { (it as? LocalDecision.Recommend)?.recommendation }
+        val changes = recommendations.flatMap { recommendation ->
+            (recommendation.action as? RecommendationAction.ApplySettings)?.changes.orEmpty()
+        }
+        if (recommendations.size != intents.size || changes.size != intents.size) {
+            return LocalDecision.Advisory(
+                "Not all requested changes are available",
+                "No camera settings were changed. Ask for each unavailable or interactive change separately.",
+            )
+        }
+
+        val count = changes.size
+        return LocalDecision.Recommend(
+            Recommendation(
+                complaintId = input.complaintId,
+                cameraSessionId = input.cameraSessionId,
+                headline = "$count camera changes ready",
+                actionText = recommendations.joinToString("\n", transform = ::compoundChangeText),
+                consequence = "These changes affect the whole photo and can be reset together.",
+                primaryLabel = when {
+                    input.origin == ObservationOrigin.CAPTURE_REVIEW && count == 2 -> "Apply both for retake"
+                    input.origin == ObservationOrigin.CAPTURE_REVIEW -> "Apply all $count for retake"
+                    count == 2 -> "Apply both"
+                    else -> "Apply all $count"
+                },
+                action = RecommendationAction.ApplySettings(changes),
+                basis = if (recommendations.any { it.basis == RecommendationBasis.MEASURED_DIAGNOSIS }) {
+                    RecommendationBasis.MEASURED_DIAGNOSIS
+                } else {
+                    RecommendationBasis.USER_PREFERENCE
+                },
+            ),
+        )
+    }
+
+    private fun compoundChangeText(recommendation: Recommendation): String {
+        val adjustment = (recommendation.action as RecommendationAction.ApplySettings)
+            .changes.single().adjustment
+        return when (adjustment) {
+            is CameraAdjustment.ExposureCompensation ->
+                "Brightness · ${recommendation.actionText.removePrefix("Apply ")}"
+            is CameraAdjustment.ZoomRatio ->
+                "Zoom · ${recommendation.actionText.removePrefix("Apply ")}"
+            is CameraAdjustment.WhiteBalance -> "Color · ${when (adjustment.preset) {
+                WhiteBalancePreset.WARMER -> "Warmer white balance"
+                WhiteBalancePreset.COOLER -> "Cooler white balance"
+                WhiteBalancePreset.AUTO -> "Auto white balance"
+            }}"
+        }
     }
 
     override fun continueWithVisualHint(
@@ -244,7 +310,7 @@ class DefaultCoachEngine(
                 actionText = "Apply $amount",
                 consequence = if (darker) "This should reduce clipping across the photo." else "This should lift detail across the photo.",
                 primaryLabel = if (input.origin == ObservationOrigin.CAPTURE_REVIEW) "Apply for retake" else "Apply",
-                action = RecommendationAction.ApplySetting(
+                action = RecommendationAction.ApplySettings(
                     CameraAdjustment.ExposureCompensation(target),
                     VerificationTarget.Exposure(
                         direction = direction,
@@ -287,7 +353,7 @@ class DefaultCoachEngine(
                 actionText = "Apply $formatted digital zoom",
                 consequence = "This changes framing by cropping the camera image and can be reset.",
                 primaryLabel = if (input.origin == ObservationOrigin.CAPTURE_REVIEW) "Apply for retake" else "Apply",
-                action = RecommendationAction.ApplySetting(
+                action = RecommendationAction.ApplySettings(
                     CameraAdjustment.ZoomRatio(target),
                     VerificationTarget.Zoom(direction, current, target),
                 ),
@@ -525,7 +591,7 @@ class DefaultCoachEngine(
                 },
                 consequence = "This changes color across the whole image and can be reset.",
                 primaryLabel = label,
-                action = RecommendationAction.ApplySetting(
+                action = RecommendationAction.ApplySettings(
                     CameraAdjustment.WhiteBalance(preset),
                     VerificationTarget.ColorBalance(
                         direction,
@@ -664,6 +730,9 @@ internal fun classifyComplaint(raw: String): IntentClassification {
     if (text in setOf("a little more", "more", "less", "do the opposite", "no, the background")) {
         return IntentClassification.Clarify(ClarificationReason.AMBIGUOUS)
     }
+    if (Regex("\\b(?:or|either)\\b").containsMatchIn(text)) {
+        return IntentClassification.Clarify(ClarificationReason.AMBIGUOUS)
+    }
     if (hasNegatedControlDirection(text)) return IntentClassification.Clarify(ClarificationReason.NEGATED_DIRECTION)
     if (text.containsAnyText("too blur", "blurry", "blurred", "out of focus", "motion blur")) {
         return IntentClassification.Clarify(ClarificationReason.BLUR_TYPE)
@@ -673,7 +742,7 @@ internal fun classifyComplaint(raw: String): IntentClassification {
         return IntentClassification.Clarify(ClarificationReason.AMBIGUOUS)
     }
 
-    val intents = buildSet {
+    val fullTextIntents = buildSet {
         if (text.containsAnyText(
                 "too dark", "too dim", "so dark", "so dim", "underexposed", "shadows gone",
                 "brighten", "make it brighter", "make brighter",
@@ -692,19 +761,54 @@ internal fun classifyComplaint(raw: String): IntentClassification {
             add(ControlIntent.WHITE_BALANCE_COOLER)
         }
         if (text in setOf("auto", "auto white balance", "restore auto white balance")) add(ControlIntent.WHITE_BALANCE_AUTO)
-        if (text in setOf("focus missed", "missed focus")) add(ControlIntent.FOCUS_POINT_REQUIRED)
+        if (text.containsAnyText("focus missed", "missed focus")) add(ControlIntent.FOCUS_POINT_REQUIRED)
         if (text.containsAnyText("crooked", "not straight", "isn't straight", "is not straight", "level the phone", "level the frame")) {
             add(ControlIntent.LEVEL_FRAME)
         }
     }
 
-    if ((ControlIntent.EXPOSURE_BRIGHTER in intents && ControlIntent.EXPOSURE_DARKER in intents) ||
-        (ControlIntent.ZOOM_IN in intents && ControlIntent.ZOOM_OUT in intents) ||
-        (ControlIntent.WHITE_BALANCE_WARMER in intents && ControlIntent.WHITE_BALANCE_COOLER in intents)
-    ) return IntentClassification.Clarify(ClarificationReason.CONFLICTING_DIRECTIONS)
+    val clauses = text.split(COMPLAINT_CLAUSE_SEPARATOR)
+        .filter(String::isNotBlank)
+    val clauseClassifications = if (clauses.size > 1) clauses.map(::classifyComplaint) else emptyList()
+    if (clauseClassifications.isNotEmpty()) {
+        clauseClassifications.filterIsInstance<IntentClassification.Unsupported>().firstOrNull()?.let { return it }
+        clauseClassifications.filterIsInstance<IntentClassification.Clarify>().firstOrNull()?.let { return it }
+        if (clauseClassifications.any { it == IntentClassification.Unknown }) {
+            return if (fullTextIntents.isNotEmpty() || clauseClassifications.any { it is IntentClassification.Intent }) {
+                IntentClassification.Clarify(ClarificationReason.MULTIPLE_COMPLAINTS)
+            } else {
+                IntentClassification.Unknown
+            }
+        }
+    }
+
+    val intents = (fullTextIntents + clauseClassifications
+        .filterIsInstance<IntentClassification.Intent>()
+        .flatMap(IntentClassification.Intent::values))
+        .distinct()
+        .sortedBy { directSettingAxis(it) ?: Int.MAX_VALUE }
+    val settingAxes = intents.mapNotNull(::directSettingAxis)
+    if (settingAxes.distinct().size != settingAxes.size) {
+        return IntentClassification.Clarify(ClarificationReason.CONFLICTING_DIRECTIONS)
+    }
     if (hasRegionalControlRequest(text)) return IntentClassification.Clarify(ClarificationReason.REGIONAL_REQUEST)
-    if (intents.size > 1) return IntentClassification.Clarify(ClarificationReason.MULTIPLE_COMPLAINTS)
+    if (intents.size > 1) {
+        return if (intents.all { directSettingAxis(it) != null }) {
+            IntentClassification.Intent(intents.toList())
+        } else {
+            IntentClassification.Clarify(ClarificationReason.MULTIPLE_COMPLAINTS)
+        }
+    }
     return intents.singleOrNull()?.let(IntentClassification::Intent) ?: IntentClassification.Unknown
+}
+
+private fun directSettingAxis(intent: ControlIntent): Int? = when (intent) {
+    ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.EXPOSURE_DARKER -> 0
+    ControlIntent.ZOOM_IN, ControlIntent.ZOOM_OUT -> 1
+    ControlIntent.WHITE_BALANCE_WARMER,
+    ControlIntent.WHITE_BALANCE_COOLER,
+    ControlIntent.WHITE_BALANCE_AUTO -> 2
+    ControlIntent.FOCUS_POINT_REQUIRED, ControlIntent.LEVEL_FRAME -> null
 }
 
 private fun hasManualExposureRequest(text: String): Boolean =

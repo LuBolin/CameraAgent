@@ -129,6 +129,9 @@ interface CaptureHardware : AutoCloseable {
     val observation: StateFlow<FrameObservation?>
 
     suspend fun apply(adjustment: CameraAdjustment): ApplyResult
+    suspend fun applyAtomically(adjustments: List<CameraAdjustment>): ApplyResult =
+        if (adjustments.size == 1) apply(adjustments.single())
+        else ApplyResult.Failed("This camera cannot apply multiple settings atomically")
     suspend fun focusAt(xFraction: Float, yFraction: Float): ApplyResult =
         ApplyResult.Failed("Tap to focus is unavailable on this camera")
     suspend fun reset(): ApplyResult

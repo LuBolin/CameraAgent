@@ -80,15 +80,23 @@ class FrameMetricsTest {
     }
 
     @Test
-    fun physicalCameraSwitchInvalidatesTheAdjustmentSessionAndOldBaseline() {
+    fun physicalCameraIdentityEstablishmentOrSwitchInvalidatesTheAdjustmentSessionAndOldBaseline() {
         val baseline = CameraTelemetry(lensId = "rear-wide")
 
         assertTrue(physicalCameraChanged("rear-wide", "rear-tele"))
-        assertFalse(physicalCameraChanged(null, "rear-wide"))
+        assertTrue(physicalCameraChanged(null, "rear-wide"))
         assertFalse(physicalCameraChanged("rear-wide", "rear-wide"))
         assertFalse(physicalCameraChanged("rear-wide", null))
         assertFalse(controlBaselineMatchesPhysicalCamera(baseline, "rear-tele"))
         assertTrue(controlBaselineMatchesPhysicalCamera(baseline, "rear-wide"))
+    }
+
+    @Test
+    fun captureCompletionNeverClearsABlockedCameraState() {
+        val blocked = CameraState(CameraPhase.BLOCKED, "Retry the camera", sessionId = 7)
+
+        assertEquals(blocked, captureTerminalState(blocked, CameraPhase.REVIEWING, sessionId = 7))
+        assertEquals(blocked, captureTerminalState(blocked, CameraPhase.READY, "capture failed", sessionId = 7))
     }
 
     @Test
