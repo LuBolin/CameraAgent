@@ -3,6 +3,8 @@ package com.bolin.photohelper
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Bundle
@@ -13,6 +15,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,11 +24,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -37,10 +43,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.bolin.photohelper.capture.CameraXSession
+import com.bolin.photohelper.capture.CameraFacingRequest
+import com.bolin.photohelper.capture.CameraPhase
 import com.bolin.photohelper.capture.CaptureScreen
 import com.bolin.photohelper.capture.CaptureViewModel
 import com.bolin.photohelper.capture.PermissionState
 import com.bolin.photohelper.ui.PhotoHelperTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: CaptureViewModel
@@ -84,7 +94,63 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
     var apiKeyInput by remember { mutableStateOf("") }
     var showMicDisclosure by remember { mutableStateOf(false) }
     var cameraBindAttempt by remember { mutableIntStateOf(0) }
+    var isFrontCamera by rememberSaveable { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val canFlipCamera = remember(state.cameraPermission) {
+        state.cameraPermission == PermissionState.GRANTED &&
+            hasCamera(CameraCharacteristics.LENS_FACING_FRONT)
+    }
+    val switchCamera: (Boolean, Boolean) -> Unit = { useFrontCamera, preserveCommandPlan ->
+        viewModel.cancelCoaching(preserveCommandPlan = preserveCommandPlan)
+        isFrontCamera = useFrontCamera
+        cameraBindAttempt++
+    }
+    val latestState by rememberUpdatedState(state)
+    val latestCanFlipCamera by rememberUpdatedState(canFlipCamera)
+    val latestIsFrontCamera by rememberUpdatedState(isFrontCamera)
+
+    LaunchedEffect(viewModel) {
+        viewModel.cameraFacingRequests.collect { request ->
+            val requestedFront = when (request) {
+                CameraFacingRequest.TOGGLE -> null
+                CameraFacingRequest.FRONT -> true
+                CameraFacingRequest.REAR -> false
+            }
+            when {
+                requestedFront != null && requestedFront == latestIsFrontCamera -> {
+                    viewModel.reportCameraSwitchMessage(
+                        if (latestIsFrontCamera) "Selfie camera is already active." else "Rear camera is already active.",
+                    )
+                    viewModel.cameraFacingRequestCompleted(true)
+                }
+                !latestState.shutterEnabled -> {
+                    viewModel.reportCameraSwitchMessage("Finish the current camera action before switching cameras.")
+                    viewModel.cameraFacingRequestCompleted(false)
+                }
+                !latestCanFlipCamera -> {
+                    viewModel.reportCameraSwitchMessage("No front camera is available on this device.")
+                    viewModel.cameraFacingRequestCompleted(false)
+                }
+                else -> {
+                    val useFrontCamera = requestedFront ?: !latestIsFrontCamera
+                    val previousSessionId = viewModel.camera.state.value.sessionId
+                    viewModel.reportCameraSwitchMessage(
+                        if (useFrontCamera) "Switching to selfie camera…" else "Switching to rear camera…",
+                    )
+                    switchCamera(useFrontCamera, true)
+                    val result = withTimeoutOrNull(10_000) {
+                        viewModel.camera.state.first {
+                            it.sessionId > previousSessionId &&
+                                it.phase in setOf(CameraPhase.READY, CameraPhase.BLOCKED)
+                        }
+                    }
+                    val succeeded = result?.phase == CameraPhase.READY
+                    if (!succeeded) viewModel.reportCameraSwitchMessage("Camera switch did not finish. Try again.")
+                    viewModel.cameraFacingRequestCompleted(succeeded)
+                }
+            }
+        }
+    }
 
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         viewModel.setCameraPermission(it)
@@ -116,7 +182,17 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
                 session = viewModel.camera as CameraXSession,
                 enabled = state.cameraPermission == PermissionState.GRANTED,
                 bindAttempt = cameraBindAttempt,
+                lensFacing = if (isFrontCamera) {
+                    CameraSelector.LENS_FACING_FRONT
+                } else {
+                    CameraSelector.LENS_FACING_BACK
+                },
             )
+        },
+        isFrontCamera = isFrontCamera,
+        canFlipCamera = canFlipCamera,
+        onFlipCamera = {
+            switchCamera(!isFrontCamera, false)
         },
         onOnboardingContinue = viewModel::continueOnboarding,
         onOpenCamera = {
@@ -212,11 +288,20 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
     }
 }
 
+private fun MainActivity.hasCamera(lensFacing: Int): Boolean = runCatching {
+    val manager = getSystemService(CameraManager::class.java)
+    manager.cameraIdList.any { cameraId ->
+        manager.getCameraCharacteristics(cameraId)
+            .get(CameraCharacteristics.LENS_FACING) == lensFacing
+    }
+}.getOrDefault(false)
+
 @Composable
 private fun BoxScope.CameraPreview(
     session: CameraXSession,
     enabled: Boolean,
     bindAttempt: Int,
+    lensFacing: Int,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -226,7 +311,7 @@ private fun BoxScope.CameraPreview(
             scaleType = PreviewView.ScaleType.FILL_CENTER
         }
     }
-    DisposableEffect(session, lifecycleOwner, enabled, bindAttempt) {
+    DisposableEffect(session, lifecycleOwner, enabled, bindAttempt, lensFacing) {
         var bound = false
         val bindCamera = Runnable {
             val width = previewView.width
@@ -241,6 +326,7 @@ private fun BoxScope.CameraPreview(
                     previewView.meteringPointFactory,
                     width,
                     height,
+                    lensFacing,
                 )
             }
         }

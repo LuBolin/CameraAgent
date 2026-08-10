@@ -193,6 +193,11 @@ class DefaultCoachEngine(
         hint: VisualHint,
     ): LocalDecision = when (hint) {
         is VisualHint.Clarify -> evaluateLocal(input)
+        is VisualHint.FocusCell -> if (family == VisualFamily.OBJECT_FOCUS) {
+            objectFocus(input, hint)
+        } else {
+            evaluateLocal(input)
+        }
         is VisualHint.Intent -> when {
             family == VisualFamily.FACE_SIZE_AMBIGUOUS && hint.value == VisualIntent.FACE_OCCUPANCY_LOWER ->
                 faceOccupancy(input, smaller = true, fromVisual = true)
@@ -206,6 +211,32 @@ class DefaultCoachEngine(
                 colorAdjustment(input, WhiteBalancePreset.COOLER, fromVisual = true)
             else -> evaluateLocal(input)
         }
+    }
+
+    private fun objectFocus(input: CoachingInput, hint: VisualHint.FocusCell): LocalDecision {
+        if (input.origin == ObservationOrigin.CAPTURE_REVIEW || !input.capabilities.supportsFocusMetering) {
+            return focus(input)
+        }
+        return LocalDecision.Recommend(
+            Recommendation(
+                complaintId = input.complaintId,
+                cameraSessionId = input.cameraSessionId,
+                headline = "Subject located",
+                actionText = "Tap the marked point to focus",
+                consequence = "The camera will focus at the center of the matching grid area.",
+                primaryLabel = null,
+                action = RecommendationAction.FocusAt(
+                    hint.xFraction,
+                    hint.yFraction,
+                    hint.leftFraction,
+                    hint.topFraction,
+                    hint.rightFraction,
+                    hint.bottomFraction,
+                ),
+                basis = RecommendationBasis.USER_PREFERENCE,
+                fromVisualHint = true,
+            ),
+        )
     }
 
     override fun verify(target: VerificationTarget, current: com.bolin.photohelper.capture.FrameObservation): VerificationResult =

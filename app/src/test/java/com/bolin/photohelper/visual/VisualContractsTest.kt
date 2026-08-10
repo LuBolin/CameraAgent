@@ -1,6 +1,7 @@
 package com.bolin.photohelper.visual
 
 import com.bolin.photohelper.coach.VisualFamily
+import com.bolin.photohelper.coach.VisualHint
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -8,6 +9,26 @@ import org.junit.Test
 import kotlinx.coroutines.runBlocking
 
 class VisualContractsTest {
+    @Test
+    fun `object focus uses aspect-aware bounded cells`() {
+        val portrait = FocusGrid.forImage(480, 640)
+        val landscape = FocusGrid.forImage(640, 480)
+        val valid = VisualHint.FocusCell(row = 4, column = 2, rows = portrait.rows, columns = portrait.columns)
+        val invalid = runCatching { VisualHint.FocusCell(row = 4, column = 6, rows = portrait.rows, columns = portrait.columns) }
+
+        assertEquals(FocusGrid(columns = 6, rows = 8), portrait)
+        assertEquals(FocusGrid(columns = 8, rows = 6), landscape)
+        assertEquals(2.5f / 6f, valid.xFraction)
+        assertEquals(4.5f / 8f, valid.yFraction)
+        assertTrue(invalid.exceptionOrNull() is IllegalArgumentException)
+    }
+
+    @Test
+    fun `object focus keeps six cells across a tall camera frame`() {
+        assertEquals(FocusGrid(columns = 6, rows = 8), FocusGrid.forImage(1080, 1920))
+        assertEquals(FocusGrid(columns = 8, rows = 6), FocusGrid.forImage(1920, 1080))
+    }
+
     @Test
     fun `request rejects an oversized Observation Image`() {
         val failure = runCatching {
@@ -88,4 +109,5 @@ class VisualContractsTest {
         assertEquals(VisualResult.CredentialsRejected, visualFailureForHttpStatus(403))
         assertEquals(VisualResult.Unavailable, visualFailureForHttpStatus(503))
     }
+
 }

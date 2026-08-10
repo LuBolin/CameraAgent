@@ -2,6 +2,7 @@ package com.bolin.photohelper.capture
 
 import android.Manifest
 import android.app.Instrumentation
+import android.hardware.camera2.CameraCharacteristics
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.compose.ui.test.assertIsEnabled
@@ -17,6 +18,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import com.bolin.photohelper.MainActivity
 import com.bolin.photohelper.coach.RecommendationAction
+import com.bolin.photohelper.voice.parseVoiceCommand
+import com.bolin.photohelper.voice.VoiceCommand
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -49,6 +52,7 @@ class VoiceAcousticSmokeTest {
             .getString("voiceExpectedTranscriptBase64")
             ?.let { String(java.util.Base64.getDecoder().decode(it), Charsets.UTF_8) }
             ?.takeIf { it.isNotBlank() && it.length <= 100 }
+        val expectedVoiceCommand = expectedTranscript?.let(::parseVoiceCommand)
         val markerDirectory = compose.activity.getExternalFilesDir(null)
             ?: error("External test marker directory is unavailable")
         val playbackMarker = File(markerDirectory, "voice-playback-$runId.ready")
@@ -56,8 +60,20 @@ class VoiceAcousticSmokeTest {
         openCameraAndWaitUntilReady()
         val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
         val camera = viewModel.camera
+        val cameraSession = camera as CameraXSession
         val capabilities = camera.capabilities.value
         val baseline = camera.telemetry.value
+        val baselineLensFacing = cameraSession.activeLensFacing
+        val expectedLensFacing = when (expectedVoiceCommand) {
+            VoiceCommand.SwitchCamera -> when (baselineLensFacing) {
+                CameraCharacteristics.LENS_FACING_FRONT -> CameraCharacteristics.LENS_FACING_BACK
+                else -> CameraCharacteristics.LENS_FACING_FRONT
+            }
+            VoiceCommand.UseFrontCamera -> CameraCharacteristics.LENS_FACING_FRONT
+            VoiceCommand.UseRearCamera -> CameraCharacteristics.LENS_FACING_BACK
+            else -> null
+        }
+        var commandCaptureUri: android.net.Uri? = null
         if (expectedTranscript == null) {
             assertTrue("Stage camera must expose EV compensation", capabilities.supportsExposureCompensation)
             assertTrue(
@@ -81,7 +97,14 @@ class VoiceAcousticSmokeTest {
 
             compose.waitUntil(timeoutMillis = 25_000) {
                 val phase = viewModel.uiState.value.coachingPhase
-                if (expectedTranscript != null) {
+                if (expectedLensFacing != null) {
+                    (phase == CoachingPhase.IDLE &&
+                        cameraSession.activeLensFacing == expectedLensFacing &&
+                        viewModel.uiState.value.cameraPhase == CameraPhase.READY) ||
+                        phase == CoachingPhase.TRANSIENT_ERROR
+                } else if (expectedVoiceCommand != null) {
+                    viewModel.uiState.value.review != null || phase == CoachingPhase.TRANSIENT_ERROR
+                } else if (expectedTranscript != null) {
                     phase != CoachingPhase.LISTENING
                 } else {
                     phase != CoachingPhase.LISTENING &&
@@ -90,6 +113,27 @@ class VoiceAcousticSmokeTest {
                 }
             }
             val state = viewModel.uiState.value
+            if (expectedLensFacing != null) {
+                assertEquals(
+                    "Voice camera command did not select the expected lens: message='${state.transientMessage}'",
+                    expectedLensFacing,
+                    cameraSession.activeLensFacing,
+                )
+                reportVoiceGate("VOICE_GATE transcript=EXPECTED_CONTROL source=EDGE_SECONDARY_DISPLAY")
+                reportVoiceGate("VOICE_GATE command=SWITCH_CAMERA result=LENS_READY source=PHONE_MIC")
+                return
+            }
+            if (expectedVoiceCommand != null) {
+                val capture = state.review
+                assertNotNull(
+                    "Voice shutter did not save a photo: message='${state.transientMessage}'",
+                    capture,
+                )
+                commandCaptureUri = android.net.Uri.parse(capture!!.uri)
+                reportVoiceGate("VOICE_GATE transcript=EXPECTED_CONTROL source=EDGE_SECONDARY_DISPLAY")
+                reportVoiceGate("VOICE_GATE command=TAKE_PICTURE result=SAVED source=PHONE_MIC")
+                return
+            }
             if (expectedTranscript != null) {
                 assertTrue(
                     "Expected-transcript acoustic control did not match: actual='${state.comment}'",
@@ -165,6 +209,7 @@ class VoiceAcousticSmokeTest {
         } finally {
             playbackMarker.delete()
             playbackCompletedMarker.delete()
+            commandCaptureUri?.let { compose.activity.contentResolver.delete(it, null, null) }
             val telemetry = camera.telemetry.value
             if (viewModel.uiState.value.resetAvailable ||
                 telemetry.exposureCompensationIndex != baseline.exposureCompensationIndex ||
@@ -176,6 +221,9 @@ class VoiceAcousticSmokeTest {
     }
 
     private fun openCameraAndWaitUntilReady() {
+        compose.waitUntil(timeoutMillis = 10_000) {
+            runCatching { compose.onAllNodesWithText("Continue").fetchSemanticsNodes() }.isSuccess
+        }
         if (compose.onAllNodesWithText("Continue").fetchSemanticsNodes().isNotEmpty()) {
             compose.onNodeWithText("Continue").performClick()
             compose.onNodeWithText("Open camera").performClick()

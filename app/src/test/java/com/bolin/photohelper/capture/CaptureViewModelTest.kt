@@ -4,17 +4,23 @@ import com.bolin.photohelper.coach.DefaultCoachEngine
 import com.bolin.photohelper.coach.ControlIntent
 import com.bolin.photohelper.coach.IntentClassification
 import com.bolin.photohelper.coach.LocalDecision
+import com.bolin.photohelper.coach.RecommendationAction
+import com.bolin.photohelper.coach.VisualFamily
 import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.VisualIntent
 import com.bolin.photohelper.visual.ComplaintResult
 import com.bolin.photohelper.visual.VisualResult
+import com.bolin.photohelper.visual.VisualRequest
 import com.bolin.photohelper.voice.VoiceIo
 import com.bolin.photohelper.voice.VoiceResult
 import java.util.Locale
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -23,6 +29,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -1311,6 +1318,202 @@ class CaptureViewModelTest {
     }
 
     @Test
+    fun `voice shutter captures without submitting a coaching complaint`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val voice = FakeVoice(available = true, result = { VoiceResult.Heard("take a picture") })
+        val viewModel = viewModel(camera, voice = voice)
+        viewModel.refreshPermissions(cameraGranted = true, microphoneGranted = true)
+
+        viewModel.startVoiceInput()
+        runCurrent()
+
+        assertEquals(1, camera.captureCalls)
+        assertEquals("", viewModel.uiState.value.comment)
+        assertNotNull(viewModel.uiState.value.review)
+    }
+
+    @Test
+    fun `typed camera command requests the selfie camera`() = runTest(dispatcher) {
+        val viewModel = viewModel(FakeCamera(observation()))
+        val request = async(start = CoroutineStart.UNDISPATCHED) { viewModel.cameraFacingRequests.first() }
+
+        viewModel.updateComment("switch to the front camera")
+        viewModel.submitComment()
+
+        assertEquals(CameraFacingRequest.FRONT, request.await())
+        assertEquals("", viewModel.uiState.value.comment)
+        assertEquals(null, viewModel.uiState.value.recommendation)
+    }
+
+    @Test
+    fun `selfie countdown waits for the camera switch then captures`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val viewModel = viewModel(camera)
+        viewModel.setCameraPermission(true)
+        val request = async(start = CoroutineStart.UNDISPATCHED) { viewModel.cameraFacingRequests.first() }
+
+        viewModel.updateComment("take a selfie in 5 seconds")
+        viewModel.submitComment()
+
+        assertEquals(CameraFacingRequest.FRONT, request.await())
+        assertEquals(null, viewModel.uiState.value.countdownSecondsRemaining)
+
+        viewModel.cameraFacingRequestCompleted(true)
+        assertEquals(5, viewModel.uiState.value.countdownSecondsRemaining)
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(1, camera.captureCalls)
+        assertNotNull(viewModel.uiState.value.review)
+    }
+
+    @Test
+    fun `long compound command pauses for apply then switches counts down and captures`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            complaintResult = {
+                ComplaintResult.Available(
+                    IntentClassification.Intent(
+                        listOf(ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.WHITE_BALANCE_WARMER),
+                    ),
+                )
+            },
+        )
+        viewModel.setCameraPermission(true)
+        val request = async(start = CoroutineStart.UNDISPATCHED) { viewModel.cameraFacingRequests.first() }
+
+        viewModel.updateComment(
+            "Make it brighter and more warm, then flip the camera and take a photo in 5 seconds",
+        )
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(
+            2,
+            (viewModel.uiState.value.recommendation?.action as RecommendationAction.ApplySettings).changes.size,
+        )
+        assertEquals(0, camera.captureCalls)
+
+        viewModel.applyRecommendation()
+        runCurrent()
+
+        assertEquals(CameraFacingRequest.TOGGLE, request.await())
+        assertEquals(1, camera.applyCalls)
+        viewModel.cameraFacingRequestCompleted(true)
+        assertEquals(CoachingPhase.APPLYING, viewModel.uiState.value.coachingPhase)
+        runCurrent()
+        assertEquals(2, camera.applyCalls)
+        assertEquals(camera.appliedBatches.first(), camera.appliedBatches.last())
+        assertEquals(5, viewModel.uiState.value.countdownSecondsRemaining)
+
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(1, camera.captureCalls)
+        assertNotNull(viewModel.uiState.value.review)
+    }
+
+    @Test
+    fun `voice camera command requests a lens toggle`() = runTest(dispatcher) {
+        val voice = FakeVoice(available = true, result = { VoiceResult.Heard("switch camera") })
+        val viewModel = viewModel(FakeCamera(observation()), voice = voice)
+        viewModel.refreshPermissions(cameraGranted = true, microphoneGranted = true)
+        val request = async(start = CoroutineStart.UNDISPATCHED) { viewModel.cameraFacingRequests.first() }
+
+        viewModel.startVoiceInput()
+        runCurrent()
+
+        assertEquals(CameraFacingRequest.TOGGLE, request.await())
+        assertEquals("", viewModel.uiState.value.comment)
+    }
+
+    @Test
+    fun `voice countdown is visible and captures at zero`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val voice = FakeVoice(available = true, result = { VoiceResult.Heard("take a photo in three seconds") })
+        val viewModel = viewModel(camera, voice = voice)
+        viewModel.refreshPermissions(cameraGranted = true, microphoneGranted = true)
+
+        viewModel.startVoiceInput()
+        runCurrent()
+        assertEquals(3, viewModel.uiState.value.countdownSecondsRemaining)
+        assertEquals(0, camera.captureCalls)
+
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertEquals(1, camera.captureCalls)
+        assertEquals(null, viewModel.uiState.value.countdownSecondsRemaining)
+    }
+
+    @Test
+    fun `cancelling a voice countdown prevents capture`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val voice = FakeVoice(available = true, result = { VoiceResult.Heard("five second timer then take picture") })
+        val viewModel = viewModel(camera, voice = voice)
+        viewModel.refreshPermissions(cameraGranted = true, microphoneGranted = true)
+
+        viewModel.startVoiceInput()
+        runCurrent()
+        viewModel.cancelCoaching()
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(0, camera.captureCalls)
+        assertEquals(null, viewModel.uiState.value.countdownSecondsRemaining)
+    }
+
+    @Test
+    fun `Qwen object cell becomes the only confirmed focus point`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(), supportsFocusMetering = true)
+        var family: VisualFamily? = null
+        var grid: com.bolin.photohelper.visual.FocusGrid? = null
+        var observationJpeg: ByteArray? = null
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            visualRequest = {
+                family = it.family
+                grid = it.focusGrid
+                observationJpeg = it.observationJpeg.copyOf()
+            },
+            visualResult = { VisualResult.Available(VisualHint.FocusCell(row = 4, column = 2, rows = 6, columns = 8)) },
+        )
+        viewModel.setCameraPermission(true)
+        viewModel.updateComment("focus on the red watch")
+
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(VisualFamily.OBJECT_FOCUS, family)
+        assertEquals(com.bolin.photohelper.visual.FocusGrid(columns = 8, rows = 6), grid)
+        assertArrayEquals(byteArrayOf(1, 2, 3), observationJpeg)
+        val action = viewModel.uiState.value.recommendation?.action as RecommendationAction.FocusAt
+        assertEquals(2.5f / 8f, action.xFraction)
+        assertEquals(4.5f / 6f, action.yFraction)
+        assertEquals(0, camera.focusCalls)
+
+        viewModel.focusAt(action.xFraction, action.yFraction)
+        runCurrent()
+        assertEquals((2.5f / 8f) to (4.5f / 6f), camera.focusPoint)
+    }
+
+    @Test
+    fun `failed object grounding falls back to manual tap focus`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(), supportsFocusMetering = true)
+        val viewModel = viewModel(camera, visualEnabled = true)
+        viewModel.setCameraPermission(true)
+        viewModel.updateComment("focus on the red watch")
+
+        viewModel.submitComment()
+        runCurrent()
+
+        assertTrue(viewModel.uiState.value.recommendation?.action is RecommendationAction.TapToFocus)
+        assertEquals("AI interpretation unavailable—using local coaching.", viewModel.uiState.value.transientMessage)
+    }
+
+    @Test
     fun `finishing voice input requests a final result without cancelling it`() = runTest(dispatcher) {
         val result = CompletableDeferred<VoiceResult>()
         val voice = FakeVoice(available = true, result = { result.await() })
@@ -1769,6 +1972,7 @@ class CaptureViewModelTest {
         voice: VoiceIo = FakeVoice(),
         feedback: (Feedback) -> Unit = {},
         complaintResult: suspend () -> ComplaintResult = { ComplaintResult.Unavailable },
+        visualRequest: (VisualRequest) -> Unit = {},
         visualResult: suspend () -> VisualResult = { VisualResult.Unavailable },
     ) = CaptureViewModel(
         camera = camera,
@@ -1779,7 +1983,7 @@ class CaptureViewModelTest {
         loadApiKey = loadApiKey,
         saveApiKey = saveApiKey,
         clearApiKey = clearApiKey,
-        interpretVisual = { _, _ -> visualResult() },
+        interpretVisual = { request, _ -> visualRequest(request); visualResult() },
         interpretComplaint = { _, _ -> complaintResult() },
         createTestImage = { byteArrayOf(1) },
         feedback = feedback,

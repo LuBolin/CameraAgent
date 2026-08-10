@@ -316,6 +316,9 @@ try {
 
     $fixtureUrl = [Uri]::new($fixturePath).AbsoluteUri
     $fixtureRunUrl = "${fixtureUrl}?run=$voiceRunId"
+    if ($ExpectedTranscript) {
+        $fixtureRunUrl += "&speech=$([Uri]::EscapeDataString($ExpectedTranscript))"
+    }
     $fixtureDirectoryUrl = ([Uri]::new((Split-Path -Parent $fixturePath))).AbsoluteUri.TrimEnd("/") + "/"
     $edgeDebugPort = 9224
     $edgeProfile = Join-Path $repoRoot ".tools\edge-voice-profile-clean"

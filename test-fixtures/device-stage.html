@@ -24,6 +24,8 @@
     // The acceptance runner is the only authority allowed to start playback.
     // Cancel anything left queued by an older fixture tab before arming this page.
     speechSynthesis.cancel();
+    const params = new URLSearchParams(location.search);
+    const customImage = params.get("image");
     const targets = [
       ["Neutral portrait", "neutral-portrait.png"],
       ["Cold scene", "cold-blue-scene.png"],
@@ -34,6 +36,11 @@
     ];
     const nav = document.querySelector("nav");
     const image = document.querySelector("img");
+    if (customImage) {
+      image.src = customImage;
+      image.alt = "Custom camera target";
+      image.style.objectFit = "contain";
+    }
     targets.forEach(([label, source], index) => {
       const button = document.createElement("button");
       button.textContent = `${index + 1} · ${label}`;
@@ -45,13 +52,14 @@
       };
       nav.append(button);
     });
+    const speechText = params.get("speech") || "Make the picture brighter and zoom in.";
     const voiceButton = document.createElement("button");
     voiceButton.textContent = "V · Speak compound";
-    voiceButton.title = "Say: Make the picture brighter and zoom in";
+    voiceButton.title = `Say: ${speechText}`;
     voiceButton.onclick = () => {
       speechSynthesis.cancel();
       document.title = "Photo Helper device target · queued";
-      const utterance = new SpeechSynthesisUtterance("Make the picture brighter and zoom in.");
+      const utterance = new SpeechSynthesisUtterance(speechText);
       utterance.lang = "en-US";
       utterance.rate = 0.85;
       utterance.volume = 1;

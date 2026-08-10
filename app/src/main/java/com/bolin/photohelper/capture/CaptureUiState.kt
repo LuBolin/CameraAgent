@@ -51,6 +51,7 @@ data class CaptureUiState(
     val resetAvailable: Boolean = false,
     val retakeSettingsActive: Boolean = false,
     val transientMessage: String? = null,
+    val countdownSecondsRemaining: Int? = null,
     val settingsOpen: Boolean = false,
     val settings: SettingsUiState = SettingsUiState(),
 ) {
@@ -61,5 +62,6 @@ data class CaptureUiState(
         get() = cameraPermission == PermissionState.GRANTED &&
             cameraPhase == CameraPhase.READY &&
             coachingPhase != CoachingPhase.APPLYING &&
+            countdownSecondsRemaining == null &&
             review == null
 }

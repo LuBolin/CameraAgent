@@ -222,7 +222,7 @@ try {
         $instrumentText -match "chainedEv=.*lumaTrials=.*captureEv=.*captureIso=.*captureExposureNs=" -and
         $instrumentText -match "PHYSICAL_GATE zoom=.*chain=COMMENT>APPLY>VERIFY>RESET" -and
         $instrumentText -match "PHYSICAL_GATE compound=ZOOM_IN\+WHITE_BALANCE_COOLER .*chain=COMMENT>APPLY_BOTH>VERIFY_SETPOINTS>RESET" -and
-        $instrumentText -match "PHYSICAL_GATE tapFraction=.*tapPx=.*markerPx=.*focus=LOCKED" -and
+        $instrumentText -match "PHYSICAL_GATE (?:focusMode=\w+ )?tapFraction=.*tapPx=.*markerPx=.*focus=LOCKED" -and
         $instrumentText -notmatch "FAILURES!!!|INSTRUMENTATION_FAILED"
     if (-not $passed) {
         $failure = if ($instrument.TimedOut) { "Instrumentation exceeded 600 seconds." } else { "Instrumentation or its required evidence did not report a complete 7-test pass." }

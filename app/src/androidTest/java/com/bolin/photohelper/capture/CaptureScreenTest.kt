@@ -20,6 +20,8 @@ import androidx.compose.ui.test.assertAll
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
@@ -160,6 +162,54 @@ class CaptureScreenTest {
             assertTrue(applied)
             assertTrue(captured)
         }
+    }
+
+    @Test
+    fun cameraFlipSwitchesToAccessibleSelfieState() {
+        val frontCamera = mutableStateOf(false)
+        var flips = 0
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState(),
+                    isFrontCamera = frontCamera.value,
+                    canFlipCamera = true,
+                    onFlipCamera = {
+                        flips++
+                        frontCamera.value = true
+                    },
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("Switch to front camera")
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
+        compose.onNodeWithText("LIVE · SELFIE").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Switch to rear camera").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(1, flips) }
+    }
+
+    @Test
+    fun cameraFlipIsDisabledWhenUnavailableOrCameraIsBusy() {
+        val state = mutableStateOf(readyState())
+        val available = mutableStateOf(false)
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = state.value,
+                    canFlipCamera = available.value,
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("Switch to front camera").assertIsNotEnabled()
+        compose.runOnIdle {
+            available.value = true
+            state.value = state.value.copy(coachingPhase = CoachingPhase.APPLYING)
+        }
+        compose.onNodeWithContentDescription("Switch to front camera").assertIsNotEnabled()
     }
 
     @Test
@@ -343,6 +393,164 @@ class CaptureScreenTest {
     }
 
     @Test
+    fun modelFocusShowsItsGridCellAndOffersAVisibleFocusButton() {
+        var focusPoint: Pair<Float, Float>? = null
+        val recommendation = Recommendation(
+            complaintId = "focus-watch",
+            cameraSessionId = 0,
+            headline = "Subject located",
+            actionText = "Tap the marked point to focus",
+            consequence = "The camera will focus in the matching grid cell.",
+            primaryLabel = null,
+            action = RecommendationAction.FocusAt(
+                xFraction = 2.5f / 6f,
+                yFraction = 4.5f / 8f,
+                leftFraction = 2f / 6f,
+                topFraction = 4f / 8f,
+                rightFraction = 3f / 6f,
+                bottomFraction = 5f / 8f,
+            ),
+            basis = RecommendationBasis.USER_PREFERENCE,
+            fromVisualHint = true,
+        )
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState(
+                        coachingPhase = CoachingPhase.RECOMMENDATION,
+                        decision = LocalDecision.Recommend(recommendation),
+                    ).copy(capabilities = CameraCapabilities(supportsFocusMetering = true)),
+                    onFocusTarget = { x, y -> focusPoint = x to y },
+                )
+            }
+        }
+
+        compose.onNodeWithTag(CaptureTestTags.FOCUS_CELL).assertIsDisplayed()
+        compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).assertIsDisplayed().assert(hasClickAction())
+        compose.onNodeWithText("Choose manually").assertIsDisplayed()
+        compose.onNodeWithText("Focus here").assertIsDisplayed().performClick()
+        compose.onNodeWithTag(CaptureTestTags.FOCUS_AREA).assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(2.5f / 6f, focusPoint?.first ?: -1f, .001f)
+            assertEquals(4.5f / 8f, focusPoint?.second ?: -1f, .001f)
+        }
+    }
+
+    @Test
+    fun selfiePreviewMirrorsModelFocusPointBeforeFocusing() {
+        var focusPoint: Pair<Float, Float>? = null
+        val targetX = 2.5f / 6f
+        val recommendation = Recommendation(
+            complaintId = "focus-watch-selfie",
+            cameraSessionId = 0,
+            headline = "Subject located",
+            actionText = "Tap the marked point to focus",
+            consequence = "The camera will focus in the matching grid cell.",
+            primaryLabel = null,
+            action = RecommendationAction.FocusAt(
+                xFraction = targetX,
+                yFraction = 4.5f / 8f,
+                leftFraction = 2f / 6f,
+                topFraction = 4f / 8f,
+                rightFraction = 3f / 6f,
+                bottomFraction = 5f / 8f,
+            ),
+            basis = RecommendationBasis.USER_PREFERENCE,
+            fromVisualHint = true,
+        )
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState(
+                        coachingPhase = CoachingPhase.RECOMMENDATION,
+                        decision = LocalDecision.Recommend(recommendation),
+                    ).copy(capabilities = CameraCapabilities(supportsFocusMetering = true)),
+                    isFrontCamera = true,
+                    onFocusTarget = { x, y -> focusPoint = x to y },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Focus here").performClick()
+        compose.runOnIdle {
+            assertEquals(1f - targetX, focusPoint?.first ?: -1f, .001f)
+            assertEquals(4.5f / 8f, focusPoint?.second ?: -1f, .001f)
+        }
+    }
+
+    @Test
+    fun modelFocusCardDoesNotCoverALowerFocusTarget() {
+        val recommendation = Recommendation(
+            complaintId = "focus-headphones",
+            cameraSessionId = 0,
+            headline = "Subject located",
+            actionText = "Tap the marked point to focus",
+            consequence = "The camera will focus in the matching grid cell.",
+            primaryLabel = null,
+            action = RecommendationAction.FocusAt(
+                xFraction = .75f,
+                yFraction = .75f,
+                leftFraction = .7f,
+                topFraction = .7f,
+                rightFraction = .8f,
+                bottomFraction = .8f,
+            ),
+            basis = RecommendationBasis.USER_PREFERENCE,
+            fromVisualHint = true,
+        )
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState(
+                        coachingPhase = CoachingPhase.RECOMMENDATION,
+                        decision = LocalDecision.Recommend(recommendation),
+                    ).copy(capabilities = CameraCapabilities(supportsFocusMetering = true)),
+                )
+            }
+        }
+
+        val card = compose.onNodeWithTag("focus_recommendation_card").fetchSemanticsNode().boundsInRoot
+        val target = compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).fetchSemanticsNode().boundsInRoot
+        assertFalse(card.overlaps(target))
+    }
+
+    @Test
+    fun voiceCountdownIsVisibleAndCancellable() {
+        var cancelled = 0
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState().copy(countdownSecondsRemaining = 3),
+                    onCancelCoaching = { cancelled++ },
+                )
+            }
+        }
+
+        compose.onNodeWithTag(CaptureTestTags.COUNTDOWN).assertIsDisplayed()
+        compose.onNodeWithText("3").assertIsDisplayed()
+        compose.onNodeWithText("Cancel").performClick()
+        compose.runOnIdle { assertEquals(1, cancelled) }
+    }
+
+    @Test
+    fun sendReturnsFocusToTheViewfinder() {
+        var submitted = 0
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState().copy(comment = "focus on the watch"),
+                    onSubmitComment = { submitted++ },
+                )
+            }
+        }
+
+        compose.onNodeWithTag(CaptureTestTags.COMMENT).performClick().assertIsFocused()
+        compose.onNodeWithText("Send").performClick()
+        compose.onNodeWithTag(CaptureTestTags.COMMENT).assertIsNotFocused()
+        compose.runOnIdle { assertEquals(1, submitted) }
+    }
+
+    @Test
     fun focusRecommendationLetsTheUserTapAnyPreviewPoint() {
         var focusPoint: Pair<Float, Float>? = null
         val recommendation = Recommendation(
@@ -433,7 +641,7 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Qwen interpreting request…").assertIsDisplayed()
+        compose.onNodeWithText("Looking at the scene with Qwen…").assertIsDisplayed()
         compose.onNodeWithText("Size").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText("Cancel").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle {
@@ -623,6 +831,8 @@ class CaptureScreenTest {
         compose.onNodeWithText("Voice is not always on", substring = true)
             .performScrollTo()
             .assertIsDisplayed()
+        compose.onNodeWithText("Say “switch camera,” “selfie mode,” or “rear camera”", substring = true)
+            .assertExists()
         compose.onNodeWithText("What you can ask")
             .assertIsDisplayed()
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
@@ -798,6 +1008,19 @@ class CaptureScreenTest {
 
         compose.onNodeWithContentDescription("Describe shot by voice")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Error"))
+    }
+
+    @Test
+    fun aiFallbackIsInformationalRatherThanAFalseSuccess() {
+        val message = "AI interpretation unavailable—using local coaching."
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(state = readyState().copy(transientMessage = message))
+            }
+        }
+
+        compose.onNodeWithText("ⓘ $message").assertIsDisplayed()
+        compose.onNodeWithText("✓ $message").assertDoesNotExist()
     }
 
     @Test

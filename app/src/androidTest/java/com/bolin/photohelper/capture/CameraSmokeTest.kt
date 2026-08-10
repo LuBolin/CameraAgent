@@ -331,6 +331,70 @@ class CameraSmokeTest {
 
     @RequiresDevice
     @Test
+    fun stagedPhysicalCameraFlipsToSelfieAndBack() {
+        openCameraAndWaitUntilReady()
+        val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
+        val session = viewModel.camera as CameraXSession
+        var selfieUri: String? = null
+
+        try {
+            compose.onNodeWithContentDescription("Switch to front camera")
+                .assertIsEnabled()
+                .performClick()
+            compose.waitUntil(timeoutMillis = 30_000) {
+                viewModel.uiState.value.cameraPhase == CameraPhase.READY &&
+                    session.activeLensFacing == CameraCharacteristics.LENS_FACING_FRONT
+            }
+            compose.onNodeWithText("LIVE · SELFIE").assertIsDisplayed()
+
+            compose.onNodeWithTag(CaptureTestTags.SHUTTER).performClick()
+            compose.waitUntil(timeoutMillis = 60_000) { viewModel.uiState.value.review != null }
+            selfieUri = viewModel.uiState.value.review?.uri
+            compose.waitUntil(timeoutMillis = 30_000) {
+                compose.onAllNodesWithContentDescription("Captured photo").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithContentDescription("Captured photo").assertIsDisplayed()
+            compose.onNodeWithText("Retake").performClick()
+            compose.waitUntil(timeoutMillis = 30_000) {
+                viewModel.uiState.value.cameraPhase == CameraPhase.READY
+            }
+
+            compose.onNodeWithContentDescription("Switch to rear camera")
+                .assertIsEnabled()
+                .performClick()
+            compose.waitUntil(timeoutMillis = 30_000) {
+                viewModel.uiState.value.cameraPhase == CameraPhase.READY &&
+                    session.activeLensFacing == CameraCharacteristics.LENS_FACING_BACK
+            }
+        } finally {
+            selfieUri?.let(::deleteTestCapture) ?: deleteCurrentTestCapture()
+        }
+    }
+
+    @RequiresDevice
+    @Test
+    fun stagedPhysicalCameraAcceptsTypedLensCommands() {
+        openCameraAndWaitUntilReady()
+        val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
+        val session = viewModel.camera as CameraXSession
+
+        compose.onNodeWithTag(CaptureTestTags.COMMENT).performTextInput("selfie mode")
+        compose.onNodeWithText("Send").performClick()
+        compose.waitUntil(timeoutMillis = 30_000) {
+            viewModel.uiState.value.cameraPhase == CameraPhase.READY &&
+                session.activeLensFacing == CameraCharacteristics.LENS_FACING_FRONT
+        }
+
+        compose.onNodeWithTag(CaptureTestTags.COMMENT).performTextInput("rear camera")
+        compose.onNodeWithText("Send").performClick()
+        compose.waitUntil(timeoutMillis = 30_000) {
+            viewModel.uiState.value.cameraPhase == CameraPhase.READY &&
+                session.activeLensFacing == CameraCharacteristics.LENS_FACING_BACK
+        }
+    }
+
+    @RequiresDevice
+    @Test
     fun stagedZoomCommentAppliesVerifiesAndResets() {
         openCameraAndWaitUntilReady()
         val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
@@ -447,18 +511,30 @@ class CameraSmokeTest {
         compose.waitUntil(timeoutMillis = 5_000) {
             compose.onAllNodesWithTag(CaptureTestTags.FOCUS_TARGET).fetchSemanticsNodes().isNotEmpty()
         }
-        val focusArea = compose.onNodeWithTag(CaptureTestTags.FOCUS_AREA)
-        val focusBounds = focusArea.fetchSemanticsNode().boundsInRoot
-        val targetBounds = compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).fetchSemanticsNode().boundsInRoot
+        val focusTarget = compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET)
+        val targetBounds = focusTarget.fetchSemanticsNode().boundsInRoot
         val markerX = (targetBounds.left + targetBounds.right) / 2f
         val markerY = (targetBounds.top + targetBounds.bottom) / 2f
-        assertTrue("Focus marker was outside the preview tap area", markerX in focusBounds.left..focusBounds.right && markerY in focusBounds.top..focusBounds.bottom)
-        val tapXFraction = .5f
-        val tapYFraction = .42f
-        val expectedX = focusBounds.left + focusBounds.width * tapXFraction
-        val expectedY = focusBounds.top + focusBounds.height * tapYFraction
-        focusArea.performTouchInput {
-            click(percentOffset(tapXFraction, tapYFraction))
+        val focusAreaNodes = compose.onAllNodesWithTag(CaptureTestTags.FOCUS_AREA).fetchSemanticsNodes()
+        val (mode, tapXFraction, tapYFraction, expectedX, expectedY) = if (focusAreaNodes.isNotEmpty()) {
+            val focusArea = compose.onNodeWithTag(CaptureTestTags.FOCUS_AREA)
+            val focusBounds = focusArea.fetchSemanticsNode().boundsInRoot
+            assertTrue(
+                "Focus marker was outside the preview tap area",
+                markerX in focusBounds.left..focusBounds.right && markerY in focusBounds.top..focusBounds.bottom,
+            )
+            val x = .5f
+            val y = .42f
+            focusArea.performTouchInput { click(percentOffset(x, y)) }
+            listOf("MANUAL", x, y, focusBounds.left + focusBounds.width * x, focusBounds.top + focusBounds.height * y)
+        } else {
+            assertTrue(
+                "Qwen focus did not show its selected grid cell",
+                compose.onAllNodesWithTag(CaptureTestTags.FOCUS_CELL).fetchSemanticsNodes().isNotEmpty(),
+            )
+            val action = viewModel.uiState.value.recommendation?.action as com.bolin.photohelper.coach.RecommendationAction.FocusAt
+            focusTarget.performClick()
+            listOf("QWEN_GRID", action.xFraction, action.yFraction, markerX, markerY)
         }
         compose.waitUntil(timeoutMillis = 10_000) {
             viewModel.uiState.value.transientMessage != "Focusing…" &&
@@ -469,7 +545,7 @@ class CameraSmokeTest {
             viewModel.uiState.value.transientMessage.orEmpty().startsWith("Focus locked"),
         )
         reportPhysicalGate(
-            "PHYSICAL_GATE tapFraction=$tapXFraction,$tapYFraction tapPx=$expectedX,$expectedY " +
+            "PHYSICAL_GATE focusMode=$mode tapFraction=$tapXFraction,$tapYFraction tapPx=$expectedX,$expectedY " +
                 "markerPx=$markerX,$markerY focus=LOCKED",
         )
     }

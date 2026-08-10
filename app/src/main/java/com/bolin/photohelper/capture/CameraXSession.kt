@@ -350,6 +350,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         focusPointFactory: MeteringPointFactory,
         previewWidth: Int,
         previewHeight: Int,
+        lensFacing: Int = CameraSelector.LENS_FACING_BACK,
     ) {
         if (closed.get()) {
             _state.value = CameraState(CameraPhase.BLOCKED, "Camera session is closed", cameraSessionId.get())
@@ -409,7 +410,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                     .build()
                 val boundCamera = provider.bindToLifecycle(
                     lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    CameraSelector.Builder().requireLensFacing(lensFacing).build(),
                     useCases,
                 )
 
@@ -451,7 +452,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                 _telemetry.value = CameraTelemetry()
                 _state.value = CameraState(
                     CameraPhase.BLOCKED,
-                    error.message ?: "Unable to start the rear camera",
+                    error.message ?: "Unable to start the selected camera",
                     cameraSessionId.get(),
                 )
             }

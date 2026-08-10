@@ -1,5 +1,8 @@
 package com.bolin.photohelper.visual
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.bolin.photohelper.coach.ClarificationReason
 import com.bolin.photohelper.coach.ControlIntent
@@ -27,6 +30,50 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class VisualContractInstrumentedTest {
+    @Test
+    fun objectFocusSendsCleanFrameBeforeAnInMemoryLabelledGuide() {
+        val source = Bitmap.createBitmap(120, 160, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.WHITE)
+        }
+        val cleanOutput = ByteArrayOutputStream()
+        source.compress(Bitmap.CompressFormat.JPEG, 90, cleanOutput)
+        source.recycle()
+        val clean = cleanOutput.toByteArray()
+        val grid = FocusGrid(columns = 6, rows = 8)
+        val guide = createFocusGridGuide(clean, grid)!!
+        val request = VisualRequest(
+            family = VisualFamily.OBJECT_FOCUS,
+            comment = "focus on the headphones",
+            observationJpeg = clean,
+            focusGrid = grid,
+        )
+
+        val body = JSONObject(buildVisualRequestBody(request, guide).toString(StandardCharsets.UTF_8))
+        val content = body.getJSONArray("messages").getJSONObject(0).getJSONArray("content")
+        val decodedGuide = BitmapFactory.decodeByteArray(guide, 0, guide.size)
+
+        assertEquals(3, content.length())
+        assertEquals(
+            "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(clean)}",
+            content.getJSONObject(0).getJSONObject("image_url").getString("url"),
+        )
+        assertEquals(
+            "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(guide)}",
+            content.getJSONObject(1).getJSONObject("image_url").getString("url"),
+        )
+        val prompt = content.getJSONObject(2).getString("text")
+        assertTrue(prompt.contains("labelled guide"))
+        assertTrue(prompt.contains("copy its printed column,row label exactly"))
+        assertTrue(prompt.contains("solid, high-contrast"))
+        assertTrue(prompt.contains("never empty space"))
+        assertEquals(120, decodedGuide.width)
+        assertEquals(160, decodedGuide.height)
+        assertTrue(guide.size <= MAX_FOCUS_GUIDE_JPEG_BYTES)
+        decodedGuide.recycle()
+        clean.fill(0)
+        guide.fill(0)
+    }
+
     @Test
     fun complaintRequestSeparatesUntrustedTextFromTheStrictContract() {
         val bytes = buildComplaintRequestBody(ComplaintRequest("Could you open the framing a little?"))
@@ -268,6 +315,30 @@ class VisualContractInstrumentedTest {
         )
         assertNull(parseVisualResponse(response(occupancy), VisualFamily.COLOR_CAST))
         assertNull(parseVisualResponse(response(warmer), VisualFamily.FACE_SIZE_AMBIGUOUS))
+    }
+
+    @Test
+    fun objectFocusParserUsesTheExactAspectAwareGrid() {
+        val grid = FocusGrid.forImage(480, 640)
+        val target = response("""{"schemaVersion":1,"outcome":"TARGET","row":4,"column":2}""")
+        val outsideGrid = response("""{"schemaVersion":1,"outcome":"TARGET","row":4,"column":6}""")
+
+        assertEquals(VisualHint.FocusCell(4, 2, 8, 6), parseVisualResponse(target, VisualFamily.OBJECT_FOCUS, grid))
+        assertNull(parseVisualResponse(outsideGrid, VisualFamily.OBJECT_FOCUS, grid))
+        assertNull(parseVisualResponse(target, VisualFamily.OBJECT_FOCUS))
+        assertNull(
+            parseVisualResponse(
+                response("""{"schemaVersion":1,"outcome":"CLARIFY","reason":"SCENE_CONFOUND"}"""),
+                VisualFamily.OBJECT_FOCUS,
+                grid,
+            ),
+        )
+        assertNull(
+            parseVisualResponse(
+                response("""{"schemaVersion":2,"outcome":"CLARIFY","reason":"TARGET_NOT_FOUND"}"""),
+                VisualFamily.COLOR_CAST,
+            ),
+        )
     }
 
     @Test
