@@ -10,6 +10,9 @@ import com.bolin.photohelper.coach.IntentClassification
 import com.bolin.photohelper.coach.VisualFamily
 import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.VisualIntent
+import com.bolin.photohelper.voice.CameraFacing
+import com.bolin.photohelper.voice.CommandPlan
+import com.bolin.photohelper.voice.CommandPlanStep
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -75,88 +78,90 @@ class VisualContractInstrumentedTest {
     }
 
     @Test
-    fun complaintRequestSeparatesUntrustedTextFromTheStrictContract() {
-        val bytes = buildComplaintRequestBody(ComplaintRequest("Could you open the framing a little?"))
+    fun commandRequestSendsCleanAndGridImagesWhileSeparatingUntrustedText() {
+        val clean = testJpeg()
+        val grid = FocusGrid(columns = 6, rows = 8)
+        val guide = createFocusGridGuide(clean, grid)!!
+        val bytes = buildCommandRequestBody(
+            CommandRequest("Focus on the watch, then take a photo", clean, grid),
+            guide,
+        )
         val body = JSONObject(bytes.toString(StandardCharsets.UTF_8))
         val messages = body.getJSONArray("messages")
+        val content = messages.getJSONObject(1).getJSONArray("content")
 
         assertEquals(QWEN_MODEL, body.getString("model"))
         assertEquals("system", messages.getJSONObject(0).getString("role"))
         assertTrue(messages.getJSONObject(0).getString("content").contains("JSON"))
-        assertTrue(messages.getJSONObject(0).getString("content").contains("ZOOM_OUT"))
-        assertFalse(messages.getJSONObject(0).getString("content").contains("Could you open"))
+        assertTrue(messages.getJSONObject(0).getString("content").contains("FOCUS_CELL"))
+        assertFalse(messages.getJSONObject(0).getString("content").contains("Focus on the watch"))
         assertEquals("user", messages.getJSONObject(1).getString("role"))
-        assertEquals("Could you open the framing a little?", messages.getJSONObject(1).getString("content"))
+        assertEquals(3, content.length())
+        assertEquals("Focus on the watch, then take a photo", content.getJSONObject(2).getString("text"))
         assertEquals("json_object", body.getJSONObject("response_format").getString("type"))
         assertEquals(false, body.getBoolean("enable_thinking"))
         assertEquals(0, body.getInt("temperature"))
         assertEquals(false, body.getBoolean("stream"))
-        assertEquals(64, body.getInt("max_completion_tokens"))
+        assertEquals(256, body.getInt("max_completion_tokens"))
+        clean.fill(0)
+        guide.fill(0)
     }
 
     @Test
-    fun complaintParserAcceptsOnlyTheSemanticUnion() {
+    fun commandParserAcceptsAnOrderedPlanIncludingGridFocus() {
+        val grid = FocusGrid(columns = 6, rows = 8)
         assertEquals(
-            IntentClassification.Intent(ControlIntent.ZOOM_OUT),
-            parseComplaintResponse(response("""{"schemaVersion":2,"outcome":"INTENT","intent":"ZOOM_OUT"}""")),
-        )
-        assertEquals(
-            IntentClassification.Clarify(ClarificationReason.BLUR_TYPE),
-            parseComplaintResponse(response("""{"schemaVersion":2,"outcome":"CLARIFY","reason":"BLUR_TYPE"}""")),
-        )
-
-        listOf(
-            """{"schemaVersion":2,"outcome":"INTENT","intent":"WHITE_BALANCE_AUTO"}""",
-            """{"schemaVersion":2,"outcome":"INTENT","intent":"ZOOM_OUT","ratio":1.5}""",
-            """{"schemaVersion":2,"outcome":"INTENT","intent":"FOCUS_POINT_REQUIRED","x":0.5}""",
-            """{"schemaVersion":2,"outcome":"CLARIFY","reason":"UNKNOWN"}""",
-            """{"schemaVersion":1,"outcome":"INTENT","intent":"ZOOM_OUT"}""",
-            """{"schemaVersion":2,"outcome":"UNSUPPORTED","reason":"MANUAL_EXPOSURE"}""",
-            """{"schemaVersion":2,"outcome":"INTENT","intent":"ZOOM_OUT"} trailing""",
-        ).forEach { assertNull(parseComplaintResponse(response(it))) }
-    }
-
-    @Test
-    fun complaintParserAcceptsOnlyBoundedDirectSettingCompounds() {
-        assertEquals(
-            IntentClassification.Intent(
-                listOf(
-                    ControlIntent.EXPOSURE_BRIGHTER,
-                    ControlIntent.ZOOM_OUT,
-                    ControlIntent.WHITE_BALANCE_COOLER,
+            CommandResult.Planned(
+                CommandPlan(
+                    listOf(
+                        CommandPlanStep.Adjust(
+                            listOf(ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.WHITE_BALANCE_WARMER),
+                        ),
+                        CommandPlanStep.FocusCell(row = 5, column = 2, rows = 8, columns = 6),
+                        CommandPlanStep.Capture(5),
+                    ),
                 ),
             ),
-            parseComplaintResponse(
+            parseCommandResponse(
                 response(
-                    """{"schemaVersion":2,"outcome":"INTENTS","intents":["WHITE_BALANCE_COOLER","ZOOM_OUT","EXPOSURE_BRIGHTER"]}""",
+                    """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"ADJUST","intents":["WHITE_BALANCE_WARMER","EXPOSURE_BRIGHTER"]},{"type":"FOCUS_CELL","row":5,"column":2},{"type":"CAPTURE","countdownSeconds":5}]}""",
                 ),
+                grid,
+            ),
+        )
+        assertEquals(
+            CommandResult.Planned(
+                CommandPlan(
+                    listOf(CommandPlanStep.SetCamera(CameraFacing.FRONT), CommandPlanStep.Capture(null)),
+                ),
+            ),
+            parseCommandResponse(
+                response(
+                    """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"SET_CAMERA","facing":"FRONT"},{"type":"CAPTURE","countdownSeconds":0}]}""",
+                ),
+                grid,
             ),
         )
 
         listOf(
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":[]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["ZOOM_OUT"]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["ZOOM_OUT","ZOOM_OUT"]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["ZOOM_IN","ZOOM_OUT"]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["FOCUS_POINT_REQUIRED","ZOOM_OUT"]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["LEVEL_FRAME","ZOOM_OUT"]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["WHITE_BALANCE_AUTO","ZOOM_OUT"]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["UNKNOWN","ZOOM_OUT"]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER","ZOOM_OUT","WHITE_BALANCE_COOLER","ZOOM_IN"]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER",7]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER",null]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER",{}]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intent":"ZOOM_OUT"}""",
-            """{"schemaVersion":2,"outcome":"INTENT","intents":["ZOOM_OUT","WHITE_BALANCE_COOLER"]}""",
-            """{"schemaVersion":2,"outcome":"INTENTS","intents":["EXPOSURE_BRIGHTER","ZOOM_OUT"],"extra":true}""",
-        ).forEach { assertNull(parseComplaintResponse(response(it))) }
+            """{"schemaVersion":3,"outcome":"PLAN","actions":[]}""",
+            """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"CAPTURE","countdownSeconds":0},{"type":"SET_CAMERA","facing":"FRONT"}]}""",
+            """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"FOCUS_CELL","row":8,"column":2}]}""",
+            """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"SET_CAMERA","facing":"FRONT"},{"type":"FOCUS_CELL","row":4,"column":2}]}""",
+            """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"ADJUST","intents":["ZOOM_IN","ZOOM_OUT"]}]}""",
+            """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"CAPTURE","countdownSeconds":31}]}""",
+            """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"UNKNOWN"}]}""",
+            """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"CAPTURE","countdownSeconds":0,"extra":true}]}""",
+        ).forEach { assertNull(parseCommandResponse(response(it), grid)) }
     }
 
     @Test
     fun complaintClientUsesOneBoundedRedactedHttpsRequest() = runBlocking {
+        val clean = testJpeg()
+        val grid = FocusGrid(columns = 6, rows = 8)
         val fakeConnection = FakeHttpsConnection(
             response = response(
-                """{"schemaVersion":2,"outcome":"INTENTS","intents":["ZOOM_OUT","WHITE_BALANCE_COOLER"]}""",
+                """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"ADJUST","intents":["ZOOM_OUT","WHITE_BALANCE_COOLER"]}]}""",
             ),
         )
         var connections = 0
@@ -166,12 +171,12 @@ class VisualContractInstrumentedTest {
         })
         val key = "disposable-api-key".toCharArray()
 
-        val result = client.classify(ComplaintRequest("The crop is tight and the light is amber"), key)
+        val result = client.plan(CommandRequest("The crop is tight and the light is amber", clean, grid), key)
 
         assertEquals(
-            ComplaintResult.Available(
-                IntentClassification.Intent(
-                    listOf(ControlIntent.ZOOM_OUT, ControlIntent.WHITE_BALANCE_COOLER),
+            CommandResult.Planned(
+                CommandPlan(
+                    listOf(CommandPlanStep.Adjust(listOf(ControlIntent.ZOOM_OUT, ControlIntent.WHITE_BALANCE_COOLER))),
                 ),
             ),
             result,
@@ -182,6 +187,7 @@ class VisualContractInstrumentedTest {
         assertTrue(key.all { it == '\u0000' })
         assertFalse(String(fakeConnection.sentBody.toByteArray(), StandardCharsets.UTF_8).contains("disposable-api-key"))
         assertTrue(fakeConnection.disconnected)
+        clean.fill(0)
     }
 
     @Test
@@ -364,6 +370,18 @@ class VisualContractInstrumentedTest {
 
         invalidResponses.forEach {
             assertNull(parseVisualResponse(it, VisualFamily.FACE_SIZE_AMBIGUOUS))
+        }
+    }
+
+    private fun testJpeg(): ByteArray {
+        val bitmap = Bitmap.createBitmap(120, 160, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
+        return try {
+            ByteArrayOutputStream().use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output))
+                output.toByteArray()
+            }
+        } finally {
+            bitmap.recycle()
         }
     }
 

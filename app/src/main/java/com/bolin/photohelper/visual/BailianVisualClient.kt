@@ -57,13 +57,24 @@ class BailianVisualClient internal constructor(
         }
     }
 
-    suspend fun classify(request: ComplaintRequest, apiKey: CharArray): ComplaintResult =
-        when (val result = call(apiKey, COMPLAINT_NETWORK_TIMEOUT_MS) { buildComplaintRequestBody(request) }) {
-            is ProviderCall.Available -> parseComplaintResponse(result.response)
-                ?.let(ComplaintResult::Available) ?: ComplaintResult.Unavailable
-            ProviderCall.CredentialsRejected -> ComplaintResult.CredentialsRejected
-            ProviderCall.Unavailable -> ComplaintResult.Unavailable
+    suspend fun plan(request: CommandRequest, apiKey: CharArray): CommandResult {
+        val focusGuide = createFocusGridGuide(request.observationJpeg, request.focusGrid)
+        if (focusGuide == null) {
+            apiKey.fill('\u0000')
+            return CommandResult.Unavailable
         }
+        val result = try {
+            call(apiKey, COMMAND_NETWORK_TIMEOUT_MS) { buildCommandRequestBody(request, focusGuide) }
+        } finally {
+            focusGuide.fill(0)
+        }
+        return when (result) {
+            is ProviderCall.Available ->
+                parseCommandResponse(result.response, request.focusGrid) ?: CommandResult.Unavailable
+            ProviderCall.CredentialsRejected -> CommandResult.CredentialsRejected
+            ProviderCall.Unavailable -> CommandResult.Unavailable
+        }
+    }
 
     private suspend fun call(
         apiKey: CharArray,
@@ -157,7 +168,7 @@ class BailianVisualClient internal constructor(
     private companion object {
         const val VISUAL_NETWORK_TIMEOUT_MS = 5_000L
         const val OBJECT_FOCUS_NETWORK_TIMEOUT_MS = 20_000L
-        const val COMPLAINT_NETWORK_TIMEOUT_MS = 15_000L
+        const val COMMAND_NETWORK_TIMEOUT_MS = 15_000L
         const val MAX_HTTP_RESPONSE_BYTES = 64 * 1024
         val PROCESS_CALL_LIMITER = VisualCallLimiter()
     }

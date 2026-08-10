@@ -2,17 +2,20 @@ package com.bolin.photohelper.capture
 
 import com.bolin.photohelper.coach.DefaultCoachEngine
 import com.bolin.photohelper.coach.ControlIntent
-import com.bolin.photohelper.coach.IntentClassification
 import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.RecommendationAction
 import com.bolin.photohelper.coach.VisualFamily
 import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.VisualIntent
-import com.bolin.photohelper.visual.ComplaintResult
+import com.bolin.photohelper.visual.CommandResult
+import com.bolin.photohelper.visual.CommandRequest
 import com.bolin.photohelper.visual.VisualResult
 import com.bolin.photohelper.visual.VisualRequest
 import com.bolin.photohelper.voice.VoiceIo
 import com.bolin.photohelper.voice.VoiceResult
+import com.bolin.photohelper.voice.CameraFacing
+import com.bolin.photohelper.voice.CommandPlan
+import com.bolin.photohelper.voice.CommandPlanStep
 import java.util.Locale
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -223,8 +226,8 @@ class CaptureViewModelTest {
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
-            complaintResult = {
-                ComplaintResult.Available(IntentClassification.Intent(ControlIntent.EXPOSURE_BRIGHTER))
+            commandResult = {
+                planned(CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_BRIGHTER)))
             },
         )
         viewModel.setCameraPermission(true)
@@ -255,9 +258,9 @@ class CaptureViewModelTest {
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
-            complaintResult = {
+            commandResult = {
                 modelCalls++
-                ComplaintResult.Available(IntentClassification.Intent(ControlIntent.ZOOM_IN))
+                planned(CommandPlanStep.Adjust(listOf(ControlIntent.ZOOM_IN)))
             },
         )
 
@@ -280,9 +283,9 @@ class CaptureViewModelTest {
         val viewModel = viewModel(
             FakeCamera(observation()),
             visualEnabled = true,
-            complaintResult = {
+            commandResult = {
                 modelCalls++
-                ComplaintResult.Unavailable
+                CommandResult.Unavailable
             },
         )
 
@@ -305,13 +308,10 @@ class CaptureViewModelTest {
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
-            complaintResult = {
-                ComplaintResult.Available(
-                    IntentClassification.Intent(
-                        listOf(
-                            ControlIntent.ZOOM_OUT,
-                            ControlIntent.WHITE_BALANCE_COOLER,
-                        ),
+            commandResult = {
+                planned(
+                    CommandPlanStep.Adjust(
+                        listOf(ControlIntent.ZOOM_OUT, ControlIntent.WHITE_BALANCE_COOLER),
                     ),
                 )
             },
@@ -348,10 +348,10 @@ class CaptureViewModelTest {
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
-            complaintResult = {
+            commandResult = {
                 complaintCalls++
-                ComplaintResult.Available(
-                    IntentClassification.Intent(
+                planned(
+                    CommandPlanStep.Adjust(
                         listOf(ControlIntent.ZOOM_OUT, ControlIntent.WHITE_BALANCE_WARMER),
                     ),
                 )
@@ -372,15 +372,15 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `hosted scalar intent cannot partially satisfy an unknown compound complaint`() = runTest(dispatcher) {
+    fun `hosted plan is the semantic source of truth`() = runTest(dispatcher) {
         var complaintCalls = 0
         val camera = FakeCamera(observation(zoomRatio = 2f))
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
-            complaintResult = {
+            commandResult = {
                 complaintCalls++
-                ComplaintResult.Available(IntentClassification.Intent(ControlIntent.WHITE_BALANCE_WARMER))
+                planned(CommandPlanStep.Adjust(listOf(ControlIntent.WHITE_BALANCE_WARMER)))
             },
         )
 
@@ -389,21 +389,21 @@ class CaptureViewModelTest {
         runCurrent()
 
         assertEquals(1, complaintCalls)
-        assertTrue(viewModel.uiState.value.decision is LocalDecision.Clarify)
-        assertEquals(null, viewModel.uiState.value.recommendation)
+        assertTrue(viewModel.uiState.value.decision is LocalDecision.Recommend)
+        assertNotNull(viewModel.uiState.value.recommendation)
         assertEquals(0, camera.applyCalls)
     }
 
     @Test
-    fun `single eligible visual family still uses frame interpretation`() = runTest(dispatcher) {
+    fun `model planner handles a visual setting request in one call`() = runTest(dispatcher) {
         var complaintCalls = 0
         var visualCalls = 0
         val viewModel = viewModel(
             camera = FakeCamera(observation(blueBias = .08f)),
             visualEnabled = true,
-            complaintResult = {
+            commandResult = {
                 complaintCalls++
-                ComplaintResult.Unavailable
+                planned(CommandPlanStep.Adjust(listOf(ControlIntent.WHITE_BALANCE_WARMER)))
             },
             visualResult = {
                 visualCalls++
@@ -415,8 +415,8 @@ class CaptureViewModelTest {
         viewModel.submitComment()
         runCurrent()
 
-        assertEquals(0, complaintCalls)
-        assertEquals(1, visualCalls)
+        assertEquals(1, complaintCalls)
+        assertEquals(0, visualCalls)
         assertTrue(viewModel.uiState.value.decision is LocalDecision.Recommend)
     }
 
@@ -426,9 +426,9 @@ class CaptureViewModelTest {
         val viewModel = viewModel(
             FakeCamera(observation()),
             visualEnabled = true,
-            complaintResult = {
+            commandResult = {
                 modelCalls++
-                ComplaintResult.Unavailable
+                CommandResult.Unavailable
             },
         )
 
@@ -902,7 +902,7 @@ class CaptureViewModelTest {
             visualEnabled = true,
             preferences = preferences,
             clearApiKey = { clearCalls++ },
-            visualResult = { VisualResult.CredentialsRejected },
+            commandResult = { CommandResult.CredentialsRejected },
         )
 
         viewModel.updateComment("looks blue")
@@ -927,16 +927,16 @@ class CaptureViewModelTest {
 
     @Test
     fun `turning visual AI off ignores an in-flight result`() = runTest(dispatcher) {
-        val result = CompletableDeferred<VisualResult>()
+        val result = CompletableDeferred<CommandResult>()
         val camera = FakeCamera(observation(blueBias = .08f, timestamp = 1_000))
-        val viewModel = viewModel(camera, visualEnabled = true) { result.await() }
+        val viewModel = viewModel(camera, visualEnabled = true, commandResult = { result.await() })
         viewModel.updateComment("looks blue")
         viewModel.submitComment()
         runCurrent()
         assertEquals(CoachingPhase.REQUESTING_VISUAL_INTERPRETATION, viewModel.uiState.value.coachingPhase)
 
         viewModel.setVisualAiEnabled(false)
-        result.complete(VisualResult.Available(VisualHint.Intent(VisualIntent.WHITE_BALANCE_WARMER)))
+        result.complete(planned(CommandPlanStep.Adjust(listOf(ControlIntent.WHITE_BALANCE_WARMER))))
         runCurrent()
 
         assertFalse(viewModel.uiState.value.settings.visualAiEnabled)
@@ -946,9 +946,20 @@ class CaptureViewModelTest {
 
     @Test
     fun `reset cancels an in-flight visual complaint`() = runTest(dispatcher) {
-        val result = CompletableDeferred<VisualResult>()
+        val result = CompletableDeferred<CommandResult>()
+        var modelCalls = 0
         val camera = FakeCamera(observation(highlights = .3f, timestamp = 1_000))
-        val viewModel = viewModel(camera, visualEnabled = true) { result.await() }
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            commandResult = {
+                if (modelCalls++ == 0) {
+                    planned(CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_DARKER)))
+                } else {
+                    result.await()
+                }
+            },
+        )
         viewModel.updateComment("too bright")
         viewModel.submitComment()
         runCurrent()
@@ -965,7 +976,7 @@ class CaptureViewModelTest {
 
         viewModel.reset()
         runCurrent()
-        result.complete(VisualResult.Available(VisualHint.Intent(VisualIntent.WHITE_BALANCE_WARMER)))
+        result.complete(planned(CommandPlanStep.Adjust(listOf(ControlIntent.WHITE_BALANCE_WARMER))))
         runCurrent()
 
         assertFalse(viewModel.uiState.value.resetAvailable)
@@ -994,11 +1005,13 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `accepted visual hint is replanned and labelled`() = runTest(dispatcher) {
+    fun `accepted model adjustment is locally planned`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(blueBias = .08f, timestamp = 1_000))
-        val viewModel = viewModel(camera, visualEnabled = true) {
-            VisualResult.Available(VisualHint.Intent(VisualIntent.WHITE_BALANCE_WARMER))
-        }
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            commandResult = { planned(CommandPlanStep.Adjust(listOf(ControlIntent.WHITE_BALANCE_WARMER))) },
+        )
         viewModel.setCameraPermission(true)
 
         viewModel.updateComment("looks blue")
@@ -1006,7 +1019,7 @@ class CaptureViewModelTest {
         runCurrent()
 
         val decision = viewModel.uiState.value.decision as LocalDecision.Recommend
-        assertTrue(decision.recommendation.fromVisualHint)
+        assertEquals(listOf(ControlIntent.WHITE_BALANCE_WARMER), decision.recommendation.controlIntents)
     }
 
     @Test
@@ -1373,11 +1386,13 @@ class CaptureViewModelTest {
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
-            complaintResult = {
-                ComplaintResult.Available(
-                    IntentClassification.Intent(
+            commandResult = {
+                planned(
+                    CommandPlanStep.Adjust(
                         listOf(ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.WHITE_BALANCE_WARMER),
                     ),
+                    CommandPlanStep.SetCamera(CameraFacing.TOGGLE),
+                    CommandPlanStep.Capture(5),
                 )
             },
         )
@@ -1467,18 +1482,18 @@ class CaptureViewModelTest {
     @Test
     fun `Qwen object cell becomes the only confirmed focus point`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(), supportsFocusMetering = true)
-        var family: VisualFamily? = null
         var grid: com.bolin.photohelper.visual.FocusGrid? = null
         var observationJpeg: ByteArray? = null
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
-            visualRequest = {
-                family = it.family
+            commandRequest = {
                 grid = it.focusGrid
                 observationJpeg = it.observationJpeg.copyOf()
             },
-            visualResult = { VisualResult.Available(VisualHint.FocusCell(row = 4, column = 2, rows = 6, columns = 8)) },
+            commandResult = {
+                planned(CommandPlanStep.FocusCell(row = 4, column = 2, rows = 6, columns = 8))
+            },
         )
         viewModel.setCameraPermission(true)
         viewModel.updateComment("focus on the red watch")
@@ -1486,7 +1501,6 @@ class CaptureViewModelTest {
         viewModel.submitComment()
         runCurrent()
 
-        assertEquals(VisualFamily.OBJECT_FOCUS, family)
         assertEquals(com.bolin.photohelper.visual.FocusGrid(columns = 8, rows = 6), grid)
         assertArrayEquals(byteArrayOf(1, 2, 3), observationJpeg)
         val action = viewModel.uiState.value.recommendation?.action as RecommendationAction.FocusAt
@@ -1497,6 +1511,39 @@ class CaptureViewModelTest {
         viewModel.focusAt(action.xFraction, action.yFraction)
         runCurrent()
         assertEquals((2.5f / 8f) to (4.5f / 6f), camera.focusPoint)
+    }
+
+    @Test
+    fun `model focus cell waits for confirmation before continuing to countdown capture`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(), supportsFocusMetering = true)
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            commandResult = {
+                planned(
+                    CommandPlanStep.FocusCell(row = 4, column = 2, rows = 6, columns = 8),
+                    CommandPlanStep.Capture(3),
+                )
+            },
+        )
+        viewModel.setCameraPermission(true)
+
+        viewModel.updateComment("focus on the red watch and take a picture in 3 seconds")
+        viewModel.submitComment()
+        runCurrent()
+
+        val action = viewModel.uiState.value.recommendation?.action as RecommendationAction.FocusAt
+        assertEquals(0, camera.focusCalls)
+        assertEquals(null, viewModel.uiState.value.countdownSecondsRemaining)
+
+        viewModel.focusAt(action.xFraction, action.yFraction)
+        runCurrent()
+
+        assertEquals(1, camera.focusCalls)
+        assertEquals(3, viewModel.uiState.value.countdownSecondsRemaining)
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertEquals(1, camera.captureCalls)
     }
 
     @Test
@@ -1822,10 +1869,10 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `stale visual result restores the local clarification`() = runTest(dispatcher) {
-        val result = CompletableDeferred<VisualResult>()
+    fun `model plan is replanned from the fresh camera state`() = runTest(dispatcher) {
+        val result = CompletableDeferred<CommandResult>()
         val camera = FakeCamera(observation(blueBias = .08f, timestamp = 1_000))
-        val viewModel = viewModel(camera, visualEnabled = true) { result.await() }
+        val viewModel = viewModel(camera, visualEnabled = true, commandResult = { result.await() })
         viewModel.updateComment("looks blue")
         viewModel.submitComment()
         runCurrent()
@@ -1833,25 +1880,24 @@ class CaptureViewModelTest {
 
         camera.observation.value = observation(id = 2, blueBias = .30f, timestamp = 1_250)
         runCurrent()
-        result.complete(VisualResult.Available(VisualHint.Intent(VisualIntent.WHITE_BALANCE_WARMER)))
+        result.complete(planned(CommandPlanStep.Adjust(listOf(ControlIntent.WHITE_BALANCE_WARMER))))
         runCurrent()
 
-        assertTrue(viewModel.uiState.value.decision is LocalDecision.Clarify)
-        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
-        assertTrue(viewModel.uiState.value.transientMessage.orEmpty().contains("using local coaching"))
+        assertTrue(viewModel.uiState.value.decision is LocalDecision.Recommend)
+        assertEquals(CoachingPhase.RECOMMENDATION, viewModel.uiState.value.coachingPhase)
     }
 
     @Test
-    fun `editing a submitted complaint cancels its visual result`() = runTest(dispatcher) {
-        val result = CompletableDeferred<VisualResult>()
+    fun `editing a submitted complaint cancels its model plan`() = runTest(dispatcher) {
+        val result = CompletableDeferred<CommandResult>()
         val camera = FakeCamera(observation(blueBias = .08f, timestamp = 1_000))
-        val viewModel = viewModel(camera, visualEnabled = true) { result.await() }
+        val viewModel = viewModel(camera, visualEnabled = true, commandResult = { result.await() })
         viewModel.updateComment("looks blue")
         viewModel.submitComment()
         runCurrent()
 
         viewModel.updateComment("looks yellow")
-        result.complete(VisualResult.Available(VisualHint.Intent(VisualIntent.WHITE_BALANCE_WARMER)))
+        result.complete(planned(CommandPlanStep.Adjust(listOf(ControlIntent.WHITE_BALANCE_WARMER))))
         runCurrent()
 
         assertEquals("looks yellow", viewModel.uiState.value.comment)
@@ -1961,6 +2007,9 @@ class CaptureViewModelTest {
         assertEquals("Camera did not finish saving the photo. Try again.", viewModel.uiState.value.transientMessage)
     }
 
+    private fun planned(vararg steps: CommandPlanStep): CommandResult =
+        CommandResult.Planned(CommandPlan(steps.toList()))
+
     private fun viewModel(
         camera: FakeCamera,
         visualEnabled: Boolean = false,
@@ -1971,7 +2020,8 @@ class CaptureViewModelTest {
         nowMs: () -> Long = { 1_000 },
         voice: VoiceIo = FakeVoice(),
         feedback: (Feedback) -> Unit = {},
-        complaintResult: suspend () -> ComplaintResult = { ComplaintResult.Unavailable },
+        commandResult: suspend () -> CommandResult = { CommandResult.Unavailable },
+        commandRequest: (CommandRequest) -> Unit = {},
         visualRequest: (VisualRequest) -> Unit = {},
         visualResult: suspend () -> VisualResult = { VisualResult.Unavailable },
     ) = CaptureViewModel(
@@ -1984,7 +2034,7 @@ class CaptureViewModelTest {
         saveApiKey = saveApiKey,
         clearApiKey = clearApiKey,
         interpretVisual = { request, _ -> visualRequest(request); visualResult() },
-        interpretComplaint = { _, _ -> complaintResult() },
+        interpretCommand = { request, _ -> commandRequest(request); commandResult() },
         createTestImage = { byteArrayOf(1) },
         feedback = feedback,
         nowMs = nowMs,

@@ -1583,8 +1583,9 @@ private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
             GuideTopic("Brightness", "Say “too dark” or “too bright” for a whole-photo exposure change.")
             GuideTopic(
                 "Focus",
-                "With Qwen enabled, say “focus on the red watch.” Qwen marks one cell in an aspect-aware grid; " +
-                    "check the marker, then tap it to focus. Without Qwen, choose the focus point yourself.",
+                "With Qwen enabled, say “focus on the red watch.” Qwen receives the clean frame and a labelled " +
+                    "aspect-aware grid, then returns one grid cell in its action plan. Check the marker, then tap it " +
+                    "to focus locally. Without Qwen, choose the focus point yourself.",
             )
             GuideTopic("Zoom", "Say “too zoomed in” or “too zoomed out” for a wider or tighter digital crop.")
             GuideTopic("Color", "Say “too blue” or “too yellow” for Warmer, Cooler, or Auto white balance.")

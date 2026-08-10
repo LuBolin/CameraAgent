@@ -37,7 +37,7 @@ class AppGraph(context: Context) {
                 saveApiKey = keyStore::save,
                 clearApiKey = keyStore::clear,
                 interpretVisual = visualClient::interpret,
-                interpretComplaint = visualClient::classify,
+                interpretCommand = visualClient::plan,
                 createTestImage = ::neutralTestJpeg,
                 feedback = ::performFeedback,
             ) as T

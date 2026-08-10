@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.bolin.photohelper.coach.CoachEngine
 import com.bolin.photohelper.coach.CoachingInput
 import com.bolin.photohelper.coach.ControlIntent
-import com.bolin.photohelper.coach.IntentClassification
 import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.ObservationOrigin
 import com.bolin.photohelper.coach.Recommendation
@@ -15,12 +14,13 @@ import com.bolin.photohelper.coach.VerificationResult
 import com.bolin.photohelper.coach.VerificationTarget
 import com.bolin.photohelper.coach.VisualEligibility
 import com.bolin.photohelper.coach.VisualFamily
+import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.observationsComparable
 import com.bolin.photohelper.visual.VisualRequest
 import com.bolin.photohelper.visual.VisualResult
 import com.bolin.photohelper.visual.FocusGrid
-import com.bolin.photohelper.visual.ComplaintRequest
-import com.bolin.photohelper.visual.ComplaintResult
+import com.bolin.photohelper.visual.CommandRequest
+import com.bolin.photohelper.visual.CommandResult
 import com.bolin.photohelper.voice.VoiceIo
 import com.bolin.photohelper.voice.VoiceResult
 import com.bolin.photohelper.voice.CameraFacing
@@ -51,12 +51,6 @@ private const val CAPTURE_TIMEOUT_MS = 15_000L
 private const val CAPTURE_TIMEOUT_MESSAGE = "Camera did not finish saving the photo. Try again."
 private const val VOICE_INPUT_TIMEOUT_MS = 20_000L
 private const val VOICE_INPUT_TIMEOUT_MESSAGE = "Voice input timed out. Try again or type your comment."
-private val COMPOUND_SEPARATOR = Regex(
-    "[,;]|[.!?]+(?=\\s+\\S)|\\b(and|also|plus|while|but|then)\\b",
-    RegexOption.IGNORE_CASE,
-)
-
-private fun commentLooksCompound(comment: String): Boolean = COMPOUND_SEPARATOR.containsMatchIn(comment)
 private val OBJECT_FOCUS_REQUEST = Regex("\\b(focus|sharp|sharpen|clear)\\b", RegexOption.IGNORE_CASE)
 private fun countdownMessage(seconds: Int) = "Photo in $seconds ${if (seconds == 1) "second" else "seconds"}…"
 
@@ -70,7 +64,7 @@ class CaptureViewModel(
     private val saveApiKey: (CharArray) -> Unit,
     private val clearApiKey: () -> Unit,
     private val interpretVisual: suspend (VisualRequest, CharArray) -> VisualResult,
-    private val interpretComplaint: suspend (ComplaintRequest, CharArray) -> ComplaintResult,
+    private val interpretCommand: suspend (CommandRequest, CharArray) -> CommandResult,
     private val createTestImage: () -> ByteArray?,
     private val feedback: (Feedback) -> Unit = {},
     private val nowMs: () -> Long = SystemClock::elapsedRealtime,
@@ -113,6 +107,7 @@ class CaptureViewModel(
     private val comparisonSamples = ArrayDeque<FrameObservation>(3)
     private val pendingCommandSteps = ArrayDeque<CommandPlanStep>()
     private val approvedPlanAdjustments = mutableListOf<CameraAdjustment>()
+    private var activeCommandText = ""
     private var stableFace: FaceObservation? = null
 
     init {
@@ -214,15 +209,24 @@ class CaptureViewModel(
             reset()
             return
         }
-        val plan = parseCommandPlan(comment)
-        if (plan.steps.size > 1 || plan.steps.single() !is CommandPlanStep.Coach) {
-            startCommandPlan(plan)
+        if (canUseVisualAi()) {
+            requestCommandPlan(comment)
             return
         }
-        submitCoaching(comment)
+        submitLocalCommand(comment)
     }
 
-    private fun submitCoaching(comment: String) {
+    private fun submitLocalCommand(comment: String, fallbackMessage: String? = null) {
+        val plan = parseCommandPlan(comment)
+        if (plan.steps.size > 1 || plan.steps.single() !is CommandPlanStep.Coach) {
+            startCommandPlan(plan, comment)
+            return
+        }
+        submitCoaching(comment, allowRemote = false)
+        fallbackMessage?.let { message -> _uiState.update { it.copy(transientMessage = message) } }
+    }
+
+    private fun submitCoaching(comment: String, allowRemote: Boolean = true) {
         cancelCoaching(clearDecision = false, preserveCommandPlan = true)
         val complaintId = UUID.randomUUID().toString()
         activeComplaintId = complaintId
@@ -239,22 +243,20 @@ class CaptureViewModel(
             val decision = coach.evaluateLocal(input).withProvenance(input)
             if (activeComplaintId != complaintId) return@launch
             val eligibility = (decision as? LocalDecision.Clarify)?.visualEligibility
-            val compoundLooking = commentLooksCompound(comment)
             val objectFocusRequested = OBJECT_FOCUS_REQUEST.containsMatchIn(comment)
             val focusFallback = if (objectFocusRequested) {
                 coach.planIntent(input, ControlIntent.FOCUS_POINT_REQUIRED).withProvenance(input)
             } else null
             when {
-                objectFocusRequested && canUseVisualAi() &&
+                objectFocusRequested && allowRemote && canUseVisualAi() &&
                     input.origin == ObservationOrigin.LIVE && input.observation != null ->
                     requestVisualHint(
                         input,
                         VisualEligibility(input.complaintId, VisualFamily.OBJECT_FOCUS, input.origin, input.observation.id),
                         focusFallback ?: decision,
                     )
-                eligibility != null && canUseVisualAi() -> requestVisualHint(input, eligibility, decision)
-                canUseVisualAi() -> requestComplaintIntent(input, decision, compoundLooking)
-                else -> publishLocalDecision(decision)
+                eligibility != null && allowRemote && canUseVisualAi() -> requestVisualHint(input, eligibility, decision)
+                else -> publishLocalDecision(focusFallback ?: decision)
             }
         }
     }
@@ -405,6 +407,7 @@ class CaptureViewModel(
         if (!preserveCommandPlan) {
             pendingCommandSteps.clear()
             approvedPlanAdjustments.clear()
+            activeCommandText = ""
         }
         cancelJobsOnly()
         voiceFinishRequested = false
@@ -540,8 +543,9 @@ class CaptureViewModel(
         }
     }
 
-    private fun startCommandPlan(plan: CommandPlan) {
+    private fun startCommandPlan(plan: CommandPlan, sourceText: String) {
         cancelCoaching()
+        activeCommandText = sourceText
         pendingCommandSteps.addAll(plan.steps)
         _uiState.update { it.copy(comment = "", decision = null, coachingPhase = CoachingPhase.IDLE) }
         advanceCommandPlan()
@@ -551,7 +555,29 @@ class CaptureViewModel(
         when (val step = pendingCommandSteps.pollFirst()) {
             is CommandPlanStep.Coach -> {
                 _uiState.update { it.copy(comment = step.text) }
-                submitCoaching(step.text)
+                submitCoaching(step.text, allowRemote = false)
+            }
+            is CommandPlanStep.Adjust -> {
+                val complaintId = UUID.randomUUID().toString()
+                activeComplaintId = complaintId
+                val input = coachingInput(complaintId, activeCommandText)
+                val decision = coach.planIntents(input, step.intents).withProvenance(
+                    input,
+                    controlIntents = step.intents,
+                )
+                if (decision is LocalDecision.Recommend) {
+                    _uiState.update {
+                        it.copy(
+                            comment = activeCommandText,
+                            decision = decision,
+                            coachingPhase = CoachingPhase.RECOMMENDATION,
+                        )
+                    }
+                } else {
+                    pendingCommandSteps.clear()
+                    approvedPlanAdjustments.clear()
+                    publishLocalDecision(decision)
+                }
             }
             is CommandPlanStep.SetCamera -> requestCameraFacing(
                 when (step.facing) {
@@ -560,10 +586,40 @@ class CaptureViewModel(
                     CameraFacing.REAR -> CameraFacingRequest.REAR
                 },
             )
+            is CommandPlanStep.FocusCell -> {
+                val complaintId = UUID.randomUUID().toString()
+                activeComplaintId = complaintId
+                val input = coachingInput(complaintId, activeCommandText)
+                val decision = coach.continueWithVisualHint(
+                    input,
+                    VisualFamily.OBJECT_FOCUS,
+                    VisualHint.FocusCell(step.row, step.column, step.rows, step.columns),
+                ).withProvenance(
+                    input,
+                    visualFamily = VisualFamily.OBJECT_FOCUS,
+                    visualHint = VisualHint.FocusCell(step.row, step.column, step.rows, step.columns),
+                )
+                if (decision is LocalDecision.Recommend) {
+                    _uiState.update {
+                        it.copy(
+                            comment = activeCommandText,
+                            decision = decision,
+                            coachingPhase = CoachingPhase.RECOMMENDATION,
+                        )
+                    }
+                } else {
+                    pendingCommandSteps.clear()
+                    approvedPlanAdjustments.clear()
+                    publishLocalDecision(decision)
+                }
+            }
             is CommandPlanStep.Capture -> {
                 if (step.countdownSeconds == null) capture() else startCaptureCountdown(step.countdownSeconds)
             }
-            null -> approvedPlanAdjustments.clear()
+            null -> {
+                activeCommandText = ""
+                approvedPlanAdjustments.clear()
+            }
         }
     }
 
@@ -729,6 +785,7 @@ class CaptureViewModel(
                             transientMessage = "Focus locked at the selected point.",
                         )
                     }
+                    if (pendingCommandSteps.isNotEmpty()) advanceCommandPlan()
                 }
                 is ApplyResult.Failed -> failWork(result.message)
             }
@@ -949,71 +1006,85 @@ class CaptureViewModel(
         }
     }
 
-    private fun requestComplaintIntent(
-        originalInput: CoachingInput,
-        fallback: LocalDecision,
-        compoundLooking: Boolean,
-    ) {
+    private fun requestCommandPlan(comment: String) {
+        cancelCoaching()
+        val complaintId = UUID.randomUUID().toString()
+        activeComplaintId = complaintId
+        val originalInput = coachingInput(complaintId, comment)
+        fun useLocalFallback(message: String) {
+            visualJob = null
+            submitLocalCommand(comment, message)
+        }
         visualJob?.cancel()
         visualJob = viewModelScope.launch {
-            _uiState.update { it.copy(coachingPhase = CoachingPhase.REQUESTING_VISUAL_INTERPRETATION) }
+            _uiState.update {
+                it.copy(
+                    comment = comment,
+                    coachingPhase = CoachingPhase.REQUESTING_VISUAL_INTERPRETATION,
+                    decision = null,
+                    transientMessage = null,
+                )
+            }
             var key: CharArray? = null
+            var jpeg: ByteArray? = null
             try {
                 key = runCatching { loadApiKey() }.getOrNull()
                 val ownedKey = key
                 if (ownedKey == null) {
                     markSavedKeyUnavailable()
-                    if (activeComplaintId == originalInput.complaintId) keepVisualFallback(fallback)
+                    if (activeComplaintId == complaintId) {
+                        useLocalFallback("AI interpretation unavailable—using local coaching.")
+                    }
                     return@launch
                 }
                 if (!complaintProvenanceMatches(originalInput)) {
-                    if (activeComplaintId == originalInput.complaintId) keepVisualFallback(fallback)
+                    if (activeComplaintId == complaintId) {
+                        useLocalFallback("Camera frame changed—using local coaching.")
+                    }
                     return@launch
                 }
-                val result = interpretComplaint(ComplaintRequest(originalInput.complaint), ownedKey)
-                if (result == ComplaintResult.CredentialsRejected) {
+                val observation = originalInput.observation
+                if (observation == null) {
+                    useLocalFallback("No camera frame was available—using local coaching.")
+                    return@launch
+                }
+                val requestJpeg = camera.observationImage(null) ?: run {
+                    useLocalFallback("Camera image unavailable—using local coaching.")
+                    return@launch
+                }
+                jpeg = requestJpeg
+                val grid = FocusGrid.forImage(observation.sourceWidth, observation.sourceHeight)
+                val result = interpretCommand(CommandRequest(comment, requestJpeg, grid), ownedKey)
+                if (result == CommandResult.CredentialsRejected) {
                     markSavedKeyRejected()
-                    if (activeComplaintId == originalInput.complaintId) {
-                        keepVisualFallback(fallback, "AI interpretation disabled—the saved key was rejected.")
+                    if (activeComplaintId == complaintId) {
+                        useLocalFallback("AI interpretation disabled—the saved key was rejected.")
                     }
                     return@launch
                 }
-                if (!complaintProvenanceMatches(originalInput)) return@launch
-                when (result) {
-                    is ComplaintResult.Available -> when (val classification = result.classification) {
-                        is IntentClassification.Intent -> {
-                            val freshInput = coachingInput(originalInput.complaintId, originalInput.complaint)
-                            val modelCoversRequest = !compoundLooking || classification.values.size > 1
-                            if (!modelCoversRequest) {
-                                keepVisualFallback(fallback, "AI interpretation did not cover every requested change.")
-                                return@launch
-                            }
-                            val decision = coach.planIntents(freshInput, classification.values).withProvenance(
-                                freshInput,
-                                controlIntents = classification.values,
-                            )
-                            _uiState.update {
-                                it.copy(
-                                    decision = decision,
-                                    coachingPhase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
-                                )
-                            }
-                        }
-                        is IntentClassification.Clarify -> keepVisualFallback(
-                            fallback,
-                            "AI interpretation needs clarification—using local choices.",
-                        )
-                        is IntentClassification.Unsupported, IntentClassification.Unknown -> keepVisualFallback(fallback)
+                if (!complaintProvenanceMatches(originalInput)) {
+                    if (activeComplaintId == complaintId) {
+                        useLocalFallback("Camera frame changed—using local coaching.")
                     }
-                    ComplaintResult.CredentialsRejected ->
-                        keepVisualFallback(fallback, "AI interpretation disabled—the saved key was rejected.")
-                    ComplaintResult.Unavailable -> keepVisualFallback(fallback, "AI interpretation unavailable—using local coaching.")
+                    return@launch
+                }
+                when (result) {
+                    is CommandResult.Planned -> startCommandPlan(result.plan, comment)
+                    is CommandResult.Clarified ->
+                        useLocalFallback("AI interpretation needs clarification—using local coaching.")
+                    CommandResult.CredentialsRejected ->
+                        useLocalFallback("AI interpretation disabled—the saved key was rejected.")
+                    CommandResult.Unavailable ->
+                        useLocalFallback("AI interpretation unavailable—using local coaching.")
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                if (activeComplaintId == originalInput.complaintId) keepVisualFallback(fallback)
+                if (activeComplaintId == complaintId) {
+                    useLocalFallback("AI interpretation unavailable—using local coaching.")
+                }
             } finally {
+                jpeg?.fill(0)
                 key?.fill('\u0000')
             }
         }
