@@ -40,6 +40,7 @@ class VoiceCommandTest {
     fun `does not turn coaching requests into shutter commands`() {
         assertNull(parseVoiceCommand("make the picture brighter"))
         assertNull(parseVoiceCommand("focus on the red watch"))
+        assertNull(parseVoiceCommand("Make it brighter then focus on the coffee cup"))
         assertNull(parseVoiceCommand("do not take a picture"))
         assertNull(parseVoiceCommand("dont press the shutter"))
         assertNull(parseVoiceCommand("take a picture in 90 seconds"))

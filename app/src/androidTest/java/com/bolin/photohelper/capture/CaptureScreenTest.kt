@@ -192,6 +192,33 @@ class CaptureScreenTest {
     }
 
     @Test
+    fun flashControlCyclesOffFlashAndContinuousLight() {
+        val mode = mutableStateOf(FlashMode.OFF)
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState().copy(
+                        capabilities = CameraCapabilities(hasFlashUnit = true),
+                        flashMode = mode.value,
+                    ),
+                    onFlashModeCycle = {
+                        mode.value = when (mode.value) {
+                            FlashMode.OFF -> FlashMode.ON
+                            FlashMode.ON -> FlashMode.TORCH
+                            FlashMode.TORCH -> FlashMode.OFF
+                        }
+                    },
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("Flash off. Tap for flash on").performClick()
+        compose.onNodeWithContentDescription("Flash on. Tap for continuous light").performClick()
+        compose.onNodeWithContentDescription("Continuous light on. Tap to turn off").performClick()
+        compose.onNodeWithContentDescription("Flash off. Tap for flash on").assertIsDisplayed()
+    }
+
+    @Test
     fun cameraFlipIsDisabledWhenUnavailableOrCameraIsBusy() {
         val state = mutableStateOf(readyState())
         val available = mutableStateOf(false)
@@ -393,7 +420,7 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun modelFocusShowsItsGridCellAndOffersAVisibleFocusButton() {
+    fun modelFocusShowsItsGridCellWithoutAConfirmationCard() {
         var focusPoint: Pair<Float, Float>? = null
         val recommendation = Recommendation(
             complaintId = "focus-watch",
@@ -427,8 +454,9 @@ class CaptureScreenTest {
 
         compose.onNodeWithTag(CaptureTestTags.FOCUS_CELL).assertIsDisplayed()
         compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).assertIsDisplayed().assert(hasClickAction())
-        compose.onNodeWithText("Choose manually").assertIsDisplayed()
-        compose.onNodeWithText("Focus here").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Choose manually").assertDoesNotExist()
+        compose.onNodeWithText("Focus here").assertDoesNotExist()
+        compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).performClick()
         compose.onNodeWithTag(CaptureTestTags.FOCUS_AREA).assertDoesNotExist()
         compose.runOnIdle {
             assertEquals(2.5f / 6f, focusPoint?.first ?: -1f, .001f)
@@ -471,7 +499,7 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Focus here").performClick()
+        compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).performClick()
         compose.runOnIdle {
             assertEquals(1f - targetX, focusPoint?.first ?: -1f, .001f)
             assertEquals(4.5f / 8f, focusPoint?.second ?: -1f, .001f)
@@ -479,7 +507,7 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun modelFocusCardDoesNotCoverALowerFocusTarget() {
+    fun modelFocusDoesNotShowAConfirmationCard() {
         val recommendation = Recommendation(
             complaintId = "focus-headphones",
             cameraSessionId = 0,
@@ -509,9 +537,8 @@ class CaptureScreenTest {
             }
         }
 
-        val card = compose.onNodeWithTag("focus_recommendation_card").fetchSemanticsNode().boundsInRoot
-        val target = compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).fetchSemanticsNode().boundsInRoot
-        assertFalse(card.overlaps(target))
+        compose.onNodeWithTag("focus_recommendation_card").assertDoesNotExist()
+        compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).assertIsDisplayed()
     }
 
     @Test
@@ -533,21 +560,28 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun sendReturnsFocusToTheViewfinder() {
-        var submitted = 0
+    fun liveTranscriptIsReadOnlyAndTheMicStartsThenSends() {
+        val state = mutableStateOf(readyState().copy(comment = "focus on the watch"))
+        var micTaps = 0
         compose.setContent {
             PhotoHelperTheme {
                 CaptureScreen(
-                    state = readyState().copy(comment = "focus on the watch"),
-                    onSubmitComment = { submitted++ },
+                    state = state.value,
+                    onMicrophone = {
+                        micTaps++
+                        state.value = state.value.copy(
+                            coachingPhase = if (micTaps == 1) CoachingPhase.LISTENING else CoachingPhase.INTERPRETING,
+                        )
+                    },
                 )
             }
         }
 
-        compose.onNodeWithTag(CaptureTestTags.COMMENT).performClick().assertIsFocused()
-        compose.onNodeWithText("Send").performClick()
-        compose.onNodeWithTag(CaptureTestTags.COMMENT).assertIsNotFocused()
-        compose.runOnIdle { assertEquals(1, submitted) }
+        compose.onNodeWithTag(CaptureTestTags.COMMENT).assertIsDisplayed().assert(hasClickAction().not())
+        compose.onNodeWithText("Send").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Describe shot by voice").performClick()
+        compose.onNodeWithContentDescription("Finish voice comment").performClick()
+        compose.runOnIdle { assertEquals(2, micTaps) }
     }
 
     @Test
@@ -721,16 +755,16 @@ class CaptureScreenTest {
                             observation = null,
                             telemetry = CameraTelemetry(),
                         ),
-                    ),
+                    ).copy(comment = "make the retake cooler"),
                 )
             }
         }
 
-        val composer = compose.onNodeWithTag(CaptureTestTags.COMMENT).fetchSemanticsNode().boundsInRoot
+        val transcript = compose.onNodeWithTag(CaptureTestTags.COMMENT).fetchSemanticsNode().boundsInRoot
         val retake = compose.onNodeWithText("Retake").fetchSemanticsNode().boundsInRoot
-        val gap = retake.top - composer.bottom
+        val gap = retake.top - transcript.bottom
 
-        assertTrue("Review actions left excessive dead space below the composer: $gap px", gap in 0f..composer.height)
+        assertTrue("Review actions left excessive dead space below the transcript: $gap px", gap in 0f..transcript.height)
     }
 
     @Test
@@ -790,7 +824,7 @@ class CaptureScreenTest {
                     state = readyState(
                         coachingPhase = CoachingPhase.RECOMMENDATION,
                         decision = LocalDecision.Recommend(exposureRecommendation()),
-                    ),
+                    ).copy(comment = "make it darker"),
                 )
             }
         }
@@ -993,9 +1027,27 @@ class CaptureScreenTest {
         compose.onNodeWithContentDescription("Finish voice comment")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Listening"))
             .assert(hasClickAction())
-        compose.onNodeWithText("Done").assertIsDisplayed()
+        compose.onNodeWithText("■").assertIsDisplayed()
         compose.onNodeWithContentDescription("Take photo").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithTag(CaptureTestTags.PREVIEW).assertIsDisplayed()
+    }
+
+    @Test
+    fun autoEnhanceButtonFlanksTheShutterOppositeTheMic() {
+        var autoTaps = 0
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(state = readyState(), onAutoEnhance = { autoTaps++ })
+            }
+        }
+
+        val auto = compose.onNodeWithTag(CaptureTestTags.AUTO_ENHANCE).fetchSemanticsNode().boundsInRoot
+        val shutter = compose.onNodeWithTag(CaptureTestTags.SHUTTER).fetchSemanticsNode().boundsInRoot
+        val mic = compose.onNodeWithTag(CaptureTestTags.MICROPHONE).fetchSemanticsNode().boundsInRoot
+        assertTrue(auto.center.x < shutter.center.x)
+        assertTrue(shutter.center.x < mic.center.x)
+        compose.onNodeWithContentDescription("Make this shot look nicer").performClick()
+        compose.runOnIdle { assertEquals(1, autoTaps) }
     }
 
     @Test
@@ -1024,20 +1076,22 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun portraitKeepsShutterAdjacentToComposerAndAboveBottomEdge() {
+    fun portraitKeepsCompactCaptureBarBelowTheTranscript() {
         val portrait = Configuration().apply { orientation = Configuration.ORIENTATION_PORTRAIT }
         compose.setContent {
             CompositionLocalProvider(LocalConfiguration provides portrait) {
-                PhotoHelperTheme { CaptureScreen(state = readyState()) }
+                PhotoHelperTheme { CaptureScreen(state = readyState().copy(comment = "focus on the cup")) }
             }
         }
 
         val root = compose.onNodeWithTag(CaptureTestTags.ROOT).fetchSemanticsNode().boundsInRoot
-        val composer = compose.onNodeWithTag(CaptureTestTags.COMMENT).fetchSemanticsNode().boundsInRoot
+        val transcript = compose.onNodeWithTag(CaptureTestTags.COMMENT).fetchSemanticsNode().boundsInRoot
         val shutter = compose.onNodeWithTag(CaptureTestTags.SHUTTER).fetchSemanticsNode().boundsInRoot
-        val gap = shutter.top - composer.bottom
+        val captureBar = compose.onNodeWithTag(CaptureTestTags.CAPTURE_BAR).fetchSemanticsNode().boundsInRoot
+        val gap = shutter.top - transcript.bottom
 
-        assertTrue("Shutter left excessive dead space below the composer: $gap px", gap in 0f..composer.height)
+        assertTrue("Shutter left excessive dead space below the transcript: $gap px", gap in 0f..transcript.height)
+        assertTrue("Capture bar is too tall", captureBar.height <= root.height * 0.18f)
         assertTrue("Shutter overlaps the bottom edge", shutter.bottom < root.bottom)
     }
 

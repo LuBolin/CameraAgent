@@ -47,6 +47,7 @@ data class CaptureUiState(
     val review: SavedCapture? = null,
     val observation: FrameObservation? = null,
     val capabilities: CameraCapabilities = CameraCapabilities(),
+    val flashMode: FlashMode = FlashMode.OFF,
     val activeGuidance: ActiveGuidance? = null,
     val resetAvailable: Boolean = false,
     val retakeSettingsActive: Boolean = false,

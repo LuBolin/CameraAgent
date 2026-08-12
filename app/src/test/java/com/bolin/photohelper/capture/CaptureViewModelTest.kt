@@ -55,6 +55,230 @@ class CaptureViewModelTest {
     }
 
     @Test
+    fun `camera setting recommendations apply immediately and undo expires after five seconds`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(highlights = .3f))
+        val viewModel = viewModel(camera, autoApplyRecommendations = true)
+
+        viewModel.updateComment("the whole shot is too bright")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(1, camera.applyCalls)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+        assertEquals(null, viewModel.uiState.value.decision)
+        assertTrue(viewModel.uiState.value.resetAvailable)
+
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertFalse(viewModel.uiState.value.resetAvailable)
+    }
+
+    @Test
+    fun `model focus cell focuses its center immediately`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(), supportsFocusMetering = true)
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            autoApplyRecommendations = true,
+            commandResult = { planned(CommandPlanStep.FocusCell(row = 1, column = 2, rows = 4, columns = 4)) },
+        )
+
+        viewModel.updateComment("focus on the red cup")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(1, camera.focusCalls)
+        assertEquals(.625f to .375f, camera.focusPoint)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+        assertTrue(viewModel.uiState.value.recommendation?.action is RecommendationAction.FocusAt)
+        assertTrue(viewModel.uiState.value.resetAvailable)
+        advanceTimeBy(1_500)
+        runCurrent()
+        assertEquals(null, viewModel.uiState.value.decision)
+    }
+
+    @Test
+    fun `make it nicer sends settings and auto applies without capturing`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(), supportsFocusMetering = true)
+        camera.capabilities.value = camera.capabilities.value.copy(zoomRatioRange = 1f..8f)
+        var request: CommandRequest? = null
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            autoApplyRecommendations = true,
+            commandRequest = { request = it },
+            commandResult = {
+                planned(
+                    CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.ZOOM_IN)),
+                    CommandPlanStep.FocusCell(row = 2, column = 1, rows = 4, columns = 4),
+                )
+            },
+        )
+        viewModel.setCameraPermission(true)
+        runCurrent()
+
+        viewModel.makeItNicer()
+        runCurrent()
+
+        assertTrue(request?.autoEnhance == true)
+        assertEquals(camera.telemetry.value, request?.telemetry)
+        assertEquals(camera.capabilities.value, request?.capabilities)
+        assertEquals(1, camera.applyCalls)
+        assertEquals(1, camera.focusCalls)
+        assertEquals(0, camera.captureCalls)
+        assertTrue(viewModel.uiState.value.resetAvailable)
+    }
+
+    @Test
+    fun `make it nicer no change leaves camera alone`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            commandResult = { CommandResult.NoChange },
+        )
+        viewModel.setCameraPermission(true)
+        runCurrent()
+
+        viewModel.makeItNicer()
+        runCurrent()
+
+        assertEquals(0, camera.applyCalls)
+        assertEquals(0, camera.focusCalls)
+        assertEquals(0, camera.captureCalls)
+        assertFalse(viewModel.uiState.value.resetAvailable)
+        assertEquals("Looks good already.", viewModel.uiState.value.transientMessage)
+    }
+
+    @Test
+    fun `make it nicer low confidence leaves camera alone and asks to retry`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            commandResult = { CommandResult.Unsure },
+        )
+        viewModel.setCameraPermission(true)
+        runCurrent()
+
+        viewModel.makeItNicer()
+        runCurrent()
+
+        assertEquals(0, camera.applyCalls)
+        assertEquals(0, camera.focusCalls)
+        assertEquals(0, camera.captureCalls)
+        assertFalse(viewModel.uiState.value.resetAvailable)
+        assertEquals("The model isn’t sure what to do. Please try again.", viewModel.uiState.value.transientMessage)
+    }
+
+    @Test
+    fun `explicit model flash action applies without capturing`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(), hasFlashUnit = true)
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            commandResult = { planned(CommandPlanStep.SetFlash(FlashMode.TORCH)) },
+        )
+
+        viewModel.updateComment("turn on the torch")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(listOf(FlashMode.TORCH), camera.flashModes)
+        assertEquals(FlashMode.TORCH, viewModel.uiState.value.flashMode)
+        assertEquals(0, camera.captureCalls)
+        assertTrue(viewModel.uiState.value.resetAvailable)
+    }
+
+    @Test
+    fun `brighter then focus plan does not capture and keeps the focus target visible`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(), supportsFocusMetering = true)
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            autoApplyRecommendations = true,
+            commandResult = {
+                planned(
+                    CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_BRIGHTER)),
+                    CommandPlanStep.FocusCell(row = 1, column = 2, rows = 4, columns = 4),
+                )
+            },
+        )
+        viewModel.setCameraPermission(true)
+
+        viewModel.updateComment("Make it brighter then focus on the coffee cup")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(1, camera.applyCalls)
+        assertEquals(1, camera.focusCalls)
+        assertEquals(0, camera.captureCalls)
+        assertTrue(viewModel.uiState.value.recommendation?.action is RecommendationAction.FocusAt)
+        advanceTimeBy(1_500)
+        runCurrent()
+        assertEquals(null, viewModel.uiState.value.decision)
+    }
+
+    @Test
+    fun `focus then zoom plan keeps the focus target visible`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(), supportsFocusMetering = true).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..8f)
+        }
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            autoApplyRecommendations = true,
+            commandResult = {
+                planned(
+                    CommandPlanStep.FocusCell(row = 1, column = 2, rows = 4, columns = 4),
+                    CommandPlanStep.Adjust(listOf(ControlIntent.ZOOM_IN)),
+                )
+            },
+        )
+        viewModel.setCameraPermission(true)
+
+        viewModel.updateComment("Focus on the coffee cup and zoom in")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(1, camera.applyCalls)
+        assertEquals(1, camera.focusCalls)
+        assertEquals(0, camera.captureCalls)
+        assertTrue(viewModel.uiState.value.recommendation?.action is RecommendationAction.FocusAt)
+    }
+
+    @Test
+    fun `explicit picture requests authorize capture in compound commands`() = runTest(dispatcher) {
+        val cases = listOf(
+            "Make it brighter then take a picture" to listOf(
+                CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_BRIGHTER)),
+                CommandPlanStep.Capture(null),
+            ),
+            "Take a picture with the focus on the keyboard" to listOf(
+                CommandPlanStep.FocusCell(row = 1, column = 2, rows = 4, columns = 4),
+                CommandPlanStep.Capture(null),
+            ),
+        )
+
+        cases.forEach { (comment, steps) ->
+            val camera = FakeCamera(observation(), supportsFocusMetering = true)
+            val viewModel = viewModel(
+                camera,
+                visualEnabled = true,
+                autoApplyRecommendations = true,
+                commandResult = { CommandResult.Planned(CommandPlan(steps)) },
+            )
+            viewModel.setCameraPermission(true)
+
+            viewModel.updateComment(comment)
+            viewModel.submitComment()
+            runCurrent()
+
+            assertEquals("$comment; state=${viewModel.uiState.value}", 1, camera.captureCalls)
+        }
+    }
+
+    @Test
     fun `typed complaint produces local exposure recommendation`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(highlights = .3f))
         val viewModel = viewModel(camera)
@@ -96,7 +320,7 @@ class CaptureViewModelTest {
             runCurrent()
         }
 
-        assertEquals("Zoom changed to 1.25×. Is the framing closer?", viewModel.uiState.value.transientMessage)
+        assertEquals(null, viewModel.uiState.value.transientMessage)
         assertTrue(viewModel.uiState.value.resetAvailable)
 
         viewModel.reset()
@@ -132,7 +356,7 @@ class CaptureViewModelTest {
             camera.appliedBatches.single(),
         )
         assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
-        assertEquals("2 camera changes applied. Check the shot; Reset restores the previous settings.", viewModel.uiState.value.transientMessage)
+        assertEquals(null, viewModel.uiState.value.transientMessage)
         assertTrue(viewModel.uiState.value.resetAvailable)
 
         viewModel.reset()
@@ -441,7 +665,7 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `apply acknowledges camera then verifies a fresh observation`() = runTest(dispatcher) {
+    fun `apply acknowledges camera and offers undo without a confirmation result`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(id = 1, highlights = .3f, luma = .7f, timestamp = 1_000))
         val viewModel = viewModel(camera)
         viewModel.setCameraPermission(true)
@@ -458,21 +682,21 @@ class CaptureViewModelTest {
         runCurrent()
         assertNotNull(camera.lastAdjustment)
         assertEquals(1, camera.applyCalls)
-        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
 
         camera.observation.value = observation(id = 4, highlights = .08f, luma = .55f, timestamp = 1_600)
         runCurrent()
-        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
 
         camera.observation.value = observation(id = 5, highlights = .07f, luma = .54f, timestamp = 1_850)
         runCurrent()
-        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
 
         camera.observation.value = observation(id = 6, highlights = .06f, luma = .53f, timestamp = 2_100)
         runCurrent()
 
         assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
-        assertEquals(null, viewModel.uiState.value.recommendation)
+        assertNotNull(viewModel.uiState.value.recommendation)
         assertTrue(viewModel.uiState.value.resetAvailable)
     }
 
@@ -493,7 +717,7 @@ class CaptureViewModelTest {
         runCurrent()
 
         assertEquals("too bright", viewModel.uiState.value.comment)
-        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
         assertTrue(viewModel.uiState.value.resetAvailable)
     }
 
@@ -778,7 +1002,7 @@ class CaptureViewModelTest {
 
         assertEquals(CameraAdjustment.WhiteBalance(WhiteBalancePreset.WARMER), camera.lastAdjustment)
         assertEquals(1, camera.applyCalls)
-        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
     }
 
     @Test
@@ -1002,6 +1226,25 @@ class CaptureViewModelTest {
         assertFalse(viewModel.uiState.value.resetAvailable)
         assertEquals(null, viewModel.uiState.value.decision)
         assertEquals("Automatic camera settings restored.", viewModel.uiState.value.transientMessage)
+    }
+
+    @Test
+    fun `model reset all settings only resets camera controls`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            commandResult = { planned(CommandPlanStep.Reset) },
+        )
+
+        viewModel.updateComment("reset all settings")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(1, camera.resetCalls)
+        assertEquals(0, camera.applyCalls)
+        assertEquals(0, camera.focusCalls)
+        assertEquals(0, camera.captureCalls)
     }
 
     @Test
@@ -1592,7 +1835,7 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `voice failure keeps typed fallback and shutter available`() = runTest(dispatcher) {
+    fun `voice failure disappears after five seconds and can be dismissed`() = runTest(dispatcher) {
         val voice = FakeVoice(
             available = true,
             result = { VoiceResult.Failed("I didn’t catch that") },
@@ -1606,6 +1849,20 @@ class CaptureViewModelTest {
         assertEquals(CoachingPhase.TRANSIENT_ERROR, viewModel.uiState.value.coachingPhase)
         assertEquals("I didn’t catch that", viewModel.uiState.value.transientMessage)
         assertTrue(viewModel.uiState.value.shutterEnabled)
+
+        viewModel.dismissDecision()
+        assertEquals(null, viewModel.uiState.value.transientMessage)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+
+        viewModel.startVoiceInput()
+        runCurrent()
+        advanceTimeBy(4_999)
+        runCurrent()
+        assertEquals("I didn’t catch that", viewModel.uiState.value.transientMessage)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(null, viewModel.uiState.value.transientMessage)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
     }
 
     @Test
@@ -1771,7 +2028,7 @@ class CaptureViewModelTest {
         runCurrent()
 
         assertEquals(null, viewModel.uiState.value.decision)
-        assertEquals("Focus locked at the selected point.", viewModel.uiState.value.transientMessage)
+        assertEquals(null, viewModel.uiState.value.transientMessage)
         keyResult.complete(VisualResult.Available(VisualHint.Intent(VisualIntent.WHITE_BALANCE_WARMER)))
         runCurrent()
         assertTrue(viewModel.uiState.value.settings.keyConfigured)
@@ -2020,6 +2277,7 @@ class CaptureViewModelTest {
         nowMs: () -> Long = { 1_000 },
         voice: VoiceIo = FakeVoice(),
         feedback: (Feedback) -> Unit = {},
+        autoApplyRecommendations: Boolean = false,
         commandResult: suspend () -> CommandResult = { CommandResult.Unavailable },
         commandRequest: (CommandRequest) -> Unit = {},
         visualRequest: (VisualRequest) -> Unit = {},
@@ -2038,11 +2296,13 @@ class CaptureViewModelTest {
         createTestImage = { byteArrayOf(1) },
         feedback = feedback,
         nowMs = nowMs,
+        autoApplyRecommendations = autoApplyRecommendations,
     )
 
     private class FakeCamera(
         initialObservation: FrameObservation,
         supportsFocusMetering: Boolean = false,
+        hasFlashUnit: Boolean = false,
         var focusResult: ApplyResult = ApplyResult.Applied,
     ) : CaptureHardware {
         override val state = MutableStateFlow(CameraState(CameraPhase.READY))
@@ -2052,6 +2312,7 @@ class CaptureViewModelTest {
                 exposureCompensationStepEv = 1f / 3f,
                 supportedWhiteBalancePresets = WhiteBalancePreset.entries.toSet(),
                 supportsFocusMetering = supportsFocusMetering,
+                hasFlashUnit = hasFlashUnit,
             ),
         )
         override val telemetry = MutableStateFlow(CameraTelemetry())
@@ -2063,6 +2324,7 @@ class CaptureViewModelTest {
         val appliedBatches = mutableListOf<List<CameraAdjustment>>()
         var captureCalls = 0
         var resetCalls = 0
+        val flashModes = mutableListOf<FlashMode>()
         val savedUris = mutableListOf<String>()
         var stallCapture = false
         var captureTelemetryKnown = true
@@ -2089,6 +2351,11 @@ class CaptureViewModelTest {
             focusCalls++
             focusPoint = xFraction to yFraction
             return focusGate?.await() ?: focusResult
+        }
+
+        override suspend fun setFlashMode(mode: FlashMode): ApplyResult {
+            flashModes += mode
+            return ApplyResult.Applied
         }
 
         override suspend fun reset(): ApplyResult {

@@ -273,6 +273,45 @@ class DefaultCoachEngineTest {
     }
 
     @Test
+    fun `small corrections move halfway toward the previous setting`() {
+        val exposureInput = input(
+            "a little darker",
+            observation(),
+            telemetry = CameraTelemetry(exposureCompensationIndex = 4),
+        ).copy(relativeBaseline = CameraTelemetry(exposureCompensationIndex = 0))
+        val exposure = engine.planIntent(exposureInput, ControlIntent.EXPOSURE_DARKER) as LocalDecision.Recommend
+        val exposureAdjustment = (exposure.recommendation.action as RecommendationAction.ApplySettings).adjustment
+
+        val zoomInput = input(
+            "zoom out a little",
+            observation(),
+            capabilities.copy(zoomRatioRange = 1f..10f),
+            CameraTelemetry(zoomRatio = 2f),
+        ).copy(relativeBaseline = CameraTelemetry(zoomRatio = 1f))
+        val zoom = engine.planIntent(zoomInput, ControlIntent.ZOOM_OUT) as LocalDecision.Recommend
+        val zoomAdjustment = (zoom.recommendation.action as RecommendationAction.ApplySettings).adjustment
+
+        assertEquals(CameraAdjustment.ExposureCompensation(2), exposureAdjustment)
+        assertEquals(1.5f, (zoomAdjustment as CameraAdjustment.ZoomRatio).ratio, .001f)
+    }
+
+    @Test
+    fun `zoom limits explain which boundary was reached`() {
+        val zoomCapabilities = capabilities.copy(zoomRatioRange = 1f..10f)
+        val maximum = engine.planIntent(
+            input("zoom in", observation(), zoomCapabilities, CameraTelemetry(zoomRatio = 10f)),
+            ControlIntent.ZOOM_IN,
+        ) as LocalDecision.Advisory
+        val minimum = engine.planIntent(
+            input("zoom out", observation(), zoomCapabilities, CameraTelemetry(zoomRatio = 1f)),
+            ControlIntent.ZOOM_OUT,
+        ) as LocalDecision.Advisory
+
+        assertEquals("Maximum zoom reached.", maximum.detail)
+        assertEquals("Minimum zoom reached.", minimum.detail)
+    }
+
+    @Test
     fun `regional exposure never produces global apply`() {
         val decision = engine.evaluateLocal(input("the background is too bright", observation()))
 

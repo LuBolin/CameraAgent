@@ -314,9 +314,18 @@ class DefaultCoachEngine(
         }
         val direction = if (darker) -1 else 1
         val delta = (direction * 0.7f / caps.exposureCompensationStepEv).roundToInt()
-        val target = (input.telemetry.exposureCompensationIndex + delta).coerceIn(caps.exposureCompensationRange)
-        if (target == input.telemetry.exposureCompensationIndex) {
-            return LocalDecision.Advisory("Exposure limit reached", "This camera cannot move exposure farther in that direction.")
+        val current = input.telemetry.exposureCompensationIndex
+        val prior = input.relativeBaseline?.exposureCompensationIndex?.takeIf { (it - current) * direction > 0 }
+        val target = if (prior != null) {
+            ((current + prior) / 2f).roundToInt().let { if (it == current) current + direction else it }
+        } else {
+            current + delta
+        }.coerceIn(caps.exposureCompensationRange)
+        if (target == current) {
+            return LocalDecision.Advisory(
+                "Exposure limit reached",
+                if (darker) "Minimum brightness reached." else "Maximum brightness reached.",
+            )
         }
         val observation = input.observation
         val defect = observation != null && if (darker) {
@@ -324,7 +333,7 @@ class DefaultCoachEngine(
         } else {
             observation.meanLuma <= thresholds.lowLuma || observation.shadowClipFraction >= thresholds.shadowClip
         }
-        val signedEv = (target - input.telemetry.exposureCompensationIndex) * caps.exposureCompensationStepEv
+        val signedEv = (target - current) * caps.exposureCompensationStepEv
         val amount = String.format(java.util.Locale.US, "%+.1f EV", signedEv).replace("+", "+")
         val basis = if (defect) RecommendationBasis.MEASURED_DIAGNOSIS else RecommendationBasis.USER_PREFERENCE
         val headline = when {
@@ -371,9 +380,16 @@ class DefaultCoachEngine(
             return LocalDecision.Advisory("Zoom state is unavailable", "Hold the shot steady while the camera reports its current zoom.")
         }
         val direction = if (inward) 1 else -1
-        val target = (if (inward) current * 1.25f else current / 1.25f).coerceIn(range)
+        val prior = input.relativeBaseline?.zoomRatio?.takeIf {
+            it.isFinite() && it in range && (it - current) * direction > 0.01f
+        }
+        val target = (prior?.let { (current + it) / 2f }
+            ?: if (inward) current * 1.25f else current / 1.25f).coerceIn(range)
         if (abs(target - current) < 0.01f) {
-            return LocalDecision.Advisory("Zoom limit reached", "This camera cannot move zoom farther in that direction.")
+            return LocalDecision.Advisory(
+                "Zoom limit reached",
+                if (inward) "Maximum zoom reached." else "Minimum zoom reached.",
+            )
         }
         val formatted = String.format(java.util.Locale.US, "%.2f", target).trimEnd('0').trimEnd('.') + "×"
         return LocalDecision.Recommend(

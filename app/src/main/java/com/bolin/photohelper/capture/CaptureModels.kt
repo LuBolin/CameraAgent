@@ -46,12 +46,15 @@ internal fun exposureInvariantSceneDifference(previous: List<Int>?, current: Lis
 
 enum class WhiteBalancePreset { AUTO, WARMER, COOLER }
 
+enum class FlashMode { OFF, ON, TORCH }
+
 data class CameraCapabilities(
     val exposureCompensationRange: IntRange = IntRange.EMPTY,
     val exposureCompensationStepEv: Float = 0f,
     val zoomRatioRange: ClosedFloatingPointRange<Float> = 1f..1f,
     val supportedWhiteBalancePresets: Set<WhiteBalancePreset> = emptySet(),
     val supportsFocusMetering: Boolean = false,
+    val hasFlashUnit: Boolean = false,
 ) {
     val supportsExposureCompensation: Boolean
         get() = !exposureCompensationRange.isEmpty() && exposureCompensationStepEv > 0f
@@ -134,6 +137,8 @@ interface CaptureHardware : AutoCloseable {
         else ApplyResult.Failed("This camera cannot apply multiple settings atomically")
     suspend fun focusAt(xFraction: Float, yFraction: Float): ApplyResult =
         ApplyResult.Failed("Tap to focus is unavailable on this camera")
+    suspend fun setFlashMode(mode: FlashMode): ApplyResult =
+        ApplyResult.Failed("Flash is unavailable on this camera")
     suspend fun reset(): ApplyResult
     suspend fun capture(): CaptureResult
     suspend fun observationImage(capture: SavedCapture? = null): ByteArray?

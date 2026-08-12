@@ -10,6 +10,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import javax.net.ssl.HttpsURLConnection
@@ -25,8 +26,14 @@ internal fun visualFailureForHttpStatus(status: Int): VisualResult =
     if (status == HttpURLConnection.HTTP_UNAUTHORIZED || status == HttpURLConnection.HTTP_FORBIDDEN) {
         VisualResult.CredentialsRejected
     } else {
-        VisualResult.Unavailable
+        VisualResult.Failed(httpFailureMessage(status))
     }
+
+private fun httpFailureMessage(status: Int): String = when (status) {
+    429 -> "API rate limit reached. Try again later."
+    in 500..599 -> "API service is unavailable. Try again later."
+    else -> "API request failed (HTTP $status). Try again later."
+}
 
 class BailianVisualClient internal constructor(
     private val connectionFactory: (URL) -> HttpsURLConnection,
@@ -51,7 +58,8 @@ class BailianVisualClient internal constructor(
         }
         return when (result) {
             is ProviderCall.Available -> parseVisualResponse(result.response, request.family, request.focusGrid)
-                ?.let(VisualResult::Available) ?: VisualResult.Unavailable
+                ?.let(VisualResult::Available) ?: VisualResult.Failed("API returned an invalid response. Try again later.")
+            is ProviderCall.Failed -> VisualResult.Failed(result.message)
             ProviderCall.CredentialsRejected -> VisualResult.CredentialsRejected
             ProviderCall.Unavailable -> VisualResult.Unavailable
         }
@@ -70,7 +78,9 @@ class BailianVisualClient internal constructor(
         }
         return when (result) {
             is ProviderCall.Available ->
-                parseCommandResponse(result.response, request.focusGrid) ?: CommandResult.Unavailable
+                parseCommandResponse(result.response, request.focusGrid, request.autoEnhance)
+                    ?: CommandResult.Failed("API returned an invalid response. Try again later.")
+            is ProviderCall.Failed -> CommandResult.Failed(result.message)
             ProviderCall.CredentialsRejected -> CommandResult.CredentialsRejected
             ProviderCall.Unavailable -> CommandResult.Unavailable
         }
@@ -96,7 +106,7 @@ class BailianVisualClient internal constructor(
         }
         if (!callLimiter.tryAcquire()) {
             body.fill(0)
-            return ProviderCall.Unavailable
+            return ProviderCall.Failed("Too many AI requests. Try again in a minute.")
         }
 
         return try {
@@ -106,9 +116,11 @@ class BailianVisualClient internal constructor(
                 }
             }
         } catch (_: TimeoutCancellationException) {
-            ProviderCall.Unavailable
+            ProviderCall.Failed("API timed out. Try again later.")
+        } catch (_: SocketTimeoutException) {
+            ProviderCall.Failed("API timed out. Try again later.")
         } catch (_: IOException) {
-            ProviderCall.Unavailable
+            ProviderCall.Failed("API connection failed. Check your connection and try again.")
         } finally {
             body.fill(0)
         }
@@ -139,7 +151,7 @@ class BailianVisualClient internal constructor(
                 return if (status == HttpURLConnection.HTTP_UNAUTHORIZED || status == HttpURLConnection.HTTP_FORBIDDEN) {
                     ProviderCall.CredentialsRejected
                 } else {
-                    ProviderCall.Unavailable
+                    ProviderCall.Failed(httpFailureMessage(status))
                 }
             }
             val response = connection.inputStream.use(::readLimited) ?: return ProviderCall.Unavailable
@@ -168,7 +180,7 @@ class BailianVisualClient internal constructor(
     private companion object {
         const val VISUAL_NETWORK_TIMEOUT_MS = 5_000L
         const val OBJECT_FOCUS_NETWORK_TIMEOUT_MS = 20_000L
-        const val COMMAND_NETWORK_TIMEOUT_MS = 15_000L
+        const val COMMAND_NETWORK_TIMEOUT_MS = 30_000L
         const val MAX_HTTP_RESPONSE_BYTES = 64 * 1024
         val PROCESS_CALL_LIMITER = VisualCallLimiter()
     }
@@ -176,9 +188,20 @@ class BailianVisualClient internal constructor(
 
 internal fun createFocusGridGuide(observationJpeg: ByteArray, grid: FocusGrid): ByteArray? {
     val source = BitmapFactory.decodeByteArray(observationJpeg, 0, observationJpeg.size) ?: return null
+    val longEdge = max(source.width, source.height)
+    val scaled = if (longEdge > FOCUS_GUIDE_LONG_EDGE) {
+        val ratio = FOCUS_GUIDE_LONG_EDGE.toFloat() / longEdge
+        Bitmap.createScaledBitmap(
+            source,
+            max(1, (source.width * ratio).toInt()),
+            max(1, (source.height * ratio).toInt()),
+            true,
+        )
+    } else source
     val guide = try {
-        source.copy(Bitmap.Config.ARGB_8888, true)
+        scaled.copy(Bitmap.Config.ARGB_8888, true)
     } finally {
+        if (scaled !== source) scaled.recycle()
         source.recycle()
     }
     return try {
@@ -233,8 +256,11 @@ internal fun createFocusGridGuide(observationJpeg: ByteArray, grid: FocusGrid): 
     }
 }
 
+private const val FOCUS_GUIDE_LONG_EDGE = 384
+
 private sealed interface ProviderCall {
     data class Available(val response: String) : ProviderCall
+    data class Failed(val message: String) : ProviderCall
     data object CredentialsRejected : ProviderCall
     data object Unavailable : ProviderCall
 }

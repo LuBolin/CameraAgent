@@ -1,6 +1,7 @@
 package com.bolin.photohelper.voice
 
 import com.bolin.photohelper.coach.ControlIntent
+import com.bolin.photohelper.capture.FlashMode
 
 sealed interface VoiceCommand {
     data object TakePicture : VoiceCommand
@@ -14,16 +15,18 @@ sealed interface VoiceCommand {
 
 sealed interface CommandPlanStep {
     data class Coach(val text: String) : CommandPlanStep
-    data class Adjust(val intents: List<ControlIntent>) : CommandPlanStep {
+    data class Adjust(val intents: List<ControlIntent>, val small: Boolean = false) : CommandPlanStep {
         init { require(intents.isNotEmpty() && intents.size <= 3 && intents.distinct().size == intents.size) }
     }
     data class SetCamera(val facing: CameraFacing) : CommandPlanStep
+    data class SetFlash(val mode: FlashMode) : CommandPlanStep
     data class FocusCell(val row: Int, val column: Int, val rows: Int, val columns: Int) : CommandPlanStep {
         init {
             require(rows in 4..8 && columns in 4..8)
             require(row in 0 until rows && column in 0 until columns)
         }
     }
+    data object Reset : CommandPlanStep
     data class Capture(val countdownSeconds: Int? = null) : CommandPlanStep {
         init { require(countdownSeconds == null || countdownSeconds in 1..30) }
     }

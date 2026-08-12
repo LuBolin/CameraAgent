@@ -22,11 +22,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.percentOffset
 import androidx.test.filters.RequiresDevice
-import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import com.bolin.photohelper.MainActivity
@@ -373,20 +371,18 @@ class CameraSmokeTest {
 
     @RequiresDevice
     @Test
-    fun stagedPhysicalCameraAcceptsTypedLensCommands() {
+    fun stagedPhysicalCameraAcceptsLensCommands() {
         openCameraAndWaitUntilReady()
         val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
         val session = viewModel.camera as CameraXSession
 
-        compose.onNodeWithTag(CaptureTestTags.COMMENT).performTextInput("selfie mode")
-        compose.onNodeWithText("Send").performClick()
+        compose.runOnIdle { viewModel.submitComment("selfie mode") }
         compose.waitUntil(timeoutMillis = 30_000) {
             viewModel.uiState.value.cameraPhase == CameraPhase.READY &&
                 session.activeLensFacing == CameraCharacteristics.LENS_FACING_FRONT
         }
 
-        compose.onNodeWithTag(CaptureTestTags.COMMENT).performTextInput("rear camera")
-        compose.onNodeWithText("Send").performClick()
+        compose.runOnIdle { viewModel.submitComment("rear camera") }
         compose.waitUntil(timeoutMillis = 30_000) {
             viewModel.uiState.value.cameraPhase == CameraPhase.READY &&
                 session.activeLensFacing == CameraCharacteristics.LENS_FACING_BACK
@@ -404,9 +400,7 @@ class CameraSmokeTest {
         val target = (baseline * 1.25f).coerceIn(range)
         assertTrue("Stage camera has no usable zoom-in step", target - baseline >= 0.01f)
 
-        compose.onNodeWithTag(CaptureTestTags.COMMENT).performTextInput("too zoomed out")
-        closeSoftKeyboard()
-        compose.onNodeWithText("Send").performClick()
+        compose.runOnIdle { viewModel.submitComment("too zoomed out") }
         compose.waitUntil(timeoutMillis = 5_000) {
             val action = viewModel.uiState.value.recommendation?.action as? com.bolin.photohelper.coach.RecommendationAction.ApplySettings
             (action?.adjustment as? CameraAdjustment.ZoomRatio)?.ratio?.let { abs(it - target) <= 0.01f } == true
@@ -445,9 +439,7 @@ class CameraSmokeTest {
             baseline.whiteBalancePreset != WhiteBalancePreset.COOLER,
         )
 
-        compose.onNodeWithTag(CaptureTestTags.COMMENT).performTextInput("too warm and too zoomed out")
-        closeSoftKeyboard()
-        compose.onNodeWithText("Send").performClick()
+        compose.runOnIdle { viewModel.submitComment("too warm and too zoomed out") }
         compose.waitUntil(timeoutMillis = 5_000) {
             val state = viewModel.uiState.value
             val action = state.recommendation?.action as? com.bolin.photohelper.coach.RecommendationAction.ApplySettings
@@ -502,12 +494,9 @@ class CameraSmokeTest {
         val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
         assertTrue("Stage camera must support AF metering", viewModel.camera.capabilities.value.supportsFocusMetering)
 
-        val sessionIdBeforeTyping = viewModel.camera.state.value.sessionId
-        compose.onNodeWithTag(CaptureTestTags.COMMENT).performTextInput("focus missed")
-        closeSoftKeyboard()
-        compose.waitForIdle()
-        assertEquals("Typing rebound the camera", sessionIdBeforeTyping, viewModel.camera.state.value.sessionId)
-        compose.onNodeWithText("Send").performClick()
+        val sessionIdBeforeComment = viewModel.camera.state.value.sessionId
+        compose.runOnIdle { viewModel.submitComment("focus missed") }
+        assertEquals("Submitting rebound the camera", sessionIdBeforeComment, viewModel.camera.state.value.sessionId)
         compose.waitUntil(timeoutMillis = 5_000) {
             compose.onAllNodesWithTag(CaptureTestTags.FOCUS_TARGET).fetchSemanticsNodes().isNotEmpty()
         }

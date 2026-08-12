@@ -104,10 +104,17 @@ class VisualContractsTest {
     }
 
     @Test
-    fun `HTTP authentication failures reject credentials while provider failures stay unavailable`() {
+    fun `HTTP failures retain useful user-facing categories`() {
         assertEquals(VisualResult.CredentialsRejected, visualFailureForHttpStatus(401))
         assertEquals(VisualResult.CredentialsRejected, visualFailureForHttpStatus(403))
-        assertEquals(VisualResult.Unavailable, visualFailureForHttpStatus(503))
+        assertEquals(
+            VisualResult.Failed("API service is unavailable. Try again later."),
+            visualFailureForHttpStatus(503),
+        )
+        assertEquals(
+            VisualResult.Failed("API rate limit reached. Try again later."),
+            visualFailureForHttpStatus(429),
+        )
     }
 
 }

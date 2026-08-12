@@ -21,6 +21,7 @@ import com.bolin.photohelper.visual.VisualResult
 import com.bolin.photohelper.visual.FocusGrid
 import com.bolin.photohelper.visual.CommandRequest
 import com.bolin.photohelper.visual.CommandResult
+import com.bolin.photohelper.visual.CameraChangeSnapshot
 import com.bolin.photohelper.voice.VoiceIo
 import com.bolin.photohelper.voice.VoiceResult
 import com.bolin.photohelper.voice.CameraFacing
@@ -51,6 +52,9 @@ private const val CAPTURE_TIMEOUT_MS = 15_000L
 private const val CAPTURE_TIMEOUT_MESSAGE = "Camera did not finish saving the photo. Try again."
 private const val VOICE_INPUT_TIMEOUT_MS = 20_000L
 private const val VOICE_INPUT_TIMEOUT_MESSAGE = "Voice input timed out. Try again or type your comment."
+private const val UNDO_TIMEOUT_MS = 5_000L
+private const val TOAST_TIMEOUT_MS = 5_000L
+private const val FOCUS_INDICATOR_MS = 1_500L
 private val OBJECT_FOCUS_REQUEST = Regex("\\b(focus|sharp|sharpen|clear)\\b", RegexOption.IGNORE_CASE)
 private fun countdownMessage(seconds: Int) = "Photo in $seconds ${if (seconds == 1) "second" else "seconds"}…"
 
@@ -68,6 +72,7 @@ class CaptureViewModel(
     private val createTestImage: () -> ByteArray?,
     private val feedback: (Feedback) -> Unit = {},
     private val nowMs: () -> Long = SystemClock::elapsedRealtime,
+    private val autoApplyRecommendations: Boolean = true,
 ) : ViewModel() {
     private val initialSettings = preferences.settings(hasApiKey())
     private val _uiState = MutableStateFlow(
@@ -88,6 +93,9 @@ class CaptureViewModel(
     private var keyTestJob: Job? = null
     private var guidanceTimeoutJob: Job? = null
     private var verificationTimeoutJob: Job? = null
+    private var undoTimeoutJob: Job? = null
+    private var focusIndicatorJob: Job? = null
+    private var transientMessageJob: Job? = null
     private var verificationStartObservationId: Long? = null
     private var verificationStartedAtMs: Long? = null
     private var verificationSatisfiedSamples = 0
@@ -107,8 +115,10 @@ class CaptureViewModel(
     private val comparisonSamples = ArrayDeque<FrameObservation>(3)
     private val pendingCommandSteps = ArrayDeque<CommandPlanStep>()
     private val approvedPlanAdjustments = mutableListOf<CameraAdjustment>()
+    private val recentCameraChanges = ArrayDeque<CameraChangeSnapshot>(3)
     private var activeCommandText = ""
     private var stableFace: FaceObservation? = null
+    private var flashChangeInFlight = false
 
     init {
         camera.setObservationImageEnabled(initialSettings.visualAiEnabled && initialSettings.keyConfigured)
@@ -202,9 +212,8 @@ class CaptureViewModel(
             _uiState.update { it.copy(transientMessage = "Describe the current shot first.") }
             return
         }
-        if (_uiState.value.resetAvailable &&
-            (comment.equals("reset", ignoreCase = true) ||
-                comment.equals("undo last camera adjustment", ignoreCase = true))
+        if (comment.lowercase() in setOf("reset", "reset settings", "reset all settings", "reset camera settings") ||
+            (_uiState.value.resetAvailable && comment.equals("undo last camera adjustment", ignoreCase = true))
         ) {
             reset()
             return
@@ -214,6 +223,20 @@ class CaptureViewModel(
             return
         }
         submitLocalCommand(comment)
+    }
+
+    fun makeItNicer() {
+        if (!_uiState.value.shutterEnabled || _uiState.value.coachingPhase != CoachingPhase.IDLE) return
+        if (!canUseVisualAi()) {
+            _uiState.update {
+                it.copy(
+                    coachingPhase = CoachingPhase.TRANSIENT_ERROR,
+                    transientMessage = "Enable AI interpretation with a tested Qwen key to use Make it nicer.",
+                )
+            }
+            return
+        }
+        requestCommandPlan("Make this shot look nicer.", autoEnhance = true)
     }
 
     private fun submitLocalCommand(comment: String, fallbackMessage: String? = null) {
@@ -265,16 +288,26 @@ class CaptureViewModel(
 
     fun dismissDecision() {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        transientMessageJob?.cancel()
+        transientMessageJob = null
         cancelCoaching()
-        _uiState.update { it.copy(decision = null, coachingPhase = CoachingPhase.IDLE) }
+        _uiState.update { it.copy(decision = null, coachingPhase = CoachingPhase.IDLE, transientMessage = null) }
     }
 
     fun applyRecommendation() {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
         val recommendation = currentRecommendation() ?: return
         val action = recommendation.action as? RecommendationAction.ApplySettings ?: return
+        val beforeTelemetry = camera.telemetry.value
+        val requestText = activeCommandText.ifBlank { _uiState.value.comment }
         cancelJobsOnly()
-        _uiState.update { it.copy(coachingPhase = CoachingPhase.APPLYING, transientMessage = null) }
+        _uiState.update {
+            it.copy(
+                coachingPhase = CoachingPhase.APPLYING,
+                decision = if (autoApplyRecommendations) null else it.decision,
+                transientMessage = null,
+            )
+        }
         settingApplyInFlight = true
         operationJob = viewModelScope.launch {
             try {
@@ -285,6 +318,7 @@ class CaptureViewModel(
                 }
                 when (result) {
                     ApplyResult.Applied -> {
+                        rememberCameraChange(requestText, beforeTelemetry, camera.telemetry.value)
                         val wasReview = _uiState.value.review != null
                         if (wasReview) camera.setAnalysisPaused(false)
                         if (pendingCommandSteps.isNotEmpty()) {
@@ -296,56 +330,29 @@ class CaptureViewModel(
                                 it.copy(
                                     review = null,
                                     cameraPhase = CameraPhase.READY,
-                                    resetAvailable = true,
+                                    coachingPhase = CoachingPhase.IDLE,
                                     retakeSettingsActive = wasReview,
+                                    transientMessage = null,
                                 )
                             }
-                            completeWork(
-                                "${action.changes.size} camera ${if (action.changes.size == 1) "change" else "changes"} applied; continuing your request.",
-                                Feedback.TICK,
-                            )
+                            showUndoTemporarily()
+                            if (_uiState.value.settings.haptics) feedback(Feedback.TICK)
                             advanceCommandPlan()
                             return@launch
                         }
-                        if (action.changes.size > 1) {
-                            _uiState.update {
-                                it.copy(
-                                    review = null,
-                                    cameraPhase = CameraPhase.READY,
-                                    resetAvailable = true,
-                                    retakeSettingsActive = wasReview,
-                                )
-                            }
-                            completeWork(
-                                "${action.changes.size} camera changes applied. Check the shot; Reset restores the previous settings.",
-                                Feedback.TICK,
-                            )
-                            return@launch
-                        }
-                        verificationStartObservationId = latestLiveObservation?.id
-                        verificationStartedAtMs = nowMs()
-                        verificationSatisfiedSamples = 0
-                        verificationIncomparableMessage = null
+                        activeComplaintId = null
                         _uiState.update {
                             it.copy(
                                 review = null,
                                 cameraPhase = CameraPhase.READY,
-                                coachingPhase = CoachingPhase.VERIFYING,
-                                resetAvailable = true,
+                                coachingPhase = CoachingPhase.IDLE,
                                 retakeSettingsActive = wasReview,
-                                activeGuidance = ActiveGuidance("Checking the requested effect…", action.target, nowMs()),
+                                activeGuidance = null,
+                                transientMessage = null,
                             )
                         }
-                        verificationTimeoutJob = viewModelScope.launch {
-                            delay(3_000)
-                            if (_uiState.value.coachingPhase == CoachingPhase.VERIFYING) {
-                                completeWork(
-                                    verificationIncomparableMessage
-                                        ?: "Setting applied, but I don’t see the expected change yet.",
-                                    Feedback.TICK,
-                                )
-                            }
-                        }
+                        showUndoTemporarily()
+                        if (_uiState.value.settings.haptics) feedback(Feedback.TICK)
                     }
                     is ApplyResult.Failed -> failWork(result.message)
                 }
@@ -496,20 +503,24 @@ class CaptureViewModel(
 
     fun reset() {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        undoTimeoutJob?.cancel()
+        undoTimeoutJob = null
         cancelCoaching()
         _uiState.update { it.copy(coachingPhase = CoachingPhase.APPLYING, transientMessage = null) }
         resetInFlight = true
         operationJob = viewModelScope.launch {
             try {
                 when (val result = camera.reset()) {
-                    ApplyResult.Applied -> _uiState.update {
-                        it.copy(
+                    ApplyResult.Applied -> {
+                        recentCameraChanges.clear()
+                        _uiState.update { it.copy(
                             coachingPhase = CoachingPhase.IDLE,
                             decision = null,
                             resetAvailable = false,
                             retakeSettingsActive = false,
+                            flashMode = FlashMode.OFF,
                             transientMessage = "Automatic camera settings restored.",
-                        )
+                        ) }
                     }
                     is ApplyResult.Failed -> failWork(result.message)
                 }
@@ -526,7 +537,7 @@ class CaptureViewModel(
         ) return
         cancelCoaching(clearDecision = false)
         voiceFinishRequested = false
-        _uiState.update { it.copy(coachingPhase = CoachingPhase.LISTENING, transientMessage = null) }
+        _uiState.update { it.copy(coachingPhase = CoachingPhase.LISTENING, comment = "", transientMessage = null) }
         operationJob = viewModelScope.launch {
             val result = withTimeoutOrNull(VOICE_INPUT_TIMEOUT_MS) { voice.listenOnce() }
                 ?: VoiceResult.Failed(VOICE_INPUT_TIMEOUT_MESSAGE)
@@ -537,8 +548,14 @@ class CaptureViewModel(
                     updateComment(result.text)
                     submitComment(result.text)
                 }
-                is VoiceResult.Unavailable -> failWork(result.message)
-                is VoiceResult.Failed -> failWork(result.message)
+                is VoiceResult.Unavailable -> {
+                    voice.stop()
+                    showToast(result.message)
+                }
+                is VoiceResult.Failed -> {
+                    voice.stop()
+                    showToast(result.message)
+                }
             }
         }
     }
@@ -546,7 +563,13 @@ class CaptureViewModel(
     private fun startCommandPlan(plan: CommandPlan, sourceText: String) {
         cancelCoaching()
         activeCommandText = sourceText
-        pendingCommandSteps.addAll(plan.steps)
+        pendingCommandSteps.addAll(plan.steps.sortedBy { step ->
+            when (step) {
+                is CommandPlanStep.FocusCell -> 1
+                is CommandPlanStep.Capture -> 2
+                else -> 0
+            }
+        })
         _uiState.update { it.copy(comment = "", decision = null, coachingPhase = CoachingPhase.IDLE) }
         advanceCommandPlan()
     }
@@ -560,24 +583,19 @@ class CaptureViewModel(
             is CommandPlanStep.Adjust -> {
                 val complaintId = UUID.randomUUID().toString()
                 activeComplaintId = complaintId
-                val input = coachingInput(complaintId, activeCommandText)
+                val input = coachingInput(complaintId, activeCommandText).copy(
+                    relativeBaseline = if (step.small) recentCameraChanges.peekLast()?.before else null,
+                )
                 val decision = coach.planIntents(input, step.intents).withProvenance(
                     input,
                     controlIntents = step.intents,
                 )
-                if (decision is LocalDecision.Recommend) {
-                    _uiState.update {
-                        it.copy(
-                            comment = activeCommandText,
-                            decision = decision,
-                            coachingPhase = CoachingPhase.RECOMMENDATION,
-                        )
-                    }
-                } else {
+                _uiState.update { it.copy(comment = activeCommandText) }
+                if (decision !is LocalDecision.Recommend) {
                     pendingCommandSteps.clear()
                     approvedPlanAdjustments.clear()
-                    publishLocalDecision(decision)
                 }
+                publishLocalDecision(decision)
             }
             is CommandPlanStep.SetCamera -> requestCameraFacing(
                 when (step.facing) {
@@ -586,6 +604,7 @@ class CaptureViewModel(
                     CameraFacing.REAR -> CameraFacingRequest.REAR
                 },
             )
+            is CommandPlanStep.SetFlash -> setFlashMode(step.mode, continuePlan = true)
             is CommandPlanStep.FocusCell -> {
                 val complaintId = UUID.randomUUID().toString()
                 activeComplaintId = complaintId
@@ -599,20 +618,14 @@ class CaptureViewModel(
                     visualFamily = VisualFamily.OBJECT_FOCUS,
                     visualHint = VisualHint.FocusCell(step.row, step.column, step.rows, step.columns),
                 )
-                if (decision is LocalDecision.Recommend) {
-                    _uiState.update {
-                        it.copy(
-                            comment = activeCommandText,
-                            decision = decision,
-                            coachingPhase = CoachingPhase.RECOMMENDATION,
-                        )
-                    }
-                } else {
+                _uiState.update { it.copy(comment = activeCommandText) }
+                if (decision !is LocalDecision.Recommend) {
                     pendingCommandSteps.clear()
                     approvedPlanAdjustments.clear()
-                    publishLocalDecision(decision)
                 }
+                publishLocalDecision(decision)
             }
+            CommandPlanStep.Reset -> reset()
             is CommandPlanStep.Capture -> {
                 if (step.countdownSeconds == null) capture() else startCaptureCountdown(step.countdownSeconds)
             }
@@ -659,10 +672,10 @@ class CaptureViewModel(
                             it.copy(
                                 cameraPhase = CameraPhase.READY,
                                 coachingPhase = CoachingPhase.IDLE,
-                                resetAvailable = true,
-                                transientMessage = "Approved adjustments restored; continuing your request.",
+                                transientMessage = null,
                             )
                         }
+                        showUndoTemporarily()
                         advanceCommandPlan()
                     }
                     is ApplyResult.Failed -> failWork(
@@ -679,6 +692,43 @@ class CaptureViewModel(
 
     fun reportCameraSwitchMessage(message: String) = _uiState.update {
         it.copy(transientMessage = message)
+    }
+
+    fun cycleFlashMode() {
+        val state = _uiState.value
+        if (!state.shutterEnabled || !state.capabilities.hasFlashUnit || flashChangeInFlight) return
+        val next = when (state.flashMode) {
+            FlashMode.OFF -> FlashMode.ON
+            FlashMode.ON -> FlashMode.TORCH
+            FlashMode.TORCH -> FlashMode.OFF
+        }
+        setFlashMode(next, continuePlan = false)
+    }
+
+    private fun setFlashMode(mode: FlashMode, continuePlan: Boolean) {
+        if (flashChangeInFlight) return
+        flashChangeInFlight = true
+        operationJob = viewModelScope.launch {
+            try {
+                when (val result = camera.setFlashMode(mode)) {
+                    ApplyResult.Applied -> {
+                        _uiState.update { it.copy(flashMode = mode, transientMessage = null) }
+                        if (continuePlan) showUndoTemporarily()
+                        if (continuePlan) advanceCommandPlan()
+                    }
+                    is ApplyResult.Failed -> {
+                        if (continuePlan) {
+                            pendingCommandSteps.clear()
+                            approvedPlanAdjustments.clear()
+                        }
+                        failWork(result.message)
+                    }
+                }
+            } finally {
+                flashChangeInFlight = false
+                operationJob = null
+            }
+        }
     }
 
     fun finishVoiceInput() {
@@ -771,8 +821,14 @@ class CaptureViewModel(
             failWork("Tap to focus is unavailable on this camera.")
             return
         }
+        focusIndicatorJob?.cancel()
         operationJob?.cancel()
-        _uiState.update { it.copy(coachingPhase = CoachingPhase.APPLYING, transientMessage = "Focusing…") }
+        _uiState.update {
+            it.copy(
+                coachingPhase = CoachingPhase.APPLYING,
+                transientMessage = null,
+            )
+        }
         operationJob = viewModelScope.launch {
             when (val result = camera.focusAt(xFraction, yFraction)) {
                 ApplyResult.Applied -> {
@@ -781,13 +837,27 @@ class CaptureViewModel(
                     _uiState.update {
                         it.copy(
                             coachingPhase = CoachingPhase.IDLE,
-                            decision = null,
-                            transientMessage = "Focus locked at the selected point.",
+                            decision = if (autoApplyRecommendations) it.decision else null,
+                            transientMessage = null,
                         )
                     }
+                    if (autoApplyRecommendations) {
+                        val indicatorDecision = _uiState.value.decision
+                        focusIndicatorJob = viewModelScope.launch {
+                            delay(FOCUS_INDICATOR_MS)
+                            _uiState.update {
+                                if (it.decision === indicatorDecision) it.copy(decision = null) else it
+                            }
+                            focusIndicatorJob = null
+                        }
+                    }
+                    showUndoTemporarily()
                     if (pendingCommandSteps.isNotEmpty()) advanceCommandPlan()
                 }
-                is ApplyResult.Failed -> failWork(result.message)
+                is ApplyResult.Failed -> {
+                    if (autoApplyRecommendations) _uiState.update { it.copy(decision = null) }
+                    failWork(result.message)
+                }
             }
         }
     }
@@ -814,7 +884,7 @@ class CaptureViewModel(
                 val storageKey = requestKey.copyOf()
                 keyForStorage = storageKey
                 val request = VisualRequest(VisualFamily.COLOR_CAST, "neutral test pattern", testImage)
-                when (interpretVisual(request, requestKey)) {
+                when (val result = interpretVisual(request, requestKey)) {
                     is VisualResult.Available -> {
                         runCatching { saveApiKey(storageKey) }
                             .onSuccess {
@@ -832,6 +902,10 @@ class CaptureViewModel(
                             .onFailure { updateSettings { it.copy(keyStatus = "Could not save key") } }
                     }
                     VisualResult.CredentialsRejected -> updateSettings { it.copy(keyStatus = "Key rejected") }
+                    is VisualResult.Failed -> {
+                        updateSettings { it.copy(keyStatus = result.message) }
+                        showToast(result.message)
+                    }
                     VisualResult.Unavailable -> updateSettings { it.copy(keyStatus = "Key test failed") }
                 }
             } catch (error: CancellationException) {
@@ -879,6 +953,8 @@ class CaptureViewModel(
 
     fun onBackground() {
         isBackgrounded = true
+        undoTimeoutJob?.cancel()
+        undoTimeoutJob = null
         advanceLiveObservationBarrier()
         clearLiveObservationProvenance()
         cancelKeyTest()
@@ -909,6 +985,7 @@ class CaptureViewModel(
 
     override fun onCleared() {
         cancelKeyTest()
+        undoTimeoutJob?.cancel()
         cancelJobsOnly()
         voice.close()
         camera.close()
@@ -984,15 +1061,11 @@ class CaptureViewModel(
                         val freshInput = coachingInput(originalInput.complaintId, originalInput.complaint)
                         val decision = coach.continueWithVisualHint(freshInput, eligibility.family, result.hint)
                             .withProvenance(freshInput, eligibility.family, result.hint)
-                        _uiState.update {
-                            it.copy(
-                                decision = decision,
-                                coachingPhase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
-                            )
-                        }
+                        publishLocalDecision(decision)
                     }
                     VisualResult.CredentialsRejected ->
                         keepVisualFallback(fallback, "AI interpretation disabled—the saved key was rejected.")
+                    is VisualResult.Failed -> showToast(result.message)
                     VisualResult.Unavailable -> keepVisualFallback(fallback)
                 }
             } catch (cancelled: CancellationException) {
@@ -1006,14 +1079,27 @@ class CaptureViewModel(
         }
     }
 
-    private fun requestCommandPlan(comment: String) {
+    private fun requestCommandPlan(comment: String, autoEnhance: Boolean = false) {
         cancelCoaching()
         val complaintId = UUID.randomUUID().toString()
         activeComplaintId = complaintId
         val originalInput = coachingInput(complaintId, comment)
+        val originalFlashMode = _uiState.value.flashMode
         fun useLocalFallback(message: String) {
             visualJob = null
-            submitLocalCommand(comment, message)
+            if (autoEnhance) {
+                activeComplaintId = null
+                _uiState.update {
+                    it.copy(
+                        comment = "",
+                        coachingPhase = CoachingPhase.TRANSIENT_ERROR,
+                        decision = null,
+                        transientMessage = message,
+                    )
+                }
+            } else {
+                submitLocalCommand(comment, message)
+            }
         }
         visualJob?.cancel()
         visualJob = viewModelScope.launch {
@@ -1054,7 +1140,20 @@ class CaptureViewModel(
                 }
                 jpeg = requestJpeg
                 val grid = FocusGrid.forImage(observation.sourceWidth, observation.sourceHeight)
-                val result = interpretCommand(CommandRequest(comment, requestJpeg, grid), ownedKey)
+                val result = interpretCommand(
+                    CommandRequest(
+                        comment = comment,
+                        observationJpeg = requestJpeg,
+                        focusGrid = grid,
+                        telemetry = originalInput.telemetry,
+                        capabilities = originalInput.capabilities,
+                        flashMode = originalFlashMode,
+                        autoEnhance = autoEnhance,
+                        frameObservation = observation,
+                        recentChanges = recentCameraChanges.toList(),
+                    ),
+                    ownedKey,
+                )
                 if (result == CommandResult.CredentialsRejected) {
                     markSavedKeyRejected()
                     if (activeComplaintId == complaintId) {
@@ -1069,9 +1168,14 @@ class CaptureViewModel(
                     return@launch
                 }
                 when (result) {
-                    is CommandResult.Planned -> startCommandPlan(result.plan, comment)
+                    is CommandResult.Planned -> {
+                        startCommandPlan(result.plan, comment)
+                    }
                     is CommandResult.Clarified ->
                         useLocalFallback("AI interpretation needs clarification—using local coaching.")
+                    CommandResult.NoChange -> showToast("Looks good already.")
+                    CommandResult.Unsure -> showToast("The model isn’t sure what to do. Please try again.")
+                    is CommandResult.Failed -> showToast(result.message)
                     CommandResult.CredentialsRejected ->
                         useLocalFallback("AI interpretation disabled—the saved key was rejected.")
                     CommandResult.Unavailable ->
@@ -1093,19 +1197,63 @@ class CaptureViewModel(
     private fun keepVisualFallback(
         fallback: LocalDecision,
         message: String = "AI interpretation unavailable—using local coaching.",
-    ) = _uiState.update {
-        it.copy(
-            decision = fallback,
-            coachingPhase = if (fallback is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
-            transientMessage = message,
-        )
+    ) {
+        _uiState.update { it.copy(transientMessage = message) }
+        publishLocalDecision(fallback)
     }
 
-    private fun publishLocalDecision(decision: LocalDecision) = _uiState.update {
-        it.copy(
-            decision = decision,
-            coachingPhase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
-        )
+    private fun publishLocalDecision(decision: LocalDecision) {
+        if (decision is LocalDecision.Advisory && decision.headline.endsWith("limit reached")) {
+            pendingCommandSteps.clear()
+            approvedPlanAdjustments.clear()
+            showToast(decision.detail)
+            return
+        }
+        _uiState.update {
+            it.copy(
+                decision = decision,
+                coachingPhase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
+            )
+        }
+        if (!autoApplyRecommendations) return
+        when (val action = (decision as? LocalDecision.Recommend)?.recommendation?.action) {
+            is RecommendationAction.ApplySettings -> applyRecommendation()
+            is RecommendationAction.FocusAt -> focusAt(action.xFraction, action.yFraction)
+            else -> Unit
+        }
+    }
+
+    private fun showUndoTemporarily() {
+        undoTimeoutJob?.cancel()
+        _uiState.update { it.copy(resetAvailable = true) }
+        undoTimeoutJob = viewModelScope.launch {
+            delay(UNDO_TIMEOUT_MS)
+            _uiState.update { it.copy(resetAvailable = false) }
+            undoTimeoutJob = null
+        }
+    }
+
+    private fun showToast(message: String) {
+        transientMessageJob?.cancel()
+        _uiState.update {
+            it.copy(coachingPhase = CoachingPhase.TRANSIENT_ERROR, decision = null, transientMessage = message)
+        }
+        transientMessageJob = viewModelScope.launch {
+            delay(TOAST_TIMEOUT_MS)
+            _uiState.update {
+                if (it.transientMessage == message) it.copy(coachingPhase = CoachingPhase.IDLE, transientMessage = null) else it
+            }
+            transientMessageJob = null
+        }
+    }
+
+    private fun rememberCameraChange(request: String, before: CameraTelemetry, after: CameraTelemetry) {
+        if (before.exposureCompensationIndex == after.exposureCompensationIndex &&
+            abs(before.zoomRatio - after.zoomRatio) < 0.01f &&
+            before.whiteBalancePreset == after.whiteBalancePreset
+        ) return
+        if (recentCameraChanges.size == 3) recentCameraChanges.removeFirst()
+        recentCameraChanges.addLast(CameraChangeSnapshot(request, before, after))
     }
 
     private fun visualProvenanceMatches(input: CoachingInput, eligibility: VisualEligibility): Boolean {
@@ -1334,6 +1482,7 @@ class CaptureViewModel(
                     activeGuidance = null,
                     resetAvailable = false,
                     retakeSettingsActive = false,
+                    flashMode = FlashMode.OFF,
                 )
             }
             is ApplyResult.Failed -> _uiState.update {
@@ -1473,8 +1622,11 @@ class CaptureViewModel(
 
     private fun invalidateCameraSession() {
         val hadCameraWork = _uiState.value.decision != null || _uiState.value.activeGuidance != null || _uiState.value.resetAvailable
+        undoTimeoutJob?.cancel()
+        undoTimeoutJob = null
         cancelJobsOnly()
         activeComplaintId = null
+        recentCameraChanges.clear()
         voice.stop()
         guidanceSatisfiedSinceMs = null
         verificationStartObservationId = null
@@ -1484,6 +1636,7 @@ class CaptureViewModel(
         settingApplyInFlight = false
         resetInFlight = false
         restoreSettingAfterApply = false
+        flashChangeInFlight = false
         advanceLiveObservationBarrier()
         clearLiveObservationProvenance()
         _uiState.update {
@@ -1493,6 +1646,7 @@ class CaptureViewModel(
                 activeGuidance = null,
                 resetAvailable = false,
                 retakeSettingsActive = false,
+                flashMode = FlashMode.OFF,
                 transientMessage = if (hadCameraWork) "Camera session changed—check the shot again." else it.transientMessage,
             )
         }
@@ -1504,11 +1658,13 @@ class CaptureViewModel(
         visualJob?.cancel()
         guidanceTimeoutJob?.cancel()
         verificationTimeoutJob?.cancel()
+        focusIndicatorJob?.cancel()
         operationJob = null
         countdownJob = null
         visualJob = null
         guidanceTimeoutJob = null
         verificationTimeoutJob = null
+        focusIndicatorJob = null
     }
 
     private fun cancelKeyTest() {
