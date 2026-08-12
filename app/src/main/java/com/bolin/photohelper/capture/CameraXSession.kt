@@ -393,6 +393,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                     .setTargetRotation(targetRotation)
                 Camera2Interop.Extender(captureBuilder).setSessionCaptureCallback(captureMetadataCallback)
                 val capture = captureBuilder.build()
+                capture.flashMode = ImageCapture.FLASH_MODE_OFF
                 val analysis = ImageAnalysis.Builder()
                     .setTargetResolution(Size(640, 480))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -534,6 +535,36 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         }
     }
 
+    override suspend fun setFlashMode(mode: FlashMode): ApplyResult = operationMutex.withLock {
+        val activeCamera = camera ?: return@withLock ApplyResult.Failed("Camera is not ready")
+        val capture = imageCapture ?: return@withLock ApplyResult.Failed("Camera is not ready")
+        if (_state.value.phase != CameraPhase.READY) return@withLock ApplyResult.Failed("Camera is busy")
+        if (!activeCamera.cameraInfo.hasFlashUnit()) {
+            return@withLock ApplyResult.Failed("Flash is unavailable on this camera")
+        }
+        try {
+            when (mode) {
+                FlashMode.OFF -> {
+                    awaitControl(activeCamera.cameraControl.enableTorch(false))
+                    capture.flashMode = ImageCapture.FLASH_MODE_OFF
+                }
+                FlashMode.ON -> {
+                    awaitControl(activeCamera.cameraControl.enableTorch(false))
+                    capture.flashMode = ImageCapture.FLASH_MODE_ON
+                }
+                FlashMode.TORCH -> {
+                    capture.flashMode = ImageCapture.FLASH_MODE_OFF
+                    awaitControl(activeCamera.cameraControl.enableTorch(true))
+                }
+            }
+            ApplyResult.Applied
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            ApplyResult.Failed(error.message ?: "The camera rejected the flash setting")
+        }
+    }
+
     override suspend fun reset(): ApplyResult = operationMutex.withLock {
         val activeCamera = camera ?: return@withLock ApplyResult.Failed("Camera is not ready")
         if (_state.value.phase == CameraPhase.BLOCKED) {
@@ -541,8 +572,8 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                 _state.value.message ?: "Camera controls cannot be reset until the camera is retried",
             )
         }
-        val baseline = controlBaseline ?: return@withLock ApplyResult.Applied
-        if (!controlBaselineMatchesPhysicalCamera(baseline, activePhysicalCameraId)) {
+        val baseline = controlBaseline
+        if (baseline != null && !controlBaselineMatchesPhysicalCamera(baseline, activePhysicalCameraId)) {
             controlBaseline = null
             _state.value = CameraState(
                 CameraPhase.BLOCKED,
@@ -552,7 +583,12 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             return@withLock ApplyResult.Failed("The active camera lens changed. Retry the camera before shooting.")
         }
         try {
-            restoreControlState(activeCamera, baseline)
+            awaitControl(activeCamera.cameraControl.cancelFocusAndMetering())
+            if (activeCamera.cameraInfo.hasFlashUnit()) {
+                awaitControl(activeCamera.cameraControl.enableTorch(false))
+                imageCapture?.flashMode = ImageCapture.FLASH_MODE_OFF
+            }
+            if (baseline != null) restoreControlState(activeCamera, baseline)
             controlBaseline = null
             ApplyResult.Applied
         } catch (cancelled: CancellationException) {
@@ -911,6 +947,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             zoomRatioRange = (zoom?.minZoomRatio ?: 1f)..(zoom?.maxZoomRatio ?: 1f),
             supportedWhiteBalancePresets = whiteBalancePresets,
             supportsFocusMetering = supportsFocusMetering(cameraInfo),
+            hasFlashUnit = cameraInfo.hasFlashUnit(),
         )
         _telemetry.value = CameraTelemetry(
             exposureCompensationIndex = exposure.exposureCompensationIndex,

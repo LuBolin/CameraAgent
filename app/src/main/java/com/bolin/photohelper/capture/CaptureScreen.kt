@@ -1,12 +1,13 @@
 package com.bolin.photohelper.capture
 
-import android.content.res.Configuration
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -21,7 +22,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -36,7 +36,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
@@ -74,9 +73,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -90,9 +88,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
 import com.bolin.photohelper.coach.ClarificationChip
@@ -113,6 +111,7 @@ object CaptureTestTags {
     const val COMMENT = "comment_input"
     const val MICROPHONE = "microphone"
     const val SHUTTER = "shutter"
+    const val CAPTURE_BAR = "capture_bar"
     const val GUIDANCE = "guidance"
     const val VISUAL_LOADING = "visual_loading"
     const val REVIEW = "capture_review"
@@ -120,10 +119,11 @@ object CaptureTestTags {
     const val FOCUS_AREA = "focus_area"
     const val FOCUS_TARGET = "focus_target"
     const val FOCUS_CELL = "focus_cell"
-    const val FOCUS_CARD = "focus_recommendation_card"
     const val COUNTDOWN = "capture_countdown"
     const val PREVIEW_CHROME = "preview_chrome"
     const val CAMERA_FLIP = "camera_flip"
+    const val FLASH_MODE = "flash_mode"
+    const val AUTO_ENHANCE = "auto_enhance"
 }
 
 @Composable
@@ -136,6 +136,8 @@ fun CaptureScreen(
     isFrontCamera: Boolean = false,
     canFlipCamera: Boolean = false,
     onFlipCamera: () -> Unit = {},
+    onFlashModeCycle: () -> Unit = {},
+    onAutoEnhance: () -> Unit = {},
     onOnboardingContinue: () -> Unit = {},
     onOpenCamera: () -> Unit = {},
     onRequestCameraPermission: () -> Unit = {},
@@ -143,8 +145,6 @@ fun CaptureScreen(
     onRetryCamera: () -> Unit = {},
     onSettingsOpen: () -> Unit = {},
     onSettingsDismiss: () -> Unit = {},
-    onCommentChange: (String) -> Unit = {},
-    onSubmitComment: () -> Unit = {},
     onMicrophone: () -> Unit = {},
     onShutter: () -> Unit = {},
     onApplyRecommendation: () -> Unit = {},
@@ -201,9 +201,9 @@ fun CaptureScreen(
                 isFrontCamera = isFrontCamera,
                 canFlipCamera = canFlipCamera,
                 onFlipCamera = onFlipCamera,
+                onFlashModeCycle = onFlashModeCycle,
+                onAutoEnhance = onAutoEnhance,
                 onSettingsOpen = onSettingsOpen,
-                onCommentChange = onCommentChange,
-                onSubmitComment = onSubmitComment,
                 onMicrophone = onMicrophone,
                 onShutter = onShutter,
                 onApplyRecommendation = onApplyRecommendation,
@@ -369,9 +369,9 @@ private fun CaptureContent(
     isFrontCamera: Boolean,
     canFlipCamera: Boolean,
     onFlipCamera: () -> Unit,
+    onFlashModeCycle: () -> Unit,
+    onAutoEnhance: () -> Unit,
     onSettingsOpen: () -> Unit,
-    onCommentChange: (String) -> Unit,
-    onSubmitComment: () -> Unit,
     onMicrophone: () -> Unit,
     onShutter: () -> Unit,
     onApplyRecommendation: () -> Unit,
@@ -385,9 +385,6 @@ private fun CaptureContent(
     onDoneReview: () -> Unit,
 ) {
     var guideOpen by rememberSaveable { mutableStateOf(false) }
-    val focusRecommendation = state.recommendation?.takeIf {
-        state.review == null && it.action is RecommendationAction.FocusAt
-    }
     val cancellableWork = state.activeGuidance != null || state.coachingPhase in setOf(
         CoachingPhase.GUIDING,
         CoachingPhase.LISTENING,
@@ -399,9 +396,6 @@ private fun CaptureContent(
         CoachingControls(
             state = state,
             reviewMode = false,
-            onCommentChange = onCommentChange,
-            onSubmitComment = onSubmitComment,
-            onMicrophone = onMicrophone,
             onApplyRecommendation = onApplyRecommendation,
             onStartGuidance = onStartGuidance,
             onFocusTarget = onFocusTarget,
@@ -418,114 +412,52 @@ private fun CaptureContent(
                 .fillMaxSize()
                 .then(if (state.review != null) Modifier.clearAndSetSemantics { } else Modifier),
         ) {
-            if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                Box(Modifier.fillMaxSize()) {
-                    PreviewPane(
-                        state,
-                        liveObservation,
-                        preview,
-                        isFrontCamera,
-                        canFlipCamera,
-                        onFlipCamera,
-                        onSettingsOpen,
-                        { guideOpen = true },
-                        onCancelCoaching,
-                        onFocusTarget,
-                    )
+            Box(Modifier.fillMaxSize()) {
+                PreviewPane(
+                    state,
+                    liveObservation,
+                    preview,
+                    isFrontCamera,
+                    canFlipCamera,
+                    onFlipCamera,
+                    onFlashModeCycle,
+                    onSettingsOpen,
+                    { guideOpen = true },
+                    onCancelCoaching,
+                    onFocusTarget,
+                )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(start = 12.dp, end = 12.dp, bottom = 112.dp)
+                        .widthIn(max = 520.dp),
+                    verticalArrangement = Arrangement.Bottom,
+                ) {
                     Column(
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .navigationBarsPadding()
-                            .padding(start = 16.dp, bottom = 16.dp)
-                            .widthIn(max = 420.dp)
-                            .fillMaxHeight(0.82f),
-                        verticalArrangement = Arrangement.Bottom,
+                            .heightIn(max = 300.dp)
+                            .verticalScroll(rememberScrollState())
+                            .semantics { isTraversalGroup = false },
                     ) {
                         controls()
                     }
-                    Shutter(
-                        enabled = state.shutterEnabled,
-                        onClick = onShutter,
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .navigationBarsPadding()
-                            .padding(20.dp),
-                    )
+                    TranscriptOverlay(state.comment, state.coachingPhase)
                 }
-            } else {
-                Box(Modifier.fillMaxSize()) {
-                    PreviewPane(
-                        state,
-                        liveObservation,
-                        preview,
-                        isFrontCamera,
-                        canFlipCamera,
-                        onFlipCamera,
-                        onSettingsOpen,
-                        { guideOpen = true },
-                        onCancelCoaching,
-                        onFocusTarget,
-                    )
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .heightIn(max = 360.dp)
-                            .navigationBarsPadding()
-                            .semantics { isTraversalGroup = false },
-                        color = MaterialTheme.colorScheme.surface,
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f, fill = false)
-                                    .verticalScroll(rememberScrollState())
-                                    .semantics { isTraversalGroup = false },
-                            ) {
-                                controls()
-                            }
-                            Spacer(Modifier.size(8.dp))
-                            Shutter(
-                                enabled = state.shutterEnabled,
-                                onClick = onShutter,
-                                modifier = Modifier.align(Alignment.CenterHorizontally),
-                            )
-                        }
-                    }
-                }
-            }
-
-            focusRecommendation?.let { recommendation ->
-                val target = (recommendation.action as RecommendationAction.FocusAt)
-                    .forPreview(isFrontCamera)
-                val showAtTop = target.yFraction >= .4f
-                FocusRecommendationCard(
-                    recommendation = recommendation,
-                    applying = state.coachingPhase == CoachingPhase.APPLYING,
-                    onFocus = { onFocusTarget(target.xFraction, target.yFraction) },
-                    onDismiss = onDismissDecision,
-                    modifier = Modifier
-                        .align(if (showAtTop) Alignment.TopCenter else Alignment.BottomCenter)
-                        .safeDrawingPadding()
-                        .padding(
-                            start = 12.dp,
-                            top = if (showAtTop) 72.dp else 0.dp,
-                            end = 12.dp,
-                            bottom = if (showAtTop) 0.dp else 232.dp,
-                        )
-                        .widthIn(max = 420.dp),
+                CaptureBar(
+                    state = state,
+                    onShutter = onShutter,
+                    onMicrophone = onMicrophone,
+                    onAutoEnhance = onAutoEnhance,
+                    modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
+
         }
 
         if (state.review != null) {
             CaptureReview(
                 state = state,
-                onCommentChange = onCommentChange,
-                onSubmitComment = onSubmitComment,
                 onMicrophone = onMicrophone,
                 onApplyRecommendation = onApplyRecommendation,
                 onStartGuidance = onStartGuidance,
@@ -551,6 +483,7 @@ private fun PreviewPane(
     isFrontCamera: Boolean,
     canFlipCamera: Boolean,
     onFlipCamera: () -> Unit,
+    onFlashModeCycle: () -> Unit,
     onSettingsOpen: () -> Unit,
     onGuideOpen: () -> Unit,
     onCancelCoaching: () -> Unit,
@@ -581,15 +514,29 @@ private fun PreviewPane(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ScrimLabel(
+            LiveIndicator(
                 when {
-                    state.retakeSettingsActive -> "LIVE · Retake settings active"
+                    state.retakeSettingsActive -> "RETAKE"
                     isFrontCamera -> "LIVE · SELFIE"
                     else -> "LIVE"
                 },
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OverlayAction(
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (state.capabilities.hasFlashUnit) {
+                    val (label, description) = when (state.flashMode) {
+                        FlashMode.OFF -> "\u26A1\uFE0E×" to "Flash off. Tap for flash on"
+                        FlashMode.ON -> "\u26A1\uFE0E" to "Flash on. Tap for continuous light"
+                        FlashMode.TORCH -> "☼" to "Continuous light on. Tap to turn off"
+                    }
+                    OverlayIconAction(
+                        text = label,
+                        onClick = onFlashModeCycle,
+                        modifier = Modifier.testTag(CaptureTestTags.FLASH_MODE),
+                        enabled = state.shutterEnabled,
+                        contentDescription = description,
+                    )
+                }
+                OverlayIconAction(
                     text = "↻",
                     onClick = onFlipCamera,
                     modifier = Modifier.testTag(CaptureTestTags.CAMERA_FLIP),
@@ -600,13 +547,13 @@ private fun PreviewPane(
                         "Switch to front camera"
                     },
                 )
-                OverlayAction(
+                OverlayIconAction(
                     text = "?",
                     onClick = onGuideOpen,
                     contentDescription = "Open Photo Helper guide",
                 )
-                OverlayAction(
-                    text = "Settings",
+                OverlayIconAction(
+                    text = "\u2699\uFE0E",
                     onClick = onSettingsOpen,
                     contentDescription = "Open settings",
                 )
@@ -863,6 +810,50 @@ private fun ScrimLabel(text: String) {
 }
 
 @Composable
+private fun LiveIndicator(text: String) {
+    Surface(
+        color = Color.Black.copy(alpha = 0.42f),
+        contentColor = Color.White,
+        shape = CircleShape,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Canvas(Modifier.size(7.dp)) { drawCircle(Color(0xFFFF4D4D)) }
+            Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun OverlayIconAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentDescription: String,
+) {
+    Surface(
+        modifier = modifier.size(48.dp),
+        color = Color.Black.copy(alpha = 0.42f),
+        contentColor = Color.White,
+        shape = CircleShape,
+    ) {
+        TextButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.semantics { this.contentDescription = contentDescription },
+            contentPadding = PaddingValues(0.dp),
+            colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+        ) {
+            Text(text, style = MaterialTheme.typography.titleLarge)
+        }
+    }
+}
+
+@Composable
 private fun OverlayAction(
     text: String,
     onClick: () -> Unit,
@@ -895,9 +886,6 @@ private fun OverlayAction(
 private fun CoachingControls(
     state: CaptureUiState,
     reviewMode: Boolean,
-    onCommentChange: (String) -> Unit,
-    onSubmitComment: () -> Unit,
-    onMicrophone: () -> Unit,
     onApplyRecommendation: () -> Unit,
     onStartGuidance: () -> Unit,
     onFocusTarget: (Float, Float) -> Unit,
@@ -928,66 +916,21 @@ private fun CoachingControls(
             onReset = onReset,
         )
         Spacer(Modifier.size(6.dp))
-    } else if (state.resetAvailable) {
-        ResetCard(onReset)
-        Spacer(Modifier.size(6.dp))
+    } else {
+        AnimatedVisibility(visible = state.resetAvailable, exit = fadeOut()) {
+            Column {
+                ResetCard(onReset)
+                Spacer(Modifier.size(6.dp))
+            }
+        }
     }
 
     state.transientMessage?.let {
-        TransientMessage(it, state.coachingPhase == CoachingPhase.TRANSIENT_ERROR)
+        TransientMessage(it, state.coachingPhase == CoachingPhase.TRANSIENT_ERROR, onDismissDecision)
         Spacer(Modifier.size(6.dp))
     }
 
     CoachingProgress(state.coachingPhase)
-    CommentComposer(
-        comment = state.comment,
-        phase = state.coachingPhase,
-        onCommentChange = onCommentChange,
-        onSubmit = onSubmitComment,
-        onMicrophone = onMicrophone,
-    )
-}
-
-@Composable
-private fun FocusRecommendationCard(
-    recommendation: Recommendation,
-    applying: Boolean,
-    onFocus: () -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier
-            .testTag(CaptureTestTags.FOCUS_CARD)
-            .semantics {
-                isTraversalGroup = false
-                liveRegion = LiveRegionMode.Polite
-            },
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(recommendation.headline, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-            Text(recommendation.actionText, style = MaterialTheme.typography.bodyLarge)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(onClick = onFocus, enabled = !applying, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(if (applying) "Applying…" else "Focus here")
-                }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("Choose manually") }
-            }
-            Text(
-                "Located by Qwen · Camera focus stays on device",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
 }
 
 @Composable
@@ -1109,7 +1052,7 @@ private fun DecisionCard(
                             Button(
                                 onClick = onReset,
                                 modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 1f },
-                            ) { Text("Reset") }
+                            ) { Text("Undo") }
                         }
                         TextButton(
                             onClick = onDismiss,
@@ -1191,7 +1134,7 @@ private fun RecommendationContent(
             TextButton(
                 onClick = onReset,
                 modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 2f },
-            ) { Text("Reset") }
+            ) { Text("Undo") }
         } else {
             TextButton(
                 onClick = onDismiss,
@@ -1230,18 +1173,19 @@ private fun ResetCard(onReset: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Camera adjustment active", modifier = Modifier.weight(1f))
-            TextButton(onClick = onReset, modifier = Modifier.heightIn(min = 48.dp)) { Text("Reset") }
+            TextButton(onClick = onReset, modifier = Modifier.heightIn(min = 48.dp)) { Text("Undo") }
         }
     }
 }
 
 @Composable
-private fun TransientMessage(message: String, isError: Boolean) {
+private fun TransientMessage(message: String, isError: Boolean, onDismiss: () -> Unit) {
     val isAiFallback = message.startsWith("AI interpretation")
     Surface(
+        onClick = onDismiss,
         color = when {
             isError -> MaterialTheme.colorScheme.error
             isAiFallback -> MaterialTheme.colorScheme.secondaryContainer
@@ -1288,70 +1232,105 @@ private fun CoachingProgress(phase: CoachingPhase) {
 }
 
 @Composable
-private fun CommentComposer(
-    comment: String,
-    phase: CoachingPhase,
-    onCommentChange: (String) -> Unit,
-    onSubmit: () -> Unit,
-    onMicrophone: () -> Unit,
-) {
-    val canSubmit = comment.isNotBlank() && phase != CoachingPhase.APPLYING
-    val focusManager = LocalFocusManager.current
-    val submit = {
-        if (canSubmit) {
-            focusManager.clearFocus()
-            onSubmit()
-        }
+private fun TranscriptOverlay(comment: String, phase: CoachingPhase) {
+    if (comment.isBlank() && phase != CoachingPhase.LISTENING) return
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .widthIn(max = 480.dp),
+        color = Color.Black.copy(alpha = 0.58f),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            text = comment.ifBlank { "Listening…" },
+            color = Color.White,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier
+                .heightIn(max = 52.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .testTag(CaptureTestTags.COMMENT)
+                .semantics {
+                    contentDescription = "Voice transcript"
+                    traversalIndex = 3f
+                },
+        )
     }
+}
+
+@Composable
+private fun MicrophoneButton(phase: CoachingPhase, onMicrophone: () -> Unit) {
     val micDescription = when (phase) {
         CoachingPhase.LISTENING -> "Finish voice comment"
         CoachingPhase.INTERPRETING -> "Voice input processing"
         else -> "Describe shot by voice"
     }
-    Row(
+    OutlinedButton(
+        onClick = onMicrophone,
+        enabled = phase !in setOf(CoachingPhase.APPLYING, CoachingPhase.INTERPRETING),
         modifier = Modifier
+            .size(56.dp)
+            .testTag(CaptureTestTags.MICROPHONE)
+            .semantics {
+                contentDescription = micDescription
+                traversalIndex = 4.1f
+                stateDescription = when (phase) {
+                    CoachingPhase.LISTENING -> "Listening"
+                    CoachingPhase.INTERPRETING -> "Processing"
+                    CoachingPhase.TRANSIENT_ERROR -> "Error"
+                    else -> "Idle"
+                }
+            },
+        shape = CircleShape,
+        contentPadding = PaddingValues(0.dp),
+    ) { Text(if (phase == CoachingPhase.LISTENING) "■" else "Mic") }
+}
+
+@Composable
+private fun AutoEnhanceButton(enabled: Boolean, onAutoEnhance: () -> Unit) {
+    OutlinedButton(
+        onClick = onAutoEnhance,
+        enabled = enabled,
+        modifier = Modifier
+            .size(56.dp)
+            .testTag(CaptureTestTags.AUTO_ENHANCE)
+            .semantics {
+                contentDescription = "Make this shot look nicer"
+                traversalIndex = 3.9f
+            },
+        shape = CircleShape,
+        contentPadding = PaddingValues(0.dp),
+    ) { Text("✨") }
+}
+
+@Composable
+private fun CaptureBar(
+    state: CaptureUiState,
+    onShutter: () -> Unit,
+    onMicrophone: () -> Unit,
+    onAutoEnhance: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
             .fillMaxWidth()
-            .imePadding(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .testTag(CaptureTestTags.CAPTURE_BAR),
+        color = Color.Black.copy(alpha = 0.94f),
     ) {
-        OutlinedTextField(
-            value = comment,
-            onValueChange = onCommentChange,
-            enabled = phase != CoachingPhase.APPLYING,
+        Row(
             modifier = Modifier
-                .weight(1f)
-                .testTag(CaptureTestTags.COMMENT)
-                .semantics { traversalIndex = 3f },
-            placeholder = { Text("Describe the current shot") },
-            maxLines = 2,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { submit() }),
-        )
-        OutlinedButton(
-            onClick = onMicrophone,
-            enabled = phase != CoachingPhase.APPLYING,
-            modifier = Modifier
-                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                .testTag(CaptureTestTags.MICROPHONE)
-                .semantics {
-                    contentDescription = micDescription
-                    traversalIndex = 3.1f
-                    stateDescription = when (phase) {
-                        CoachingPhase.LISTENING -> "Listening"
-                        CoachingPhase.INTERPRETING -> "Processing"
-                        CoachingPhase.TRANSIENT_ERROR -> "Error"
-                        else -> "Idle"
-                    }
-                },
-            contentPadding = PaddingValues(horizontal = 8.dp),
-        ) { Text(if (phase == CoachingPhase.LISTENING) "Done" else "Mic") }
-        Button(
-            onClick = submit,
-            enabled = canSubmit,
-            modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 3.2f },
-            contentPadding = PaddingValues(horizontal = 10.dp),
-        ) { Text("Send") }
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .heightIn(min = 96.dp)
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AutoEnhanceButton(state.shutterEnabled && state.coachingPhase == CoachingPhase.IDLE, onAutoEnhance)
+            Shutter(enabled = state.shutterEnabled, onClick = onShutter)
+            MicrophoneButton(state.coachingPhase, onMicrophone)
+        }
     }
 }
 
@@ -1386,8 +1365,6 @@ private fun Shutter(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = 
 @Composable
 private fun CaptureReview(
     state: CaptureUiState,
-    onCommentChange: (String) -> Unit,
-    onSubmitComment: () -> Unit,
     onMicrophone: () -> Unit,
     onApplyRecommendation: () -> Unit,
     onStartGuidance: () -> Unit,
@@ -1447,9 +1424,6 @@ private fun CaptureReview(
                     CoachingControls(
                         state = state,
                         reviewMode = true,
-                        onCommentChange = onCommentChange,
-                        onSubmitComment = onSubmitComment,
-                        onMicrophone = onMicrophone,
                         onApplyRecommendation = onApplyRecommendation,
                         onStartGuidance = onStartGuidance,
                         onFocusTarget = onFocusTarget,
@@ -1459,6 +1433,7 @@ private fun CaptureReview(
                         onReset = onReset,
                     )
                 }
+                TranscriptOverlay(state.comment, state.coachingPhase)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1468,6 +1443,7 @@ private fun CaptureReview(
                         },
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
+                    MicrophoneButton(state.coachingPhase, onMicrophone)
                     OutlinedButton(
                         onClick = onRetake,
                         enabled = !applying,
@@ -1582,6 +1558,10 @@ private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
             )
             GuideTopic("Brightness", "Say “too dark” or “too bright” for a whole-photo exposure change.")
             GuideTopic(
+                "Make it nicer",
+                "Tap ✨ beside the shutter to let Qwen inspect the current frame and camera settings, then automatically apply safe brightness, zoom, color, and focus improvements. It never takes the photo.",
+            )
+            GuideTopic(
                 "Focus",
                 "With Qwen enabled, say “focus on the red watch.” Qwen receives the clean frame and a labelled " +
                     "aspect-aware grid, then returns one grid cell in its action plan. Check the marker, then tap it " +
@@ -1589,6 +1569,10 @@ private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
             )
             GuideTopic("Zoom", "Say “too zoomed in” or “too zoomed out” for a wider or tighter digital crop.")
             GuideTopic("Color", "Say “too blue” or “too yellow” for Warmer, Cooler, or Auto white balance.")
+            GuideTopic(
+                "Flash",
+                "Tap the flash control to cycle Off, capture flash, and continuous light. The agent changes it only when you explicitly mention flash, torch, or camera light.",
+            )
             GuideTopic("Level and framing", "Ask to straighten the frame or follow movement guidance. You move the phone yourself.")
             Text(
                 "Nothing changes until you tap Apply, tap a focus target, or start guidance. Reset restores supported exposure, zoom, and white-balance settings from before coaching.",
@@ -1647,6 +1631,7 @@ private fun CameraCapabilityGuide(state: CaptureUiState) {
 
     CapabilityStatus("Brightness", capabilities.supportsExposureCompensation)
     CapabilityStatus("Tap to focus", capabilities.supportsFocusMetering)
+    CapabilityStatus("Flash and continuous light", capabilities.hasFlashUnit)
     Text(
         if (zoomAvailable) {
             "Digital zoom · Available · %.1f×–%.1f×".format(
@@ -1813,6 +1798,8 @@ private fun QwenKeySetup(
     onClearKey: () -> Unit,
     onOpenVisualAiPolicy: () -> Unit,
 ) {
+    val clipboard = LocalClipboardManager.current
+    var keyVisible by rememberSaveable { mutableStateOf(false) }
     OutlinedTextField(
         value = apiKeyInput,
         onValueChange = { onApiKeyChanged(it.take(MAX_API_KEY_CHARACTERS)) },
@@ -1821,14 +1808,31 @@ private fun QwenKeySetup(
         placeholder = {
             Text(if (settings.keyConfigured) "Saved key is hidden" else "Enter your API key")
         },
-        visualTransformation = PasswordVisualTransformation(),
+        visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(
             autoCorrect = false,
             keyboardType = KeyboardType.Password,
         ),
         singleLine = true,
         enabled = !settings.testingKey,
+        trailingIcon = {
+            TextButton(
+                onClick = { keyVisible = !keyVisible },
+                modifier = Modifier.clearAndSetSemantics {
+                    contentDescription = if (keyVisible) "Hide API key" else "Show API key"
+                },
+            ) { Text("👁") }
+        },
     )
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TextButton(
+            onClick = {
+                clipboard.getText()?.text?.let { onApiKeyChanged(it.take(MAX_API_KEY_CHARACTERS)) }
+            },
+            enabled = !settings.testingKey,
+            modifier = Modifier.heightIn(min = 48.dp),
+        ) { Text("Paste") }
+    }
     Text(
         "Only an Alibaba Cloud Model Studio (Bailian) API key with access to Qwen3.7 Flash is supported. " +
             "Keys for other providers or models will not work because their API adapters are not implemented.",

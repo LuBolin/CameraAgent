@@ -103,6 +103,7 @@ data class CoachingInput(
     val telemetry: CameraTelemetry,
     val telemetryKnown: Boolean = true,
     val comparisonBaseline: FrameObservation? = null,
+    val relativeBaseline: CameraTelemetry? = null,
 )
 
 data class ClarificationChip(val label: String, val replacementComplaint: String)

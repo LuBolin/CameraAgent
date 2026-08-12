@@ -194,6 +194,8 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
         onFlipCamera = {
             switchCamera(!isFrontCamera, false)
         },
+        onFlashModeCycle = viewModel::cycleFlashMode,
+        onAutoEnhance = viewModel::makeItNicer,
         onOnboardingContinue = viewModel::continueOnboarding,
         onOpenCamera = {
             viewModel.finishOnboarding()
@@ -218,8 +220,6 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
             apiKeyInput = ""
             viewModel.openSettings(false)
         },
-        onCommentChange = viewModel::updateComment,
-        onSubmitComment = { viewModel.submitComment() },
         onMicrophone = {
             when {
                 state.coachingPhase == com.bolin.photohelper.capture.CoachingPhase.LISTENING -> viewModel.finishVoiceInput()

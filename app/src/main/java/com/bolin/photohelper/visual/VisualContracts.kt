@@ -63,6 +63,7 @@ data class FocusGrid(val columns: Int, val rows: Int) {
 
 sealed interface VisualResult {
     data class Available(val hint: VisualHint) : VisualResult
+    data class Failed(val message: String) : VisualResult
     data object CredentialsRejected : VisualResult
     data object Unavailable : VisualResult
 }

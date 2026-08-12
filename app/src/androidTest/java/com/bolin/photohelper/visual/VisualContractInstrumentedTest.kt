@@ -6,6 +6,11 @@ import android.graphics.Color
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.bolin.photohelper.coach.ClarificationReason
 import com.bolin.photohelper.coach.ControlIntent
+import com.bolin.photohelper.capture.FlashMode
+import com.bolin.photohelper.capture.CameraCapabilities
+import com.bolin.photohelper.capture.CameraTelemetry
+import com.bolin.photohelper.capture.FrameObservation
+import com.bolin.photohelper.capture.WhiteBalancePreset
 import com.bolin.photohelper.coach.IntentClassification
 import com.bolin.photohelper.coach.VisualFamily
 import com.bolin.photohelper.coach.VisualHint
@@ -92,9 +97,17 @@ class VisualContractInstrumentedTest {
 
         assertEquals(QWEN_MODEL, body.getString("model"))
         assertEquals("system", messages.getJSONObject(0).getString("role"))
-        assertTrue(messages.getJSONObject(0).getString("content").contains("JSON"))
-        assertTrue(messages.getJSONObject(0).getString("content").contains("FOCUS_CELL"))
-        assertFalse(messages.getJSONObject(0).getString("content").contains("Focus on the watch"))
+        val systemPrompt = messages.getJSONObject(0).getString("content")
+        assertTrue(systemPrompt.contains("JSON"))
+        assertTrue(systemPrompt.contains("FOCUS_CELL"))
+        assertTrue(systemPrompt.contains("Emit CAPTURE only when the user explicitly asks"))
+        assertTrue(systemPrompt.contains("Never infer CAPTURE from a focus or parameter request"))
+        assertTrue(systemPrompt.contains("never volunteer flash for a brightness complaint"))
+        assertTrue(systemPrompt.contains("Use SET_FLASH only when the user explicitly mentions"))
+        assertTrue(systemPrompt.contains("'Take a picture with the focus on the keyboard' => FOCUS_CELL, CAPTURE"))
+        assertTrue(systemPrompt.contains("RESET restores exposure, zoom, white balance, flash off, and continuous autofocus"))
+        assertTrue(systemPrompt.contains("must not change the selected front or rear camera"))
+        assertFalse(systemPrompt.contains("Focus on the watch"))
         assertEquals("user", messages.getJSONObject(1).getString("role"))
         assertEquals(3, content.length())
         assertEquals("Focus on the watch, then take a photo", content.getJSONObject(2).getString("text"))
@@ -103,6 +116,91 @@ class VisualContractInstrumentedTest {
         assertEquals(0, body.getInt("temperature"))
         assertEquals(false, body.getBoolean("stream"))
         assertEquals(256, body.getInt("max_completion_tokens"))
+        clean.fill(0)
+        guide.fill(0)
+    }
+
+    @Test
+    fun autoEnhanceSendsTrustedSettingsAndRejectsUnsafeActions() {
+        val clean = testJpeg()
+        val grid = FocusGrid(columns = 6, rows = 8)
+        val guide = createFocusGridGuide(clean, grid)!!
+        val request = CommandRequest(
+            comment = "Make this shot look nicer.",
+            observationJpeg = clean,
+            focusGrid = grid,
+            telemetry = CameraTelemetry(2, 1.5f, WhiteBalancePreset.COOLER, "rear-wide", 4.5f, 400, 8_000_000),
+            capabilities = CameraCapabilities(
+                exposureCompensationRange = -6..6,
+                exposureCompensationStepEv = 1f / 3f,
+                zoomRatioRange = 1f..8f,
+                supportedWhiteBalancePresets = WhiteBalancePreset.entries.toSet(),
+                supportsFocusMetering = true,
+                hasFlashUnit = true,
+            ),
+            flashMode = FlashMode.ON,
+            autoEnhance = true,
+            frameObservation = FrameObservation(
+                id = 1,
+                timestampMs = 1_000,
+                meanLuma = .42f,
+                highlightClipFraction = .03f,
+                shadowClipFraction = .12f,
+                chromaBlueBias = .04f,
+                motionScore = .01f,
+                sourceWidth = 120,
+                sourceHeight = 160,
+            ),
+        )
+        val body = JSONObject(buildCommandRequestBody(request, guide).toString(StandardCharsets.UTF_8))
+        val prompt = body.getJSONArray("messages").getJSONObject(0).getString("content")
+
+        assertFalse(body.getBoolean("enable_thinking"))
+        assertEquals(256, body.getInt("max_completion_tokens"))
+        assertTrue(prompt.contains("Independently decide all four axes"))
+        assertTrue(prompt.contains("confidence\":\"MEDIUM|HIGH"))
+        assertTrue(prompt.contains("LOW should be rare"))
+        assertTrue(prompt.contains("already sharp or no identifiable subject=NONE"))
+        assertTrue(prompt.contains("Do not return actions"))
+        assertFalse(prompt.contains("CAPTURE only when"))
+        assertTrue(prompt.contains("\"exposureCompensationIndex\":2"))
+        assertTrue(prompt.contains("\"zoomRatio\":1.5"))
+        assertTrue(prompt.contains("\"whiteBalancePreset\":\"COOLER\""))
+        assertTrue(prompt.contains("\"flashMode\":\"ON\""))
+        assertTrue(prompt.contains("\"meanLuma\":0.42"))
+        assertTrue(prompt.contains("\"highlightClipFraction\":0.03"))
+        assertTrue(prompt.contains("positive chromaBlueBias supports WARMER"))
+        assertNull(parseCommandResponse(response("""{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"CAPTURE","countdownSeconds":0}]}"""), grid, true))
+        assertEquals(
+            CommandResult.NoChange,
+            parseCommandResponse(response(autoAssessment()), grid, true),
+        )
+        assertEquals(
+            CommandResult.Unsure,
+            parseCommandResponse(response("""{"schemaVersion":4,"outcome":"UNSURE","confidence":"LOW"}"""), grid, true),
+        )
+        val planned = parseCommandResponse(
+            response(autoAssessment(exposure = "BRIGHTER", framing = "ZOOM_IN", focus = "\"decision\":\"FOCUS_CELL\",\"row\":3,\"column\":2")),
+            grid,
+            true,
+        ) as CommandResult.Planned
+        assertEquals(3, planned.plan.steps.size)
+        assertNull(parseCommandResponse(response(autoAssessment(confidence = "LOW")), grid, true))
+        assertNull(parseCommandResponse(response("""{"schemaVersion":4,"outcome":"UNSURE","confidence":"MEDIUM"}"""), grid, true))
+        clean.fill(0)
+        guide.fill(0)
+    }
+
+    @Test
+    fun focusGuideDownscalesLargeFrames() {
+        val clean = testJpeg(width = 720, height = 960)
+        val guide = createFocusGridGuide(clean, FocusGrid(columns = 6, rows = 8))!!
+        val decoded = BitmapFactory.decodeByteArray(guide, 0, guide.size)
+
+        assertEquals(288, decoded.width)
+        assertEquals(384, decoded.height)
+
+        decoded.recycle()
         clean.fill(0)
         guide.fill(0)
     }
@@ -142,6 +240,20 @@ class VisualContractInstrumentedTest {
                 grid,
             ),
         )
+        assertEquals(
+            CommandResult.Planned(CommandPlan(listOf(CommandPlanStep.Reset))),
+            parseCommandResponse(
+                response("""{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"RESET"}]}"""),
+                grid,
+            ),
+        )
+        assertEquals(
+            CommandResult.Planned(CommandPlan(listOf(CommandPlanStep.SetFlash(FlashMode.TORCH)))),
+            parseCommandResponse(
+                response("""{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"SET_FLASH","mode":"TORCH"}]}"""),
+                grid,
+            ),
+        )
 
         listOf(
             """{"schemaVersion":3,"outcome":"PLAN","actions":[]}""",
@@ -152,6 +264,7 @@ class VisualContractInstrumentedTest {
             """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"CAPTURE","countdownSeconds":31}]}""",
             """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"UNKNOWN"}]}""",
             """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"CAPTURE","countdownSeconds":0,"extra":true}]}""",
+            """{"schemaVersion":3,"outcome":"PLAN","actions":[{"type":"RESET"},{"type":"SET_CAMERA","facing":"FRONT"}]}""",
         ).forEach { assertNull(parseCommandResponse(response(it), grid)) }
     }
 
@@ -373,8 +486,8 @@ class VisualContractInstrumentedTest {
         }
     }
 
-    private fun testJpeg(): ByteArray {
-        val bitmap = Bitmap.createBitmap(120, 160, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
+    private fun testJpeg(width: Int = 120, height: Int = 160): ByteArray {
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
         return try {
             ByteArrayOutputStream().use { output ->
                 check(bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output))
@@ -384,6 +497,15 @@ class VisualContractInstrumentedTest {
             bitmap.recycle()
         }
     }
+
+    private fun autoAssessment(
+        confidence: String = "HIGH",
+        exposure: String = "NONE",
+        whiteBalance: String = "NONE",
+        framing: String = "NONE",
+        focus: String = "\"decision\":\"NONE\"",
+    ): String =
+        """{"schemaVersion":4,"outcome":"ASSESSMENT","confidence":"$confidence","exposure":{"decision":"$exposure","strength":"SMALL"},"whiteBalance":{"decision":"$whiteBalance","strength":"SMALL"},"framing":{"decision":"$framing","strength":"SMALL"},"focus":{$focus}}"""
 
     private fun response(
         content: String,
