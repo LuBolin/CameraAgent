@@ -51,8 +51,7 @@ enum class CameraFacingRequest { TOGGLE, FRONT, REAR }
 private const val CAPTURE_TIMEOUT_MS = 15_000L
 private const val CAPTURE_TIMEOUT_MESSAGE = "Camera did not finish saving the photo. Try again."
 private const val VOICE_INPUT_TIMEOUT_MS = 20_000L
-private const val VOICE_INPUT_TIMEOUT_MESSAGE = "Voice input timed out. Try again or type your comment."
-private const val UNDO_TIMEOUT_MS = 5_000L
+private const val VOICE_INPUT_TIMEOUT_MESSAGE = "Voice input timed out. Tap the mic to try again."
 private const val TOAST_TIMEOUT_MS = 5_000L
 private const val FOCUS_INDICATOR_MS = 1_500L
 private val OBJECT_FOCUS_REQUEST = Regex("\\b(focus|sharp|sharpen|clear)\\b", RegexOption.IGNORE_CASE)
@@ -93,7 +92,6 @@ class CaptureViewModel(
     private var keyTestJob: Job? = null
     private var guidanceTimeoutJob: Job? = null
     private var verificationTimeoutJob: Job? = null
-    private var undoTimeoutJob: Job? = null
     private var focusIndicatorJob: Job? = null
     private var transientMessageJob: Job? = null
     private var verificationStartObservationId: Long? = null
@@ -179,7 +177,7 @@ class CaptureViewModel(
     fun setMicrophonePermission(granted: Boolean) = _uiState.update {
         it.copy(
             microphonePermission = if (granted) PermissionState.GRANTED else PermissionState.DENIED,
-            transientMessage = if (granted) it.transientMessage else "Microphone unavailable—type your comment instead.",
+            transientMessage = if (granted) it.transientMessage else "Microphone unavailable.",
         )
     }
 
@@ -335,7 +333,7 @@ class CaptureViewModel(
                                     transientMessage = null,
                                 )
                             }
-                            showUndoTemporarily()
+                            markResetAvailable()
                             if (_uiState.value.settings.haptics) feedback(Feedback.TICK)
                             advanceCommandPlan()
                             return@launch
@@ -351,7 +349,7 @@ class CaptureViewModel(
                                 transientMessage = null,
                             )
                         }
-                        showUndoTemporarily()
+                        markResetAvailable()
                         if (_uiState.value.settings.haptics) feedback(Feedback.TICK)
                     }
                     is ApplyResult.Failed -> failWork(result.message)
@@ -503,8 +501,6 @@ class CaptureViewModel(
 
     fun reset() {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
-        undoTimeoutJob?.cancel()
-        undoTimeoutJob = null
         cancelCoaching()
         _uiState.update { it.copy(coachingPhase = CoachingPhase.APPLYING, transientMessage = null) }
         resetInFlight = true
@@ -675,7 +671,7 @@ class CaptureViewModel(
                                 transientMessage = null,
                             )
                         }
-                        showUndoTemporarily()
+                        markResetAvailable()
                         advanceCommandPlan()
                     }
                     is ApplyResult.Failed -> failWork(
@@ -713,7 +709,7 @@ class CaptureViewModel(
                 when (val result = camera.setFlashMode(mode)) {
                     ApplyResult.Applied -> {
                         _uiState.update { it.copy(flashMode = mode, transientMessage = null) }
-                        if (continuePlan) showUndoTemporarily()
+                        if (continuePlan) markResetAvailable()
                         if (continuePlan) advanceCommandPlan()
                     }
                     is ApplyResult.Failed -> {
@@ -743,7 +739,7 @@ class CaptureViewModel(
     fun reportVoiceUnavailable() = _uiState.update {
         it.copy(
             coachingPhase = CoachingPhase.TRANSIENT_ERROR,
-            transientMessage = "On-device speech recognition is unavailable. Type your comment instead.",
+            transientMessage = "On-device speech recognition is unavailable.",
         )
     }
 
@@ -851,7 +847,7 @@ class CaptureViewModel(
                             focusIndicatorJob = null
                         }
                     }
-                    showUndoTemporarily()
+                    markResetAvailable()
                     if (pendingCommandSteps.isNotEmpty()) advanceCommandPlan()
                 }
                 is ApplyResult.Failed -> {
@@ -953,8 +949,6 @@ class CaptureViewModel(
 
     fun onBackground() {
         isBackgrounded = true
-        undoTimeoutJob?.cancel()
-        undoTimeoutJob = null
         advanceLiveObservationBarrier()
         clearLiveObservationProvenance()
         cancelKeyTest()
@@ -985,7 +979,6 @@ class CaptureViewModel(
 
     override fun onCleared() {
         cancelKeyTest()
-        undoTimeoutJob?.cancel()
         cancelJobsOnly()
         voice.close()
         camera.close()
@@ -1223,14 +1216,8 @@ class CaptureViewModel(
         }
     }
 
-    private fun showUndoTemporarily() {
-        undoTimeoutJob?.cancel()
+    private fun markResetAvailable() {
         _uiState.update { it.copy(resetAvailable = true) }
-        undoTimeoutJob = viewModelScope.launch {
-            delay(UNDO_TIMEOUT_MS)
-            _uiState.update { it.copy(resetAvailable = false) }
-            undoTimeoutJob = null
-        }
     }
 
     private fun showToast(message: String) {
@@ -1622,8 +1609,6 @@ class CaptureViewModel(
 
     private fun invalidateCameraSession() {
         val hadCameraWork = _uiState.value.decision != null || _uiState.value.activeGuidance != null || _uiState.value.resetAvailable
-        undoTimeoutJob?.cancel()
-        undoTimeoutJob = null
         cancelJobsOnly()
         activeComplaintId = null
         recentCameraChanges.clear()

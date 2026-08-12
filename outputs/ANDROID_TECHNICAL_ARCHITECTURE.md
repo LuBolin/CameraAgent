@@ -36,7 +36,7 @@ Judge-facing disclosure:
 | Face analysis | Bundled ML Kit face detector in `FAST` mode |
 | Body pose | Deferred; enable ML Kit Pose only for full-body coaching after the portrait MVP works |
 | Orientation | Android rotation-vector/gravity sensors |
-| Voice input | Push-to-talk on-device `SpeechRecognizer` only; typed input always available |
+| Voice input | Push-to-talk on-device `SpeechRecognizer` only |
 | Voice output | Android `TextToSpeech`, plus matching on-screen text and haptics |
 | Agent reasoning | Deterministic local parser/planner plus a direct Qwen visual-only enum hint for two families |
 | Persistence | No coaching/history database; photos use `MediaStore`; settings store accessibility flags and an Android-Keystore-encrypted demo API key |
@@ -51,7 +51,7 @@ Judge-facing disclosure:
 
 - Rear-camera capture; person-specific coaching requires exactly one stable detected face as the Coaching Subject, while exposure/color capture does not require a face.
 - Live preview and still photo capture.
-- Typed comments on every device; push-to-talk when an installed on-device English recognizer is available.
+- Push-to-talk when an installed on-device English recognizer is available; manual controls otherwise.
 - Four locally understood complaint families:
   - too bright / too dark;
   - too blue / too yellow;
@@ -232,7 +232,7 @@ interface VoiceIo {
 }
 ```
 
-Push-to-talk is capability-dependent rather than a release gate. On microphone tap, call `isOnDeviceRecognitionAvailable` and use `createOnDeviceSpeechRecognizer` only. Cloud-backed default speech recognition is not allowed in the MVP. Before first use, disclose: `Android transcribes voice on this device. Photo Helper does not store or send your audio. Android may download the English speech model.` If the on-device model or requested language is unavailable, retain typed input and let an explicit microphone tap request the platform model download; never fall back silently to a network recognizer.
+Push-to-talk is capability-dependent rather than a release gate. On microphone tap, call `isOnDeviceRecognitionAvailable` and use `createOnDeviceSpeechRecognizer` only. Cloud-backed default speech recognition is not allowed in the MVP. Before first use, disclose: `Android transcribes voice on this device. Photo Helper does not store or send your audio. Android may download the English speech model.` If the on-device model or requested language is unavailable, the microphone is disabled and the app relies on the manual camera controls (exposure, zoom, white balance, flash, focus, shutter); an explicit microphone tap can still request the platform model download. The app never falls back silently to a network recognizer and does not accept typed commands.
 
 ## 7. Domain data
 
@@ -777,7 +777,7 @@ Manifest permissions:
 
 - Request camera permission when the user enters capture.
 - Request microphone permission only when the microphone button is first used.
-- If microphone permission is denied, typed comments remain fully usable.
+- If microphone permission is denied, manual controls remain usable.
 - No location, contacts, media-library read, background camera, or background microphone permission.
 - Settings explicitly enables direct Alibaba Cloud Model Studio visual processing only after the operator enters a key. `Clear key` disables it immediately.
 - Store only Keystore-encrypted key ciphertext/IV, disable app backup, and never put plaintext into saved state, logs, crash reports, screenshots, source, Gradle properties, resources, or the APK.
@@ -792,8 +792,8 @@ Build acceptance scans source, Gradle output, resources, DEX, and APK strings fo
 
 | Missing capability | Behavior |
 |---|---|
-| No on-device speech recognizer/model/language | Disable voice for the session and explain; typed input remains available |
-| Microphone denied | Hide listening state; retain text input |
+| No on-device speech recognizer/model/language | Disable voice for the session and explain; manual controls remain available |
+| Microphone denied | Hide listening state |
 | Manual exposure unsupported | Use EV compensation and explain that exact ISO/shutter application is unavailable |
 | Manual WB unsupported | Offer Reset AWB or spoken lighting advice |
 | Gyroscope/rotation vector unavailable | Use face-position guidance; disable precise leveling or add image horizon later |
@@ -848,7 +848,7 @@ Use a real physical phone for camera acceptance; emulator success is not evidenc
 
 Physical test matrix:
 
-- primary stage device on its exact OS build and rear wide lens, with the P0 CameraX/EV/face probe passed; on-device English speech is preferred while typed input is the pass condition;
+- primary stage device on its exact OS build and rear wide lens, with the P0 CameraX/EV/face probe passed; on-device English speech is preferred while manual controls are the pass condition;
 - one API 31/32 compatibility device;
 - one current-target API 35/36 device as available.
 
@@ -875,7 +875,7 @@ API 23–30 are unsupported and need no storage, review, or voice test coverage.
 - Request camera permission in context.
 - Save one photo to MediaStore.
 - Show the saved photo in Capture Review with truthful Done and Retake actions; both retain the original.
-- Select the exact API-31+ stage phone/rear-wide lens. Require concurrent Preview+ImageAnalysis+ImageCapture, EV range spanning at least `-2..+2` steps, EV acknowledgement/convergence within one second for five trials, 4 Hz analysis without visible jank, stable one-face detection, and MediaStore capture. Prefer installed on-device English speech; typed input is the fallback and pass condition.
+- Select the exact API-31+ stage phone/rear-wide lens. Require concurrent Preview+ImageAnalysis+ImageCapture, EV range spanning at least `-2..+2` steps, EV acknowledgement/convergence within one second for five trials, 4 Hz analysis without visible jank, stable one-face detection, and MediaStore capture. Prefer installed on-device English speech; manual controls are the fallback and pass condition.
 - Produce and install a signed debug APK on the demo phone.
 
 Exit: the app launches from the home screen, previews, captures, and saves without coaching.
@@ -893,7 +893,7 @@ Exit: measurements update without visible preview jank.
 ### Phase 2 — deterministic coach and one-tap exposure
 
 - Implement data contracts, local intent parser, planner, and verification.
-- Support exposure, color, face-occupancy, and phone-position wording from typed comments. The first executable set is `EXPOSURE_DARKER`, `EXPOSURE_BRIGHTER`, `FACE_OCCUPANCY_LOWER`, and `LEVEL_FRAME`; warm/cool comments return capability-aware AWB advice unless later device testing proves stable control.
+- Support exposure, color, face-occupancy, and phone-position wording from voice complaints. The first executable set is `EXPOSURE_DARKER`, `EXPOSURE_BRIGHTER`, `FACE_OCCUPANCY_LOWER`, and `LEVEL_FRAME`; warm/cool comments return capability-aware AWB advice unless later device testing proves stable control.
 - Apply CameraX EV compensation and verify it.
 - Decode the saved Capture Review image, bind a post-capture Complaint to its RetakeBaseline, and support capability-revalidated `Apply for retake` for exposure.
 - Add Reset.
@@ -902,7 +902,7 @@ Exit: live and post-capture exposure coaching plus two positional demos work off
 
 ### Phase 3 — voice and guidance
 
-- Add capability-dependent on-device push-to-talk with typed fallback; recognizer absence does not fail the build.
+- Add capability-dependent on-device push-to-talk; recognizer absence does not fail the build.
 - Add TTS, haptics, instruction cooldown, cancellation, and closed-loop face-size guidance.
 - Rehearse exposure Apply/verify/Reset and one-step face guidance twice from a cold install.
 
@@ -947,7 +947,7 @@ Exit: a cold-install rehearsal succeeds twice without developer intervention.
 | Step-back instruction is unsafe | physical harm | per-action opt-in, explicit no-hazard-knowledge copy, single small step, cancel; unavailable with touch exploration |
 | Continuous analysis heats phone | throttling and battery drain | 4 Hz measurements, keep-latest frames, pose only on demand, stop in background |
 | Network delay breaks visual interpretation | demo stalls | preserve local clarification, 5 s timeout, no automatic retry |
-| Speech fails in noisy venue | unusable input | large typed-comment field and quick complaint chips |
+| Speech fails in noisy venue | unusable input | manual tap-to-focus and local coaching |
 | Entered API key is extracted from the private device | cost/security incident | disposable low-quota key, Keystore encryption at rest, own-device install only, clear and revoke after demo |
 
 ## 20. Decision record
@@ -960,9 +960,9 @@ The Android MVP is complete when:
 
 - a clean APK installs and launches on the chosen physical device;
 - the user can capture and save a photo;
-- the four MVP complaint families work with typed input;
+- the four MVP complaint families work with voice input;
 - a post-capture complaint is associated with the saved shot and can apply a capability-revalidated retake plan;
-- typed input and visible/haptic output work on every supported device; on-device push-to-talk/TTS work when their installed services are available and otherwise degrade explicitly;
+- visible/haptic output works on every supported device; on-device push-to-talk/TTS work when their installed services are available and otherwise degrade explicitly;
 - exposure application and positional guidance are verified against new observations;
 - the app remains usable when offline, speech fails, or analysis finds no face;
 - camera and microphone stop when the app backgrounds;

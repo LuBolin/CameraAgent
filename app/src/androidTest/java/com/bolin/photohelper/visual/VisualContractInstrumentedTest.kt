@@ -295,8 +295,8 @@ class VisualContractInstrumentedTest {
             result,
         )
         assertEquals(1, connections)
-        assertEquals(15_000, fakeConnection.connectTimeout)
-        assertEquals(15_000, fakeConnection.readTimeout)
+        assertEquals(30_000, fakeConnection.connectTimeout)
+        assertEquals(30_000, fakeConnection.readTimeout)
         assertTrue(key.all { it == '\u0000' })
         assertFalse(String(fakeConnection.sentBody.toByteArray(), StandardCharsets.UTF_8).contains("disposable-api-key"))
         assertTrue(fakeConnection.disconnected)
@@ -351,7 +351,7 @@ class VisualContractInstrumentedTest {
             observationJpeg = byteArrayOf(1),
         )
 
-        assertEquals(VisualResult.Unavailable, client.interpret(request, "demo-key".toCharArray()))
+        assertEquals(VisualResult.Failed("API service is unavailable. Try again later."), client.interpret(request, "demo-key".toCharArray()))
         assertEquals(1, connections)
     }
 

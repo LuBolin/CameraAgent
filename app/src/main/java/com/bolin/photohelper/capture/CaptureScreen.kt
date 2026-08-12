@@ -918,8 +918,8 @@ private fun CoachingControls(
         Spacer(Modifier.size(6.dp))
     } else {
         AnimatedVisibility(visible = state.resetAvailable, exit = fadeOut()) {
-            Column {
-                ResetCard(onReset)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                ResetCard(modifier = Modifier.align(Alignment.End), onReset = onReset)
                 Spacer(Modifier.size(6.dp))
             }
         }
@@ -1052,7 +1052,7 @@ private fun DecisionCard(
                             Button(
                                 onClick = onReset,
                                 modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 1f },
-                            ) { Text("Undo") }
+                            ) { Text("Reset") }
                         }
                         TextButton(
                             onClick = onDismiss,
@@ -1134,7 +1134,7 @@ private fun RecommendationContent(
             TextButton(
                 onClick = onReset,
                 modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 2f },
-            ) { Text("Undo") }
+            ) { Text("Reset") }
         } else {
             TextButton(
                 onClick = onDismiss,
@@ -1169,14 +1169,14 @@ private fun RecommendationContent(
 }
 
 @Composable
-private fun ResetCard(onReset: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
+private fun ResetCard(onReset: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onReset, modifier = Modifier.heightIn(min = 48.dp)) { Text("Undo") }
+            TextButton(onClick = onReset, modifier = Modifier.heightIn(min = 48.dp)) { Text("Reset") }
         }
     }
 }
@@ -1243,7 +1243,7 @@ private fun TranscriptOverlay(comment: String, phase: CoachingPhase) {
         shape = MaterialTheme.shapes.small,
     ) {
         Text(
-            text = comment.ifBlank { "Listening…" },
+            text = comment.ifBlank { "Speak now…" },
             color = Color.White,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             modifier = Modifier
@@ -1540,13 +1540,13 @@ private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
                 modifier = Modifier.semantics { heading() },
             )
             Text(
-                "Describe what you want to change. You can combine brightness, zoom, and color in one request; " +
+                "Say what you want to change. You can combine brightness, zoom, and color in one request; " +
                     "ask for focus or movement separately.",
             )
             Text(
-                "Voice is not always on: tap Mic for one request, then tap Done. You can also say “take a picture” " +
+                "Voice is not always on: tap Mic for one request, then tap the square Stop button to finish. You can also say “take a picture” " +
                     "or “take a picture in 5 seconds.” Say “switch camera,” “selfie mode,” or “rear camera” " +
-                    "to choose a lens; the same commands work when typed. You can combine up to eight ordered steps, " +
+                    "to choose a lens. You can combine up to eight ordered steps, " +
                     "for example: “Make it brighter and warmer, then flip the camera and take a photo in 5 seconds.” " +
                     "The sequence pauses when an adjustment needs your Apply confirmation, then continues.",
             )
@@ -1768,7 +1768,7 @@ private fun SettingsSheet(
                 Text("View ML Kit data disclosure")
             }
             if (state.microphonePermission == PermissionState.DENIED) {
-                Text("Microphone access is off. Typed comments remain available.")
+                Text("Microphone access is off.")
                 TextButton(onClick = onEnableMicrophone, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Enable microphone")
                 }
@@ -1863,7 +1863,7 @@ private fun QwenKeySetup(
         ) { Text("Clear key") }
     }
     Text(
-        "When enabled, Photo Helper sends each typed or transcribed comment to Alibaba Cloud Model Studio (Bailian) " +
+        "When enabled, Photo Helper sends each spoken comment to Alibaba Cloud Model Studio (Bailian) " +
             "in China (Beijing). For eligible visual questions it also sends one reduced live frame or one reduced " +
             "copy of the saved photo under review. It never sends audio or streams the preview. Alibaba Cloud may " +
             "retain request data; see its privacy notice.",
