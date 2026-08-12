@@ -55,7 +55,7 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `camera setting recommendations apply immediately and undo expires after five seconds`() = runTest(dispatcher) {
+    fun `camera setting recommendations apply immediately and reset stays available past five seconds`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(highlights = .3f))
         val viewModel = viewModel(camera, autoApplyRecommendations = true)
 
@@ -68,9 +68,9 @@ class CaptureViewModelTest {
         assertEquals(null, viewModel.uiState.value.decision)
         assertTrue(viewModel.uiState.value.resetAvailable)
 
-        advanceTimeBy(5_000)
+        advanceTimeBy(6_000)
         runCurrent()
-        assertFalse(viewModel.uiState.value.resetAvailable)
+        assertTrue(viewModel.uiState.value.resetAvailable)
     }
 
     @Test
@@ -1866,7 +1866,7 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `stalled voice input times out to the typed fallback`() = runTest(dispatcher) {
+    fun `stalled voice input times out and prompts a retry`() = runTest(dispatcher) {
         val voice = FakeVoice(available = true, result = { awaitCancellation() })
         val viewModel = viewModel(FakeCamera(observation()), voice = voice)
         viewModel.refreshPermissions(cameraGranted = true, microphoneGranted = true)
@@ -1881,7 +1881,7 @@ class CaptureViewModelTest {
 
         assertEquals(CoachingPhase.TRANSIENT_ERROR, viewModel.uiState.value.coachingPhase)
         assertEquals(
-            "Voice input timed out. Try again or type your comment.",
+            "Voice input timed out. Tap the mic to try again.",
             viewModel.uiState.value.transientMessage,
         )
         assertEquals(stopCallsWhileListening + 1, voice.stopCalls)
@@ -2262,6 +2262,96 @@ class CaptureViewModelTest {
         assertEquals(CameraPhase.READY, viewModel.uiState.value.cameraPhase)
         assertTrue(viewModel.uiState.value.shutterEnabled)
         assertEquals("Camera did not finish saving the photo. Try again.", viewModel.uiState.value.transientMessage)
+    }
+
+    @Test
+    fun `a later successful apply keeps reset available`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(highlights = .3f))
+        val viewModel = viewModel(camera)
+        viewModel.updateComment("too bright")
+        viewModel.submitComment()
+        runCurrent()
+        viewModel.applyRecommendation()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.resetAvailable)
+
+        viewModel.submitComment("too dark")
+        runCurrent()
+        viewModel.applyRecommendation()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.resetAvailable)
+        assertEquals(2, camera.applyCalls)
+    }
+
+    @Test
+    fun `a new coaching request keeps reset available`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(highlights = .3f))
+        val viewModel = viewModel(camera)
+        viewModel.updateComment("too bright")
+        viewModel.submitComment()
+        runCurrent()
+        viewModel.applyRecommendation()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.resetAvailable)
+
+        // A subsequent coaching request must not remove the active Reset path.
+        viewModel.updateComment("too dark")
+        viewModel.submitComment()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.resetAvailable)
+    }
+
+    @Test
+    fun `failed reset keeps the recovery affordance available`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(highlights = .3f)).apply {
+            resetGate = CompletableDeferred(ApplyResult.Failed("camera rejected the reset"))
+        }
+        val viewModel = viewModel(camera)
+        viewModel.updateComment("too bright")
+        viewModel.submitComment()
+        runCurrent()
+        viewModel.applyRecommendation()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.resetAvailable)
+
+        viewModel.reset()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.resetAvailable)
+        assertEquals(CoachingPhase.TRANSIENT_ERROR, viewModel.uiState.value.coachingPhase)
+        assertEquals("camera rejected the reset", viewModel.uiState.value.transientMessage)
+    }
+
+    @Test
+    fun `successful background restoration clears reset available`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(highlights = .3f))
+        val viewModel = viewModel(camera)
+        viewModel.updateComment("too bright")
+        viewModel.submitComment()
+        runCurrent()
+        viewModel.applyRecommendation()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.resetAvailable)
+
+        viewModel.onBackground()
+        runCurrent()
+        assertFalse(viewModel.uiState.value.resetAvailable)
+        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+    }
+
+    @Test
+    fun `camera session invalidation clears reset available`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(highlights = .3f))
+        val viewModel = viewModel(camera)
+        viewModel.updateComment("too bright")
+        viewModel.submitComment()
+        runCurrent()
+        viewModel.applyRecommendation()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.resetAvailable)
+
+        camera.state.value = CameraState(CameraPhase.READY, sessionId = 1)
+        runCurrent()
+        assertFalse(viewModel.uiState.value.resetAvailable)
     }
 
     private fun planned(vararg steps: CommandPlanStep): CommandResult =

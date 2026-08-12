@@ -18,9 +18,9 @@ There is no provider abstraction, runtime model selector, automatic fallback, or
 ### Speech-to-text: Android on-device `SpeechRecognizer`
 
 - Use push-to-talk with `isOnDeviceRecognitionAvailable` and `createOnDeviceSpeechRecognizer` only.
-- Typed input is always available.
+- Command input is voice-only (push-to-talk); there is no typed-comment or typed-command field. The manual camera controls (exposure, zoom, white balance, flash, focus, shutter) remain the fallback.
 - Never fall back silently to Android's default cloud-capable recognizer.
-- If the installed service/language is missing, disable voice for that session and keep typed input.
+- If the installed service/language is missing, disable voice for that session and rely on the manual camera controls (exposure, zoom, white balance, flash, focus, shutter).
 - Before first use: `Android transcribes voice on this device. Photo Helper does not store or send your audio.`
 
 This is the smallest native solution and has no per-call API fee. Add a bundled recognizer only after a recorded acceptance set on the exact devices/languages/noise conditions proves the native service inadequate.

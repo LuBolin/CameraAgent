@@ -10,5 +10,9 @@ local.properties
 *.iml
 captures/
 outputs/qa/
+outputs/workbuddy/
+.workbuddy-ai/
+jdk21/
+jdk21.zip
 *.jks
 *.keystore

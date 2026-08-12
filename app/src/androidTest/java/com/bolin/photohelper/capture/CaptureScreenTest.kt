@@ -1033,6 +1033,33 @@ class CaptureScreenTest {
     }
 
     @Test
+    fun listeningMicrophoneShowsStopSymbolAndReachableFinishAction() {
+        val state = mutableStateOf(readyState(coachingPhase = CoachingPhase.LISTENING))
+        var micTaps = 0
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = state.value,
+                    onMicrophone = {
+                        micTaps++
+                        state.value = state.value.copy(
+                            coachingPhase = if (micTaps == 1) CoachingPhase.INTERPRETING else CoachingPhase.LISTENING,
+                        )
+                    },
+                )
+            }
+        }
+
+        compose.onNodeWithTag(CaptureTestTags.MICROPHONE)
+            .assertIsDisplayed()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Listening"))
+            .assert(hasClickAction())
+        compose.onNodeWithText("■").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Finish voice comment").performClick()
+        compose.runOnIdle { assertEquals(1, micTaps) }
+    }
+
+    @Test
     fun autoEnhanceButtonFlanksTheShutterOppositeTheMic() {
         var autoTaps = 0
         compose.setContent {

@@ -45,7 +45,7 @@ After an action, report observable progress: “The highlights are no longer cli
 
 ### Voice augments, never replaces, the screen
 
-Every spoken instruction has matching text. Every voice-input flow has typed input. Important success and warning states also use haptics or an earcon.
+Every spoken instruction has matching text. Voice is the only input flow. Important success and warning states also use haptics or an earcon.
 
 ## 3. Target users and jobs
 
@@ -431,13 +431,13 @@ The key-entry screen explains the actual boundary before Visual AI can be enable
 ### Permission timing
 
 - Camera: request after `Open camera`.
-- Microphone: request only after the user taps the microphone. Before first use, state: `Android transcribes voice on this device. Photo Helper does not store or send your audio. Android may download the English speech model.` If an installed on-device English recognizer is unavailable, keep typed English and local chips; never fall back to cloud speech.
+- Microphone: request only after the user taps the microphone. Before first use, state: `Android transcribes voice on this device. Photo Helper does not store or send your audio. Android may download the English speech model.` If an installed on-device English recognizer is unavailable, the app continues with manual controls; never fall back to cloud speech.
 - Internet: declare it in the installed app for direct Alibaba Cloud Model Studio requests. Android does not present this as a runtime permission.
 
 ### Denial recovery
 
 - Camera denied: explain that capture requires it and offer `Open settings`; no blank preview.
-- Microphone denied: keep typed comments and show a small `Enable microphone` action in settings.
+- Microphone denied: show a small `Enable microphone` action in settings.
 - Do not repeatedly re-prompt after denial.
 
 ## 13. Accessibility
@@ -537,7 +537,7 @@ No mascot, conversational bubbles, or decorative generation is needed for the MV
 | Person looks short | no pose-backed evidence in MVP | app-owned crop-versus-angle clarification and modest advice | user confirmation only | local advisory; never uploaded |
 | Grainy | high ISO telemetry | lower ISO if safe | later captured-photo check | stretch |
 
-The reliable judged cut is live and post-capture exposure EV (including `Apply for retake` from the saved RetakeBaseline), face-occupancy guidance, capture/review, Reset, and typed input. On-device voice/TTS is used when the installed services are available but is not a release gate. Color and phone position are locally understood; color Apply is capability-gated. Manual ISO/shutter is a showcase, not a release blocker. “Person looks short” demonstrates honest local clarification, not false certainty or remote analysis.
+The reliable judged cut is live and post-capture exposure EV (including `Apply for retake` from the saved RetakeBaseline), face-occupancy guidance, capture/review, and Reset. Command input is voice-only (push-to-talk); manual camera controls (exposure, zoom, white balance, flash, focus, shutter) remain available as the fallback. On-device voice/TTS is used when the installed services are available but is not a release gate. Color and phone position are locally understood; color Apply is capability-gated. Manual ISO/shutter is a showcase, not a release blocker. “Person looks short” demonstrates honest local clarification, not false certainty or remote analysis.
 
 ## 18. Evaluation plan
 
@@ -581,7 +581,7 @@ The initial live face fixture gate found label-order bias when Qwen was asked to
 
 1. Open the installed app into a live portrait preview.
 2. Use an evenly lit setup and intentionally raise whole-frame exposure.
-3. Say “This whole shot is way too bright,” or type it if the on-device recognizer is unavailable.
+3. Say “This whole shot is way too bright.” (Voice coaching requires the on-device recognizer; manual controls remain available.)
 4. Show the evidence-backed `−0.7 EV` recommendation.
 5. Tap Apply; show the preview change and verification.
 6. Move close to the subject and say “Their face takes up too much frame.”
@@ -595,7 +595,7 @@ The initial live face fixture gate found label-order bias when Qwen was asked to
 - Use the exact tested Android phone and rear lens.
 - Mark subject and photographer starting positions discreetly.
 - Control even lighting so the whole-frame exposure diagnosis is repeatable.
-- Keep typed quick-comment chips available if venue noise defeats speech.
+- Use manual controls if venue noise defeats speech.
 - Rehearse both with Visual AI enabled and with airplane mode; the latter must fall back to the same local chips without a separate fake UI.
 - Enter a low-quota disposable key before the demo and revoke it afterward.
 
@@ -609,7 +609,7 @@ Only after the exact lens passes five manual-control/rollback trials, begin in C
 
 - Camera preview and capture.
 - Contextual camera permission; request microphone only on mic tap when an on-device recognizer is available.
-- Typed comments on every device; on-device voice comments when the installed recognizer is available.
+- On-device voice comments when the installed recognizer is available; manual controls otherwise.
 - Four locally understood complaint families: exposure, color, face occupancy, and phone/subject position. The cross-device executable baseline is whole-frame exposure, face occupancy, and position; color application is capability-gated and otherwise advisory.
 - One-tap EV application.
 - Capture Review plus post-capture exposure coaching with capability-revalidated `Apply for retake`; the original stays saved.
@@ -647,8 +647,8 @@ Only after the exact lens passes five manual-control/rollback trials, begin in C
 - [ ] Manual changes expose Reset.
 - [ ] Reset restores the first coached-control baseline across chained Applies and never crosses a camera/lens/session boundary.
 - [ ] Spoken guidance is also visible as text.
-- [ ] Voice input has a typed fallback.
-- [ ] Recognizer/TTS unavailability does not fail typed/visible local coaching.
+- [ ] Voice input has no typed fallback.
+- [ ] Recognizer/TTS unavailability does not fail visible local coaching.
 - [ ] Every walking action is explicitly started, never claims hazard knowledge, and stops after one small step.
 - [ ] Ambiguous, unsupported, or polarity-conflicted language becomes a constrained clarification.
 - [ ] Regional exposure complaints cannot produce a whole-frame diagnosis without the user selecting `Whole photo`.

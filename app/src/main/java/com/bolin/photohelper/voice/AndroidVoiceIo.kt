@@ -43,7 +43,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
 
     override suspend fun listenOnce(locale: Locale): VoiceResult = withContext(Dispatchers.Main.immediate) {
         if (!isOnDeviceRecognitionAvailable()) {
-            return@withContext VoiceResult.Unavailable("On-device speech recognition is unavailable. Type your comment instead.")
+            return@withContext VoiceResult.Unavailable("On-device speech recognition is unavailable.")
         }
         val languageTag = preferredEnglishRecognitionLocale(locale).toLanguageTag()
         val supportIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -63,7 +63,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
             PcmCaptureResult.Unsupported -> null
             PcmCaptureResult.NoSpeech -> return@withContext VoiceResult.Failed("I didn’t catch that")
             PcmCaptureResult.Failed -> return@withContext VoiceResult.Failed(
-                "Voice input is unavailable. Type your comment instead.",
+                "Voice input is unavailable.",
             )
         }
         var pcmPipe: PcmPipe? = null
@@ -73,7 +73,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                     PcmPipe(capturedPcm.bytes)
                 } catch (_: IOException) {
                     return@withContext VoiceResult.Failed(
-                        "Voice input is unavailable. Type your comment instead.",
+                        "Voice input is unavailable.",
                     )
                 }
             }
@@ -87,7 +87,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
             val speechRecognizer = try {
                 SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
             } catch (_: RuntimeException) {
-                continuation.resume(VoiceResult.Unavailable("On-device speech recognition could not start. Type your comment instead."))
+                continuation.resume(VoiceResult.Unavailable("On-device speech recognition could not start."))
                 return@suspendCancellableCoroutine
             }
             finishListeningGate?.close()
@@ -132,14 +132,14 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                     speechRecognizer.startListening(recognitionIntent)
                     pcmPipe?.startWriting()
                 } catch (_: RuntimeException) {
-                    finish(VoiceResult.Failed("On-device speech recognition could not start. Type your comment instead."))
+                    finish(VoiceResult.Failed("On-device speech recognition could not start."))
                 }
             }
 
             fun requestModelDownload() {
                 if (finished) return
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                    finish(VoiceResult.Unavailable("The on-device English model is unavailable. Type your comment instead."))
+                    finish(VoiceResult.Unavailable("The on-device English model is unavailable."))
                     return
                 }
                 try {
@@ -148,7 +148,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                         finish(VoiceResult.Unavailable("Android is preparing the on-device English model. Try the microphone again after the download finishes."))
                     }
                 } catch (_: RuntimeException) {
-                    finish(VoiceResult.Unavailable("The on-device English model could not be downloaded. Type your comment instead."))
+                    finish(VoiceResult.Unavailable("The on-device English model could not be downloaded."))
                 }
             }
 
@@ -174,13 +174,13 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                     when (error) {
                         SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> requestModelDownload()
                         SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> finish(
-                            VoiceResult.Unavailable("This device’s on-device recognizer does not support English. Type your comment instead."),
+                            VoiceResult.Unavailable("This device’s on-device recognizer does not support English."),
                         )
                         SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
                             finish(VoiceResult.Failed("I didn’t catch that"))
                         SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
-                            finish(VoiceResult.Failed("Speech recognition is busy. Try again or type your comment."))
-                        else -> finish(VoiceResult.Failed("Voice input is unavailable. Type your comment instead."))
+                            finish(VoiceResult.Failed("Speech recognition is busy. Try again."))
+                        else -> finish(VoiceResult.Failed("Voice input is unavailable."))
                     }
                 }
 
@@ -244,7 +244,7 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                                     )
                                     OnDeviceLanguageState.DOWNLOADABLE -> requestModelDownload()
                                     OnDeviceLanguageState.UNSUPPORTED -> finish(
-                                        VoiceResult.Unavailable("This device’s on-device recognizer does not support English. Type your comment instead."),
+                                        VoiceResult.Unavailable("This device’s on-device recognizer does not support English."),
                                     )
                                 }
                             }
@@ -254,9 +254,9 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                                     SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT -> startListening()
                                     SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> requestModelDownload()
                                     SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> finish(
-                                        VoiceResult.Unavailable("This device’s on-device recognizer does not support English. Type your comment instead."),
+                                        VoiceResult.Unavailable("This device’s on-device recognizer does not support English."),
                                     )
-                                    else -> finish(VoiceResult.Failed("On-device speech support could not be checked. Type your comment instead."))
+                                    else -> finish(VoiceResult.Failed("On-device speech support could not be checked."))
                                 }
                             }
                         },
