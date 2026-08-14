@@ -40,6 +40,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -53,7 +56,7 @@ private const val CAPTURE_TIMEOUT_MESSAGE = "Camera did not finish saving the ph
 private const val VOICE_INPUT_TIMEOUT_MS = 20_000L
 private const val VOICE_INPUT_TIMEOUT_MESSAGE = "Voice input timed out. Tap the mic to try again."
 private const val TOAST_TIMEOUT_MS = 5_000L
-private const val FOCUS_INDICATOR_MS = 1_500L
+private const val FOCUS_INDICATOR_MS = 5_000L
 private val OBJECT_FOCUS_REQUEST = Regex("\\b(focus|sharp|sharpen|clear)\\b", RegexOption.IGNORE_CASE)
 private fun countdownMessage(seconds: Int) = "Photo in $seconds ${if (seconds == 1) "second" else "seconds"}…"
 
@@ -93,7 +96,6 @@ class CaptureViewModel(
     private var guidanceTimeoutJob: Job? = null
     private var verificationTimeoutJob: Job? = null
     private var focusIndicatorJob: Job? = null
-    private var transientMessageJob: Job? = null
     private var verificationStartObservationId: Long? = null
     private var verificationStartedAtMs: Long? = null
     private var verificationSatisfiedSamples = 0
@@ -117,6 +119,7 @@ class CaptureViewModel(
     private var activeCommandText = ""
     private var stableFace: FaceObservation? = null
     private var flashChangeInFlight = false
+    private var focusInFlight = false
 
     init {
         camera.setObservationImageEnabled(initialSettings.visualAiEnabled && initialSettings.keyConfigured)
@@ -154,6 +157,26 @@ class CaptureViewModel(
                 }
                 stableFace = stableFaceTracker.update(observation, camera.state.value.sessionId)
                 if (observation != null) verifyActiveWork(observation)
+            }
+        }
+        viewModelScope.launch {
+            uiState.map { it.transientMessage }.distinctUntilChanged().collectLatest { message ->
+                if (message == null) return@collectLatest
+                delay(TOAST_TIMEOUT_MS)
+                _uiState.update {
+                    if (it.transientMessage == message) {
+                        it.copy(
+                            coachingPhase = if (it.coachingPhase == CoachingPhase.TRANSIENT_ERROR) {
+                                CoachingPhase.IDLE
+                            } else {
+                                it.coachingPhase
+                            },
+                            transientMessage = null,
+                        )
+                    } else {
+                        it
+                    }
+                }
             }
         }
     }
@@ -286,10 +309,21 @@ class CaptureViewModel(
 
     fun dismissDecision() {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
-        transientMessageJob?.cancel()
-        transientMessageJob = null
         cancelCoaching()
         _uiState.update { it.copy(decision = null, coachingPhase = CoachingPhase.IDLE, transientMessage = null) }
+    }
+
+    fun dismissTransientMessage() {
+        _uiState.update {
+            it.copy(
+                coachingPhase = if (it.coachingPhase == CoachingPhase.TRANSIENT_ERROR) {
+                    CoachingPhase.IDLE
+                } else {
+                    it.coachingPhase
+                },
+                transientMessage = null,
+            )
+        }
     }
 
     fun applyRecommendation() {
@@ -579,8 +613,11 @@ class CaptureViewModel(
             is CommandPlanStep.Adjust -> {
                 val complaintId = UUID.randomUUID().toString()
                 activeComplaintId = complaintId
-                val input = coachingInput(complaintId, activeCommandText).copy(
-                    relativeBaseline = if (step.small) recentCameraChanges.peekLast()?.before else null,
+                val currentInput = coachingInput(complaintId, activeCommandText)
+                val input = currentInput.copy(
+                    relativeBaseline = if (step.small) {
+                        recentCameraChanges.peekLast()?.before ?: currentInput.telemetry
+                    } else null,
                 )
                 val decision = coach.planIntents(input, step.intents).withProvenance(
                     input,
@@ -802,32 +839,54 @@ class CaptureViewModel(
         updateSettings { it.copy(visualAiEnabled = allowed) }
     }
 
-    fun focusAt(xFraction: Float, yFraction: Float) {
-        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+    fun focusAt(xFraction: Float, yFraction: Float) = focusAt(xFraction, yFraction, keepRecommendation = false)
+
+    private fun focusAt(xFraction: Float, yFraction: Float, keepRecommendation: Boolean) {
+        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING && !focusInFlight) return
         if (!xFraction.isFinite() || !yFraction.isFinite() || xFraction !in 0f..1f || yFraction !in 0f..1f) {
             failWork("Choose a focus point inside the preview.")
             return
         }
-        val recommendation = currentRecommendation() ?: return
-        if (recommendation.action !is RecommendationAction.TapToFocus &&
-            recommendation.action !is RecommendationAction.FocusAt
-        ) return
+        val recommendation = _uiState.value.recommendation
+        if (recommendation != null) {
+            val current = currentRecommendation() ?: return
+            if (current.action !is RecommendationAction.TapToFocus &&
+                current.action !is RecommendationAction.FocusAt
+            ) return
+        } else if (_uiState.value.review != null || _uiState.value.cameraPhase != CameraPhase.READY) {
+            return
+        }
         if (!camera.capabilities.value.supportsFocusMetering) {
             cancelCoaching()
             failWork("Tap to focus is unavailable on this camera.")
             return
         }
+        val focusPoint = FocusPoint(xFraction, yFraction)
+        val indicatorDecision = if (keepRecommendation) _uiState.value.decision else null
         focusIndicatorJob?.cancel()
         operationJob?.cancel()
         _uiState.update {
             it.copy(
                 coachingPhase = CoachingPhase.APPLYING,
+                focusIndicator = focusPoint,
                 transientMessage = null,
             )
         }
+        focusIndicatorJob = viewModelScope.launch {
+            delay(FOCUS_INDICATOR_MS)
+            _uiState.update {
+                it.copy(
+                    focusIndicator = if (it.focusIndicator == focusPoint) null else it.focusIndicator,
+                    decision = if (indicatorDecision != null && it.decision === indicatorDecision) null else it.decision,
+                )
+            }
+            focusIndicatorJob = null
+        }
+        focusInFlight = true
         operationJob = viewModelScope.launch {
             when (val result = camera.focusAt(xFraction, yFraction)) {
                 ApplyResult.Applied -> {
+                    focusInFlight = false
                     activeComplaintId = null
                     if (_uiState.value.settings.haptics) feedback(Feedback.SUCCESS)
                     _uiState.update {
@@ -837,21 +896,17 @@ class CaptureViewModel(
                             transientMessage = null,
                         )
                     }
-                    if (autoApplyRecommendations) {
-                        val indicatorDecision = _uiState.value.decision
-                        focusIndicatorJob = viewModelScope.launch {
-                            delay(FOCUS_INDICATOR_MS)
-                            _uiState.update {
-                                if (it.decision === indicatorDecision) it.copy(decision = null) else it
-                            }
-                            focusIndicatorJob = null
-                        }
-                    }
                     markResetAvailable()
                     if (pendingCommandSteps.isNotEmpty()) advanceCommandPlan()
                 }
                 is ApplyResult.Failed -> {
-                    if (autoApplyRecommendations) _uiState.update { it.copy(decision = null) }
+                    focusInFlight = false
+                    _uiState.update {
+                        it.copy(
+                            decision = if (autoApplyRecommendations) null else it.decision,
+                            focusIndicator = null,
+                        )
+                    }
                     failWork(result.message)
                 }
             }
@@ -1211,7 +1266,7 @@ class CaptureViewModel(
         if (!autoApplyRecommendations) return
         when (val action = (decision as? LocalDecision.Recommend)?.recommendation?.action) {
             is RecommendationAction.ApplySettings -> applyRecommendation()
-            is RecommendationAction.FocusAt -> focusAt(action.xFraction, action.yFraction)
+            is RecommendationAction.FocusAt -> focusAt(action.xFraction, action.yFraction, keepRecommendation = true)
             else -> Unit
         }
     }
@@ -1221,23 +1276,16 @@ class CaptureViewModel(
     }
 
     private fun showToast(message: String) {
-        transientMessageJob?.cancel()
         _uiState.update {
             it.copy(coachingPhase = CoachingPhase.TRANSIENT_ERROR, decision = null, transientMessage = message)
-        }
-        transientMessageJob = viewModelScope.launch {
-            delay(TOAST_TIMEOUT_MS)
-            _uiState.update {
-                if (it.transientMessage == message) it.copy(coachingPhase = CoachingPhase.IDLE, transientMessage = null) else it
-            }
-            transientMessageJob = null
         }
     }
 
     private fun rememberCameraChange(request: String, before: CameraTelemetry, after: CameraTelemetry) {
         if (before.exposureCompensationIndex == after.exposureCompensationIndex &&
             abs(before.zoomRatio - after.zoomRatio) < 0.01f &&
-            before.whiteBalancePreset == after.whiteBalancePreset
+            before.whiteBalancePreset == after.whiteBalancePreset &&
+            before.whiteBalanceLevel == after.whiteBalanceLevel
         ) return
         if (recentCameraChanges.size == 3) recentCameraChanges.removeFirst()
         recentCameraChanges.addLast(CameraChangeSnapshot(request, before, after))
@@ -1650,6 +1698,8 @@ class CaptureViewModel(
         guidanceTimeoutJob = null
         verificationTimeoutJob = null
         focusIndicatorJob = null
+        focusInFlight = false
+        _uiState.update { it.copy(focusIndicator = null) }
     }
 
     private fun cancelKeyTest() {

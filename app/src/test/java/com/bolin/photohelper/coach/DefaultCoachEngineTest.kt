@@ -5,7 +5,9 @@ import com.bolin.photohelper.capture.CameraCapabilities
 import com.bolin.photohelper.capture.CameraTelemetry
 import com.bolin.photohelper.capture.FaceObservation
 import com.bolin.photohelper.capture.FrameObservation
+import com.bolin.photohelper.capture.MAX_WHITE_BALANCE_LEVEL
 import com.bolin.photohelper.capture.WhiteBalancePreset
+import com.bolin.photohelper.capture.whiteBalancePresetForLevel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -176,6 +178,7 @@ class DefaultCoachEngineTest {
                 capabilities.copy(
                     zoomRatioRange = 1f..10f,
                     supportedWhiteBalancePresets = setOf(WhiteBalancePreset.AUTO),
+                    supportedWhiteBalanceLevels = setOf(0),
                 ),
                 CameraTelemetry(zoomRatio = 2f),
             ),
@@ -556,12 +559,50 @@ class DefaultCoachEngineTest {
     }
 
     @Test
+    fun `repeated cooler requests advance through three bounded steps`() {
+        listOf(0, -1, -2).forEachIndexed { index, currentLevel ->
+            val decision = engine.evaluateLocal(
+                input(
+                    text = "cooler",
+                    observation = observation(),
+                    telemetry = CameraTelemetry(
+                        whiteBalancePreset = whiteBalancePresetForLevel(currentLevel),
+                        whiteBalanceLevel = currentLevel,
+                    ),
+                ),
+            ) as LocalDecision.Recommend
+            val adjustment = (decision.recommendation.action as RecommendationAction.ApplySettings).adjustment
+
+            assertEquals(
+                CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER, -(index + 1)),
+                adjustment,
+            )
+        }
+
+        val atLimit = engine.evaluateLocal(
+            input(
+                text = "cooler",
+                observation = observation(),
+                telemetry = CameraTelemetry(
+                    whiteBalancePreset = WhiteBalancePreset.COOLER,
+                    whiteBalanceLevel = -MAX_WHITE_BALANCE_LEVEL,
+                ),
+            ),
+        )
+
+        assertTrue(atLimit is LocalDecision.Advisory)
+    }
+
+    @Test
     fun `unsupported white balance never offers a fake apply`() {
         val decision = engine.evaluateLocal(
             input(
                 text = "warmer",
                 observation = observation(),
-                capabilities = capabilities.copy(supportedWhiteBalancePresets = emptySet()),
+                capabilities = capabilities.copy(
+                    supportedWhiteBalancePresets = emptySet(),
+                    supportedWhiteBalanceLevels = emptySet(),
+                ),
             ),
         )
 
@@ -729,7 +770,10 @@ class DefaultCoachEngineTest {
         val input = input(
             "looks blue",
             observation(blueBias = .08f),
-            capabilities.copy(supportedWhiteBalancePresets = emptySet()),
+            capabilities.copy(
+                supportedWhiteBalancePresets = emptySet(),
+                supportedWhiteBalanceLevels = emptySet(),
+            ),
         )
         val decision = engine.continueWithVisualHint(
             input,

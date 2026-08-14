@@ -1,0 +1,31 @@
+# Slide 1
+Hi, we are team 5 cent. We built Photo Helper, a voice-first camera-control agent for casual photography. People know the outcome they want: a brighter picture, a closer subject or time to join the frame—but not which settings create it. Photo Helper translates that request into a bounded workflow on the phone camera.
+
+# Slide 2
+People do not think in technical terms, exposure compensation, focus coordinates or timer menus.
+They say, ‘It is too dark,’ ‘Focus on that,’ or ‘Take it in five seconds.’ The challenge is translating those intentions before the moment is lost. This can be harder for less-confident smartphone users, including older adults, less tech-literate people, and people with accessibility challenges.
+Photo Helper translates ordinary language into supported camera controls; it is not an autonomous photographer.
+
+
+# Slide 3: Demo
+Let's see a demo.
+
+# Slide 4: Pipeline
+The behavior you saw is through a 4 stage pipeline.
+Firstly, the app supplies the request, a clean frame, a labelled grid and camera's current setting and context, along with user input. Said input is transcribed on device, thanks to modern phones' inbuilt voice transcription.
+Then, these data are sent to a multimodal LLM. We leverage qwen3.7 flash, but any multimodal LLM would work, given some prompt tuning. Qwen returns only strict JSON: at most 8 actions from 6 permitted types.
+As the json returns, a local validation is done, similar to the test component of a loop harness. The schema's syntax and capabilities and context are validated, before applying the camera controls.
+The remote model receives transcribed text and still frames for requests, but never microphone audio or a continuous preview stream.
+
+# Slide 5: agents' roles
+The development used both Codex and Workbuddy. Codex was uses for initial rapid prototyping, and design documents, as well as to trace failures, add regression tests and make focused changes
+WorkBuddy was used with both HY3 and Kimi K3. HY3 was in charge of audit, implementation pass and physical-device verification, with the help of the "Mobile Application Developer" expert..
+Kimi-K3, along with the built in "Ui Designer" expert, supported interaction decisions, iterating upon the UI/UX, as a 2nd pair of eyes.
+A final pass was also done with Hy3 and the "Software Workshop" expert team.
+
+
+# Slide 7: Conclusion
+The immediate product is a casual camera utility: a trustworthy translation layer between spoken intent and controls already on the phone.
+For future work, we believe future distribution could involve phone makers or camera-app partners. Photo Helper might become an optional voice mode, or a limited integration exposing only the same allow listed actions, validation and Reset behavior, or an overlay app on the existing phone camera app.
+We would also explore local models for quicker response, various tricks such as image output models  to improve focus accuracy, manual interactions, retakes and agent confidence.
+Photo Helper: speak in outcomes, not camera settings.

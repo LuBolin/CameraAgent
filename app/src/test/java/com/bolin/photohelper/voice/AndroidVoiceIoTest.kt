@@ -61,4 +61,26 @@ class AndroidVoiceIoTest {
         )
         assertEquals(null, selectRecognitionText(emptyList(), "  "))
     }
+
+    @Test
+    fun `recognition preserves a complete utterance when the final result contains only its ending`() {
+        assertEquals(
+            "focus on the shoe, make the picture colder, and take a picture",
+            selectRecognitionText(
+                listOf("take a picture"),
+                "focus on the shoe, make the picture colder, and take a picture",
+            ),
+        )
+    }
+
+    @Test
+    fun `a shorter trailing partial does not replace the complete utterance`() {
+        assertEquals(
+            "focus on the shoe, make the picture colder, and take a picture",
+            selectPartialRecognitionText(
+                "focus on the shoe, make the picture colder, and take a picture",
+                listOf("a picture"),
+            ),
+        )
+    }
 }

@@ -236,6 +236,7 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
         onStartGuidance = viewModel::startGuidance,
         onFocusTarget = viewModel::focusAt,
         onDismissDecision = viewModel::dismissDecision,
+        onDismissTransientMessage = viewModel::dismissTransientMessage,
         onClarificationSelected = { viewModel.selectClarification(it.replacementComplaint) },
         onCancelCoaching = { viewModel.cancelCoaching() },
         onReset = viewModel::reset,
@@ -307,7 +308,7 @@ private fun BoxScope.CameraPreview(
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember {
         PreviewView(context).apply {
-            implementationMode = PreviewView.ImplementationMode.PERFORMANCE
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
             scaleType = PreviewView.ScaleType.FILL_CENTER
         }
     }
