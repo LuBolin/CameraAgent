@@ -16,3 +16,4 @@ jdk21/
 jdk21.zip
 *.jks
 *.keystore
+/window.xml
