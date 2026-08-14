@@ -36,6 +36,12 @@ data class ActiveGuidance(
     val subjectFace: FaceObservation? = null,
 )
 
+data class FocusPoint(val xFraction: Float, val yFraction: Float) {
+    init {
+        require(xFraction in 0f..1f && yFraction in 0f..1f)
+    }
+}
+
 data class CaptureUiState(
     val onboardingStep: Int = 0,
     val cameraPermission: PermissionState = PermissionState.NOT_REQUESTED,
@@ -48,6 +54,7 @@ data class CaptureUiState(
     val observation: FrameObservation? = null,
     val capabilities: CameraCapabilities = CameraCapabilities(),
     val flashMode: FlashMode = FlashMode.OFF,
+    val focusIndicator: FocusPoint? = null,
     val activeGuidance: ActiveGuidance? = null,
     val resetAvailable: Boolean = false,
     val retakeSettingsActive: Boolean = false,

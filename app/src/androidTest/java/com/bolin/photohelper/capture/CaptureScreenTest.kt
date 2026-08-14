@@ -619,6 +619,41 @@ class CaptureScreenTest {
     }
 
     @Test
+    fun readyPreviewTapShowsTheFocusMarkerAtThatPoint() {
+        var focusPoint: Pair<Float, Float>? = null
+        val state = mutableStateOf(
+            readyState().copy(capabilities = CameraCapabilities(supportsFocusMetering = true)),
+        )
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = state.value,
+                    onFocusTarget = { x, y ->
+                        focusPoint = x to y
+                        state.value = state.value.copy(
+                            coachingPhase = CoachingPhase.APPLYING,
+                            focusIndicator = FocusPoint(x, y),
+                        )
+                    },
+                )
+            }
+        }
+
+        compose.onNodeWithTag(CaptureTestTags.FOCUS_AREA).performTouchInput {
+            click(percentOffset(.25f, .25f))
+        }
+
+        compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).assertIsDisplayed()
+        compose.onNodeWithTag(CaptureTestTags.FOCUS_AREA).performTouchInput {
+            click(percentOffset(.75f, .25f))
+        }
+        compose.runOnIdle {
+            assertEquals(.75f, focusPoint?.first ?: -1f, .01f)
+            assertEquals(.25f, focusPoint?.second ?: -1f, .01f)
+        }
+    }
+
+    @Test
     fun advisoryKeepsResetOneTapAway() {
         var reset = false
         compose.setContent {
@@ -765,6 +800,31 @@ class CaptureScreenTest {
         val gap = retake.top - transcript.bottom
 
         assertTrue("Review actions left excessive dead space below the transcript: $gap px", gap in 0f..transcript.height)
+    }
+
+    @Test
+    fun captureReviewFloatsResetAfterAnAppliedCommand() {
+        var reset = false
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = readyState(
+                        cameraPhase = CameraPhase.REVIEWING,
+                        review = SavedCapture("saved", "content://missing", null, CameraTelemetry()),
+                        resetAvailable = true,
+                    ),
+                    onReset = { reset = true },
+                )
+            }
+        }
+
+        val resetButton = compose.onNodeWithTag(CaptureTestTags.RESET).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val controls = compose.onNodeWithTag(CaptureTestTags.REVIEW_CONTROLS).fetchSemanticsNode().boundsInRoot
+
+        assertTrue("Reset should float across the review controls edge", resetButton.top < controls.top)
+        assertTrue("Reset should overlap the review controls edge", resetButton.bottom > controls.top)
+        compose.onNodeWithTag(CaptureTestTags.RESET).performClick()
+        compose.runOnIdle { assertTrue(reset) }
     }
 
     @Test
@@ -1014,7 +1074,29 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun microphonePublishesListeningStateAndLandscapeKeepsShutter() {
+    fun missingKeyWarningOpensSettingsAndClearsAfterSetup() {
+        val state = mutableStateOf(readyState())
+        var openedSettings = false
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = state.value,
+                    onSettingsOpen = { openedSettings = true },
+                )
+            }
+        }
+
+        val warning = "Set up your Qwen API key for Photo Helper to work as intended."
+        compose.onNodeWithText(warning).assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertTrue(openedSettings)
+            state.value = state.value.copy(settings = SettingsUiState(keyConfigured = true))
+        }
+        compose.onNodeWithText(warning).assertDoesNotExist()
+    }
+
+    @Test
+    fun landscapeKeepsCaptureButtonsInAVerticalRightRail() {
         val landscape = Configuration().apply { orientation = Configuration.ORIENTATION_LANDSCAPE }
         compose.setContent {
             CompositionLocalProvider(LocalConfiguration provides landscape) {
@@ -1030,6 +1112,21 @@ class CaptureScreenTest {
         compose.onNodeWithText("■").assertIsDisplayed()
         compose.onNodeWithContentDescription("Take photo").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithTag(CaptureTestTags.PREVIEW).assertIsDisplayed()
+
+        val root = compose.onNodeWithTag(CaptureTestTags.ROOT).fetchSemanticsNode().boundsInRoot
+        val captureBar = compose.onNodeWithTag(CaptureTestTags.CAPTURE_BAR).fetchSemanticsNode().boundsInRoot
+        val auto = compose.onNodeWithTag(CaptureTestTags.AUTO_ENHANCE).fetchSemanticsNode().boundsInRoot
+        val shutter = compose.onNodeWithTag(CaptureTestTags.SHUTTER).fetchSemanticsNode().boundsInRoot
+        val mic = compose.onNodeWithTag(CaptureTestTags.MICROPHONE).fetchSemanticsNode().boundsInRoot
+        val guide = compose.onNodeWithContentDescription("Open Photo Helper guide").fetchSemanticsNode().boundsInRoot
+        val settings = compose.onNodeWithContentDescription("Open settings").fetchSemanticsNode().boundsInRoot
+
+        assertTrue("Capture rail is not on the right edge", captureBar.right == root.right)
+        assertTrue("Capture rail is not vertical", captureBar.height > captureBar.width)
+        assertTrue("Capture buttons are not ordered vertically", auto.center.y < shutter.center.y)
+        assertTrue("Capture buttons are not ordered vertically", shutter.center.y < mic.center.y)
+        assertTrue("Guide overlaps the capture rail", guide.right <= captureBar.left)
+        assertTrue("Settings overlaps the capture rail", settings.right <= captureBar.left)
     }
 
     @Test
@@ -1100,6 +1197,31 @@ class CaptureScreenTest {
 
         compose.onNodeWithText("ⓘ $message").assertIsDisplayed()
         compose.onNodeWithText("✓ $message").assertDoesNotExist()
+    }
+
+    @Test
+    fun tappingATransientMessageDismissesOnlyTheMessage() {
+        val message = "Camera session changed—check the shot again."
+        val decision = LocalDecision.Advisory("Keep framing", "This decision remains actionable.")
+        val state = mutableStateOf(readyState(decision = decision).copy(transientMessage = message))
+        var decisionDismissed = false
+        compose.setContent {
+            PhotoHelperTheme {
+                CaptureScreen(
+                    state = state.value,
+                    onDismissDecision = { decisionDismissed = true },
+                    onDismissTransientMessage = {
+                        state.value = state.value.copy(transientMessage = null)
+                    },
+                )
+            }
+        }
+
+        compose.onNodeWithText("✓ $message").performClick()
+
+        compose.onNodeWithText("✓ $message").assertDoesNotExist()
+        compose.onNodeWithText("Keep framing").assertIsDisplayed()
+        compose.runOnIdle { assertFalse(decisionDismissed) }
     }
 
     @Test

@@ -108,20 +108,27 @@ internal fun controlBaselineMatchesPhysicalCamera(
     activePhysicalCameraId: String?,
 ): Boolean = activePhysicalCameraId == null || baseline.lensId == activePhysicalCameraId
 
-internal fun awbModeForPreset(availableModes: Set<Int>, preset: WhiteBalancePreset): Int? = when (preset) {
-    WhiteBalancePreset.AUTO -> listOf(CaptureRequest.CONTROL_AWB_MODE_AUTO)
-    WhiteBalancePreset.WARMER -> listOf(
-        CaptureRequest.CONTROL_AWB_MODE_SHADE,
-        CaptureRequest.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT,
-    )
-    WhiteBalancePreset.COOLER -> listOf(
-        CaptureRequest.CONTROL_AWB_MODE_INCANDESCENT,
-        CaptureRequest.CONTROL_AWB_MODE_FLUORESCENT,
-    )
-}.firstOrNull(availableModes::contains)
+private val whiteBalanceModesByLevel = mapOf(
+    -3 to CaptureRequest.CONTROL_AWB_MODE_INCANDESCENT,
+    -2 to CaptureRequest.CONTROL_AWB_MODE_WARM_FLUORESCENT,
+    -1 to CaptureRequest.CONTROL_AWB_MODE_FLUORESCENT,
+    0 to CaptureRequest.CONTROL_AWB_MODE_AUTO,
+    1 to CaptureRequest.CONTROL_AWB_MODE_DAYLIGHT,
+    2 to CaptureRequest.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT,
+    3 to CaptureRequest.CONTROL_AWB_MODE_SHADE,
+)
+
+internal fun awbModeForLevel(availableModes: Set<Int>, level: Int): Int? =
+    whiteBalanceModesByLevel[level]?.takeIf(availableModes::contains)
+
+internal fun whiteBalanceLevelForAwbMode(mode: Int?): Int? =
+    whiteBalanceModesByLevel.entries.firstOrNull { it.value == mode }?.key
+
+internal fun whiteBalanceLevelsForModes(availableModes: Set<Int>): Set<Int> =
+    whiteBalanceModesByLevel.filterValues(availableModes::contains).keys
 
 internal fun whiteBalancePresetsForModes(availableModes: Set<Int>): Set<WhiteBalancePreset> =
-    WhiteBalancePreset.entries.filterTo(mutableSetOf()) { awbModeForPreset(availableModes, it) != null }
+    whiteBalanceLevelsForModes(availableModes).mapTo(mutableSetOf(), ::whiteBalancePresetForLevel)
 
 internal class CameraControlTimeoutException : Exception("Camera control timed out. Try again.")
 
@@ -260,7 +267,8 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             val focalLengthMm = result.get(Camera2CaptureResult.LENS_FOCAL_LENGTH)
             val exposureCompensationIndex = result.get(Camera2CaptureResult.CONTROL_AE_EXPOSURE_COMPENSATION)
             val zoomRatio = result.get(Camera2CaptureResult.CONTROL_ZOOM_RATIO)
-            val whiteBalancePreset = presetForAwbMode(result.get(Camera2CaptureResult.CONTROL_AWB_MODE))
+            val whiteBalanceLevel = whiteBalanceLevelForAwbMode(result.get(Camera2CaptureResult.CONTROL_AWB_MODE))
+            val whiteBalancePreset = whiteBalanceLevel?.let(::whiteBalancePresetForLevel)
             val iso = result.get(Camera2CaptureResult.SENSOR_SENSITIVITY)
             val exposureTimeNanos = result.get(Camera2CaptureResult.SENSOR_EXPOSURE_TIME)
             val captureIntent = request.get(CaptureRequest.CONTROL_CAPTURE_INTENT)
@@ -288,6 +296,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                     exposureCompensationIndex = exposureCompensationIndex ?: it.exposureCompensationIndex,
                     zoomRatio = zoomRatio ?: it.zoomRatio,
                     whiteBalancePreset = whiteBalancePreset ?: it.whiteBalancePreset,
+                    whiteBalanceLevel = whiteBalanceLevel ?: it.whiteBalanceLevel,
                     lensId = lensId,
                     focalLengthMm = focalLengthMm ?: it.focalLengthMm,
                 )
@@ -300,6 +309,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                     exposureCompensationIndex = exposureCompensationIndex,
                     zoomRatio = zoomRatio,
                     whiteBalancePreset = whiteBalancePreset,
+                    whiteBalanceLevel = whiteBalanceLevel ?: 0,
                     lensId = lensId,
                     focalLengthMm = focalLengthMm,
                     iso = iso,
@@ -940,12 +950,14 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             IntRange.EMPTY
         }
         val zoom = cameraInfo.zoomState.value
-        val whiteBalancePresets = whiteBalancePresetsForModes(availableAwbModes(cameraInfo))
+        val availableWhiteBalanceModes = availableAwbModes(cameraInfo)
+        val whiteBalancePresets = whiteBalancePresetsForModes(availableWhiteBalanceModes)
         _capabilities.value = CameraCapabilities(
             exposureCompensationRange = exposureRange,
             exposureCompensationStepEv = if (exposureRange.isEmpty()) 0f else exposure.exposureCompensationStep.toFloat(),
             zoomRatioRange = (zoom?.minZoomRatio ?: 1f)..(zoom?.maxZoomRatio ?: 1f),
             supportedWhiteBalancePresets = whiteBalancePresets,
+            supportedWhiteBalanceLevels = whiteBalanceLevelsForModes(availableWhiteBalanceModes),
             supportsFocusMetering = supportsFocusMetering(cameraInfo),
             hasFlashUnit = cameraInfo.hasFlashUnit(),
         )
@@ -974,12 +986,14 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
     private fun refreshTelemetry(
         cameraInfo: CameraInfo,
         whiteBalancePreset: WhiteBalancePreset = _telemetry.value.whiteBalancePreset,
+        whiteBalanceLevel: Int = _telemetry.value.whiteBalanceLevel,
     ) {
         _telemetry.update {
             it.copy(
                 exposureCompensationIndex = cameraInfo.exposureState.exposureCompensationIndex,
                 zoomRatio = cameraInfo.zoomState.value?.zoomRatio ?: it.zoomRatio,
                 whiteBalancePreset = whiteBalancePreset,
+                whiteBalanceLevel = whiteBalanceLevel,
             )
         }
     }
@@ -1003,8 +1017,8 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                     }
                 is CameraAdjustment.WhiteBalance ->
                     "White-balance adjustment is unavailable on this camera".takeIf {
-                        adjustment.preset !in capabilities.supportedWhiteBalancePresets ||
-                            selectAwbMode(activeCamera.cameraInfo, adjustment.preset) == null
+                        adjustment.targetLevel !in capabilities.supportedWhiteBalanceLevels ||
+                            selectAwbMode(activeCamera.cameraInfo, adjustment.targetLevel) == null
                     }
             }
         }
@@ -1023,7 +1037,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                 _telemetry.value = _telemetry.value.copy(zoomRatio = adjustment.ratio)
             }
             is CameraAdjustment.WhiteBalance -> {
-                val awbMode = selectAwbMode(activeCamera.cameraInfo, adjustment.preset)
+                val awbMode = selectAwbMode(activeCamera.cameraInfo, adjustment.targetLevel)
                     ?: error("White-balance adjustment is unavailable on this camera")
                 awaitControl(
                     Camera2CameraControl.from(activeCamera.cameraControl).setCaptureRequestOptions(
@@ -1032,7 +1046,10 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                             .build(),
                     ),
                 )
-                _telemetry.value = _telemetry.value.copy(whiteBalancePreset = adjustment.preset)
+                _telemetry.value = _telemetry.value.copy(
+                    whiteBalancePreset = whiteBalancePresetForLevel(adjustment.targetLevel),
+                    whiteBalanceLevel = adjustment.targetLevel,
+                )
             }
         }
     }
@@ -1069,6 +1086,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         return actual.exposureCompensationIndex == expected.exposureCompensationIndex &&
             kotlin.math.abs(actual.zoomRatio - expected.zoomRatio) <= zoomTolerance &&
             actual.whiteBalancePreset == expected.whiteBalancePreset &&
+            actual.whiteBalanceLevel == expected.whiteBalanceLevel &&
             actual.lensId == expected.lensId
     }
 
@@ -1104,10 +1122,10 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             awaitControl(activeCamera.cameraControl.setZoomRatio(state.zoomRatio))
         }
         val camera2Control = Camera2CameraControl.from(activeCamera.cameraControl)
-        if (state.whiteBalancePreset == WhiteBalancePreset.AUTO) {
+        if (state.whiteBalanceLevel == 0) {
             awaitControl(camera2Control.clearCaptureRequestOptions())
         } else {
-            val awbMode = selectAwbMode(activeCamera.cameraInfo, state.whiteBalancePreset)
+            val awbMode = selectAwbMode(activeCamera.cameraInfo, state.whiteBalanceLevel)
                 ?: error("The prior white-balance mode is no longer available")
             awaitControl(
                 camera2Control.setCaptureRequestOptions(
@@ -1117,7 +1135,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                 ),
             )
         }
-        refreshTelemetry(activeCamera.cameraInfo, state.whiteBalancePreset)
+        refreshTelemetry(activeCamera.cameraInfo, state.whiteBalancePreset, state.whiteBalanceLevel)
     }
 
     private fun availableAwbModes(cameraInfo: CameraInfo): Set<Int> =
@@ -1126,17 +1144,8 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             ?.toSet()
             .orEmpty()
 
-    private fun selectAwbMode(cameraInfo: CameraInfo, preset: WhiteBalancePreset): Int? =
-        awbModeForPreset(availableAwbModes(cameraInfo), preset)
-
-    private fun presetForAwbMode(mode: Int?): WhiteBalancePreset? = when (mode) {
-        CaptureRequest.CONTROL_AWB_MODE_AUTO -> WhiteBalancePreset.AUTO
-        CaptureRequest.CONTROL_AWB_MODE_SHADE,
-        CaptureRequest.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT -> WhiteBalancePreset.WARMER
-        CaptureRequest.CONTROL_AWB_MODE_INCANDESCENT,
-        CaptureRequest.CONTROL_AWB_MODE_FLUORESCENT -> WhiteBalancePreset.COOLER
-        else -> null
-    }
+    private fun selectAwbMode(cameraInfo: CameraInfo, level: Int): Int? =
+        awbModeForLevel(availableAwbModes(cameraInfo), level)
 
     private fun focusAction(xFraction: Float, yFraction: Float): FocusMeteringAction? {
         val factory = focusPointFactory ?: return null

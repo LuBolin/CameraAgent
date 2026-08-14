@@ -1,0 +1,113 @@
+{"kind":"deck","id":"pr/tr8nij","name":"Deck"}
+{"kind":"layout","layoutId":"/ppt/slideMasters/slideMaster1.xml","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout1.xml","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/y90nupkv","slide":1,"title":"LIFE AGENT · TEAM FIVECENT · SINGAPORE","textShapes":1}
+{"kind":"shape","id":"sh/547294r6","slide":1,"bbox":[748,646,468,42]}
+{"kind":"textbox","id":"sh/k3yl0zql","slide":1,"text":"LIFE AGENT · TEAM FIVECENT · SINGAPORE","textPreview":"LIFE AGENT · TEAM FIVECENT · SINGAPORE","textChars":38,"textLines":1,"bbox":[770,657,424,20]}
+{"kind":"image","id":"im/qh0jmhw7","slide":1,"name":"","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/y90nupkv","slide":1,"text":"0:00–0:27\n\nSay:\nHi, we are Team FiveCent. We built Photo Helper, a voice-first camera-control agent for casual photography. People know the outcome they want—a brighter picture, a closer subject, or time to join the frame—but not which settings create it. Photo Helper translates that request into a bounded workflow on the phone camera.\n\nPresenter cue: Let the family scenario establish the problem before advancing.\n\n[Sources]\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\submission-assets\\photo-helper-cover-16x9-v6-actual-ui.png\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\submission.md"}
+{"kind":"slide","id":"sl/hwbqtkby","slide":2,"title":"02","textShapes":10}
+{"kind":"textbox","id":"sh/bip8jmho","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[64,42,52,22]}
+{"kind":"textbox","id":"sh/9072xkry","slide":2,"text":"THE GAP","textPreview":"THE GAP","textChars":7,"textLines":1,"bbox":[122,42,420,22]}
+{"kind":"textbox","id":"sh/ozy1ofad","slide":2,"text":"People describe outcomes. Cameras expose settings.","textPreview":"People describe outcomes. Cameras expose settings.","textChars":50,"textLines":1,"bbox":[64,78,1148,72]}
+{"kind":"shape","id":"sh/b29kza94","slide":2,"bbox":[64,180,468,444]}
+{"kind":"textbox","id":"sh/a10jqpsj","slide":2,"text":"What people say","textPreview":"What people say","textChars":15,"textLines":1,"bbox":[100,214,380,30]}
+{"kind":"shape","id":"sh/x4r21kru","slide":2,"bbox":[100,286,12,12]}
+{"kind":"textbox","id":"sh/w3i1sfa9","slide":2,"text":"“It’s too dark.”","textPreview":"“It’s too dark.”","textChars":16,"textLines":1,"bbox":[130,276,350,54]}
+{"kind":"shape","id":"sh/r65knqtk","slide":2,"bbox":[100,382,12,12]}
+{"kind":"textbox","id":"sh/q5wjelsz","slide":2,"text":"“Focus on that.”","textPreview":"“Focus on that.”","textChars":16,"textLines":1,"bbox":[130,372,350,54]}
+{"kind":"shape","id":"sh/ove9o7yd","slide":2,"bbox":[100,478,12,12]}
+{"kind":"textbox","id":"sh/9wnqhczy","slide":2,"text":"“Take it in five seconds.”","textPreview":"“Take it in five seconds.”","textChars":26,"textLines":1,"bbox":[130,468,350,54]}
+{"kind":"textbox","id":"sh/mtwrmxg7","slide":2,"text":"Less-confident users should not have to translate intent into exposure compensation, focus regions or timer menus.","textPreview":"Less-confident users should not have to translate intent into exposure compensation, focus regions or timer menus.","textChars":114,"textLines":1,"bbox":[594,214,594,190]}
+{"kind":"shape","id":"sh/nu58f2hs","slide":2,"bbox":[594,446,594,126]}
+{"kind":"textbox","id":"sh/wjy9sry9","slide":2,"text":"A translator for supported controls—not an autonomous photographer.","textPreview":"A translator for supported controls—not an autonomous photographer.","textChars":67,"textLines":1,"bbox":[626,478,530,66]}
+{"kind":"shape","id":"sh/xk7qlczu","slide":2,"bbox":[64,682,1152,1]}
+{"kind":"textbox","id":"sh/ahwrqhgj","slide":2,"text":"PHOTO HELPER · FIVE­CENT","textPreview":"PHOTO HELPER · FIVE­CENT","textChars":24,"textLines":1,"bbox":[64,690,500,18]}
+{"kind":"notes","id":"nt/hwbqtkby","slide":2,"text":"0:27–1:08\n\nSay:\nPeople do not think in technical terms such as exposure compensation, focus coordinates, or timer menus. They say, “It is too dark,” “Focus on that,” or “Take it in five seconds.” The challenge is translating those intentions before the moment is lost. This can be harder for less-confident smartphone users, including older adults, less tech-literate people, and people with accessibility challenges. We have not yet tested directly with every group, so our claim is deliberately narrow: Photo Helper translates ordinary language into supported camera controls. It is not an autonomous photographer.\n\nPresenter cue: Point first to the three phrases, then land on the product boundary.\n\n[Sources]\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\submission.md\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\submission-assets\\project-brief.md"}
+{"kind":"slide","id":"sl/ofy9wn61","slide":3,"title":"DEMO","textShapes":1}
+{"kind":"textbox","id":"sh/cza94vmx","slide":3,"text":"DEMO","textPreview":"DEMO","textChars":4,"textLines":1,"bbox":[240,286,800,110]}
+{"kind":"notes","id":"nt/ofy9wn61","slide":3,"text":"1:08–2:13\n\nSay:\nLet’s see a demo.\n\nPresenter cue:\n1. Advance to this holding slide.\n2. Switch to the pre-recorded demo tab.\n3. Play the approximately 60-second stitched demo.\n4. Switch back and advance immediately to the pipeline slide.\n\nTiming allowance: about 60 seconds for playback and five seconds total for tab switching.\n\n[Sources]\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\submission-assets\\demo-video-full-script.md"}
+{"kind":"slide","id":"sl/jyx0ra1s","slide":4,"title":"04","textShapes":20}
+{"kind":"textbox","id":"sh/wzex4z2p","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[64,42,52,22]}
+{"kind":"textbox","id":"sh/1cj2d8b6","slide":4,"text":"AGENT DESIGN","textPreview":"AGENT DESIGN","textChars":12,"textLines":1,"bbox":[122,42,420,22]}
+{"kind":"textbox","id":"sh/0ba143al","slide":4,"text":"The model interprets. Android retains authority.","textPreview":"The model interprets. Android retains authority.","textChars":48,"textLines":1,"bbox":[64,78,1148,72]}
+{"kind":"shape","id":"sh/rm1k7yt4","slide":4,"bbox":[318,292,36,42]}
+{"kind":"shape","id":"sh/ql8jytsj","slide":4,"bbox":[616,292,36,42]}
+{"kind":"shape","id":"sh/doj29oba","slide":4,"bbox":[914,292,36,42]}
+{"kind":"shape","id":"sh/sna103ap","slide":4,"bbox":[64,204,258,252]}
+{"kind":"textbox","id":"sh/3ihk3et8","slide":4,"text":"1 · CONTEXT","textPreview":"1 · CONTEXT","textChars":11,"textLines":1,"bbox":[88,232,210,28]}
+{"kind":"textbox","id":"sh/ih8ju9sn","slide":4,"text":"Voice request\nOn-device transcript\nClean + labelled frames\nCamera telemetry","textPreview":"Voice request | On-device transcript | Clean + labelled frames | Camera telemetry","textChars":75,"textLines":4,"bbox":[88,278,210,148]}
+{"kind":"shape","id":"sh/kbm987y5","slide":4,"bbox":[362,204,258,252]}
+{"kind":"textbox","id":"sh/5cva1cfq","slide":4,"text":"2 · QWEN PLAN","textPreview":"2 · QWEN PLAN","textChars":13,"textLines":1,"bbox":[386,232,210,28]}
+{"kind":"textbox","id":"sh/i94r6xgz","slide":4,"text":"Qwen3.7 Flash\nStrict JSON\n≤ 8 ordered actions\nNo free-form controls","textPreview":"Qwen3.7 Flash | Strict JSON | ≤ 8 ordered actions | No free-form controls","textChars":67,"textLines":4,"bbox":[386,278,210,148]}
+{"kind":"shape","id":"sh/jadsz2xk","slide":4,"bbox":[660,204,258,252]}
+{"kind":"textbox","id":"sh/w72947yt","slide":4,"text":"3 · VALIDATE","textPreview":"3 · VALIDATE","textChars":12,"textLines":1,"bbox":[684,232,210,28]}
+{"kind":"textbox","id":"sh/x8vaxsfe","slide":4,"text":"Schema + allowlist\nCapabilities\nLens / frame / session\nReject or approve","textPreview":"Schema + allowlist | Capabilities | Lens / frame / session | Reject or approve","textChars":72,"textLines":4,"bbox":[684,278,210,148]}
+{"kind":"shape","id":"sh/a5kr2xg3","slide":4,"bbox":[958,204,258,252]}
+{"kind":"textbox","id":"sh/v6tsv2xo","slide":4,"text":"4 · EXECUTE","textPreview":"4 · EXECUTE","textChars":11,"textLines":1,"bbox":[982,232,210,28]}
+{"kind":"textbox","id":"sh/g36tgryd","slide":4,"text":"CameraX / Camera2\nFocus + settings\nCapture\nRollback / Reset","textPreview":"CameraX / Camera2 | Focus + settings | Capture | Rollback / Reset","textChars":59,"textLines":4,"bbox":[982,278,210,148]}
+{"kind":"textbox","id":"sh/h4fa9wfy","slide":4,"text":"THE ONLY ACTIONS THE MODEL MAY PROPOSE","textPreview":"THE ONLY ACTIONS THE MODEL MAY PROPOSE","textChars":38,"textLines":1,"bbox":[64,496,430,22]}
+{"kind":"shape","id":"sh/p0batw72","slide":4,"bbox":[64,532,172,52]}
+{"kind":"textbox","id":"sh/oz29krqh","slide":4,"text":"ADJUST","textPreview":"ADJUST","textChars":6,"textLines":1,"bbox":[72,548,156,20]}
+{"kind":"shape","id":"sh/3ytsrmpw","slide":4,"bbox":[254,532,172,52]}
+{"kind":"textbox","id":"sh/2xkrih8b","slide":4,"text":"SET CAMERA","textPreview":"SET CAMERA","textChars":10,"textLines":1,"bbox":[262,548,156,20]}
+{"kind":"shape","id":"sh/1wbapc7q","slide":4,"bbox":[444,532,172,52]}
+{"kind":"textbox","id":"sh/gv29g7q5","slide":4,"text":"SET FLASH","textPreview":"SET FLASH","textChars":9,"textLines":1,"bbox":[452,548,156,20]}
+{"kind":"shape","id":"sh/fu9sn2p0","slide":4,"bbox":[634,532,172,52]}
+{"kind":"textbox","id":"sh/et0reh8f","slide":4,"text":"FOCUS CELL","textPreview":"FOCUS CELL","textChars":10,"textLines":1,"bbox":[642,548,156,20]}
+{"kind":"shape","id":"sh/tsrqlc7u","slide":4,"bbox":[824,532,172,52]}
+{"kind":"textbox","id":"sh/sri9s7q9","slide":4,"text":"RESET","textPreview":"RESET","textChars":5,"textLines":1,"bbox":[832,548,156,20]}
+{"kind":"shape","id":"sh/ilwf69kv","slide":4,"bbox":[1014,532,172,52]}
+{"kind":"textbox","id":"sh/jm5gze1g","slide":4,"text":"CAPTURE","textPreview":"CAPTURE","textChars":7,"textLines":1,"bbox":[1022,548,156,20]}
+{"kind":"shape","id":"sh/knex8j21","slide":4,"bbox":[64,610,1152,48]}
+{"kind":"textbox","id":"sh/5ony1oj6","slide":4,"text":"Privacy boundary: microphone audio stays on-device; Qwen receives transcribed text and request still frames, never a preview stream.","textPreview":"Privacy boundary: microphone audio stays on-device; Qwen receives transcribed text and request still frames, never a preview stream.","textChars":132,"textLines":1,"bbox":[84,624,1112,22]}
+{"kind":"shape","id":"sh/axcf29kj","slide":4,"bbox":[64,682,1152,1]}
+{"kind":"textbox","id":"sh/vy5gbe14","slide":4,"text":"PHOTO HELPER · FIVE­CENT","textPreview":"PHOTO HELPER · FIVE­CENT","textChars":24,"textLines":1,"bbox":[64,690,500,18]}
+{"kind":"notes","id":"nt/jyx0ra1s","slide":4,"text":"2:13–3:05\n\nSay:\nThe behavior you saw follows four stages. First, the app supplies the voice request, its on-device transcript, clean and labelled frames, plus current camera settings and context. Second, Qwen3.7 Flash returns strict JSON: at most eight actions from six permitted types. The architecture could use another multimodal model, but it would need prompt and contract tuning. Third, Android validates syntax, the allowlist, device capabilities, and whether the lens, frame, and session are still current—similar to the test stage in an agent loop. Only then are CameraX or Camera2 controls applied. Failed setting transactions roll back, and Reset restores the baseline. Qwen receives transcribed text and request still frames, but never microphone audio or a continuous preview stream.\n\nPresenter cue: Trace left to right, then finish on the privacy boundary.\n\n[Sources]\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\README.md\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\app\\src\\main\\java\\com\\bolin\\photohelper\\visual\\CommandContracts.kt\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\app\\src\\main\\java\\com\\bolin\\photohelper\\visual\\VisualContracts.kt"}
+{"kind":"slide","id":"sl/i107q5of","slide":5,"title":"05","textShapes":18}
+{"kind":"textbox","id":"sh/atcjidg7","slide":5,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[64,42,52,22]}
+{"kind":"textbox","id":"sh/dgbulwnm","slide":5,"text":"BUILD · VERIFY · PRIVACY","textPreview":"BUILD · VERIFY · PRIVACY","textChars":24,"textLines":1,"bbox":[122,42,420,22]}
+{"kind":"textbox","id":"sh/cf2tcr61","slide":5,"text":"Agents divided the work. Android kept authority.","textPreview":"Agents divided the work. Android kept authority.","textChars":48,"textLines":1,"bbox":[64,78,1148,72]}
+{"kind":"shape","id":"sh/z2tcnm5s","slide":5,"bbox":[150,302,980,6]}
+{"kind":"shape","id":"sh/yhkbe1o7","slide":5,"bbox":[182,279,52,52]}
+{"kind":"textbox","id":"sh/l4bupwny","slide":5,"text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[182,292,52,24]}
+{"kind":"shape","id":"sh/032tgr6d","slide":5,"bbox":[110,348,252,192]}
+{"kind":"textbox","id":"sh/n6dcr65o","slide":5,"text":"CODEX","textPreview":"CODEX","textChars":5,"textLines":1,"bbox":[132,374,208,28]}
+{"kind":"textbox","id":"sh/m5kbi1oj","slide":5,"text":"Rapid prototype\nDesign documents\nFocused fixes + tests","textPreview":"Rapid prototype | Design documents | Focused fixes + tests","textChars":54,"textLines":3,"bbox":[132,418,208,96]}
+{"kind":"shape","id":"sh/w32dkbuh","slide":5,"bbox":[464,279,52,52]}
+{"kind":"textbox","id":"sh/x4vedgvm","slide":5,"text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[464,292,52,24]}
+{"kind":"shape","id":"sh/ahkvi1cb","slide":5,"bbox":[392,348,252,192]}
+{"kind":"textbox","id":"sh/v2twb6dw","slide":5,"text":"WORKBUDDY · HY3","textPreview":"WORKBUDDY · HY3","textChars":15,"textLines":1,"bbox":[414,374,208,28]}
+{"kind":"textbox","id":"sh/k7mxovud","slide":5,"text":"Repo-wide audit\nImplementation pass\nPhysical-device checks","textPreview":"Repo-wide audit | Implementation pass | Physical-device checks","textChars":58,"textLines":3,"bbox":[414,418,208,96]}
+{"kind":"shape","id":"sh/58vehgvy","slide":5,"bbox":[746,279,52,52]}
+{"kind":"textbox","id":"sh/i54fmlc7","slide":5,"text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[746,292,52,24]}
+{"kind":"shape","id":"sh/j6dwfqds","slide":5,"bbox":[674,348,252,192]}
+{"kind":"textbox","id":"sh/sb6xsvu9","slide":5,"text":"KIMI-K3 · UI/UX","textPreview":"KIMI-K3 · UI/UX","textChars":15,"textLines":1,"bbox":[696,374,208,28]}
+{"kind":"textbox","id":"sh/tcfel0vu","slide":5,"text":"Interaction review\nUI/UX iteration\nSecond pair of eyes","textPreview":"Interaction review | UI/UX iteration | Second pair of eyes","textChars":54,"textLines":3,"bbox":[696,418,208,96]}
+{"kind":"shape","id":"sh/hgrmpwj2","slide":5,"bbox":[1028,279,52,52]}
+{"kind":"textbox","id":"sh/gfi5grih","slide":5,"text":"4","textPreview":"4","textChars":1,"textLines":1,"bbox":[1028,292,52,24]}
+{"kind":"shape","id":"sh/fe94nm1w","slide":5,"bbox":[956,348,252,192]}
+{"kind":"textbox","id":"sh/ud0ne10b","slide":5,"text":"VERIFY + PRIVACY","textPreview":"VERIFY + PRIVACY","textChars":16,"textLines":1,"bbox":[978,374,208,28]}
+{"kind":"textbox","id":"sh/pkr6tgjy","slide":5,"text":"211 unit tests\n57/57 device tests\nAudio stays on-device","textPreview":"211 unit tests | 57/57 device tests | Audio stays on-device","textChars":55,"textLines":3,"bbox":[978,418,208,96]}
+{"kind":"shape","id":"sh/4ji5kbid","slide":5,"bbox":[110,576,1098,78]}
+{"kind":"textbox","id":"sh/3i94r61s","slide":5,"text":"Final pass","textPreview":"Final pass","textChars":10,"textLines":1,"bbox":[142,598,158,24]}
+{"kind":"textbox","id":"sh/2h0ni107","slide":5,"text":"HY3 + Software Workshop · Human approval · Allowlisted controls · Rollback + Reset","textPreview":"HY3 + Software Workshop · Human approval · Allowlisted controls · Rollback + Reset","textChars":82,"textLines":1,"bbox":[310,596,866,30]}
+{"kind":"shape","id":"sh/5o7mhcju","slide":5,"bbox":[64,682,1152,1]}
+{"kind":"textbox","id":"sh/kny587i9","slide":5,"text":"PHOTO HELPER · FIVE­CENT","textPreview":"PHOTO HELPER · FIVE­CENT","textChars":24,"textLines":1,"bbox":[64,690,500,18]}
+{"kind":"notes","id":"nt/i107q5of","slide":5,"text":"3:05–4:02\n\nSay:\nDevelopment used both Codex and WorkBuddy. Codex supported rapid prototyping and design documents, then traced failures, added regression tests, and made focused changes. In WorkBuddy, HY3 led the repo-wide audit, implementation pass, and physical-device verification, supported by the Mobile Application Developer expert. Kimi-K3 and the UI Designer expert acted as a second pair of eyes on interaction and interface decisions. A final HY3 and Software Workshop pass checked the shipped behavior. The current code passes 211 unit tests, and WorkBuddy’s deterministic device run passed 57 out of 57 tests. Throughout, human approval separated agent roles, Android retained camera authority, and microphone audio stayed on-device.\n\nPresenter cue: Move across the four roles, then land on verification and privacy.\n\n[Sources]\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\outputs\\workbuddy\\HY3_AUDIT_PACKET.md\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\outputs\\workbuddy\\WORKBUDDY_CHANGELOG.md\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\outputs\\workbuddy\\K3_DEVICE_VERIFICATION.md\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\outputs\\workbuddy\\FINAL_STABILIZATION_REPORT.md\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\app\\build\\test-results\\testDebugUnitTest"}
+{"kind":"slide","id":"sl/x8f69ofe","slide":6,"title":"PHOTO HELPER","textShapes":9}
+{"kind":"shape","id":"sh/47mt0b6x","slide":6,"bbox":[1000,0,280,280]}
+{"kind":"shape","id":"sh/yhg7epsj","slide":6,"bbox":[1080,24,200,200]}
+{"kind":"textbox","id":"sh/zi98nu94","slide":6,"text":"PHOTO HELPER","textPreview":"PHOTO HELPER","textChars":12,"textLines":1,"bbox":[64,58,280,26]}
+{"kind":"textbox","id":"sh/87ipkzal","slide":6,"text":"Speak in outcomes,\nnot camera settings.","textPreview":"Speak in outcomes, | not camera settings.","textChars":39,"textLines":2,"bbox":[64,146,930,190]}
+{"kind":"textbox","id":"sh/98rqt4r6","slide":6,"text":"A trustworthy voice-to-camera translator for casual photography.","textPreview":"A trustworthy voice-to-camera translator for casual photography.","textChars":64,"textLines":1,"bbox":[68,372,800,52]}
+{"kind":"shape","id":"sh/ml07i9sv","slide":6,"bbox":[64,490,536,104]}
+{"kind":"textbox","id":"sh/7m98ru9g","slide":6,"text":"NOW","textPreview":"NOW","textChars":3,"textLines":1,"bbox":[92,512,80,22]}
+{"kind":"textbox","id":"sh/oryp8fah","slide":6,"text":"Voice-first casual camera utility","textPreview":"Voice-first casual camera utility","textChars":33,"textLines":1,"bbox":[92,544,468,30]}
+{"kind":"shape","id":"sh/pc76hkr2","slide":6,"bbox":[624,490,592,104]}
+{"kind":"textbox","id":"sh/h4bupgn6","slide":6,"text":"NEXT","textPreview":"NEXT","textChars":4,"textLines":1,"bbox":[652,512,80,22]}
+{"kind":"textbox","id":"sh/w32twb6l","slide":6,"text":"Optional mode for phone makers or camera apps","textPreview":"Optional mode for phone makers or camera apps","textChars":45,"textLines":1,"bbox":[652,544,524,30]}
+{"kind":"textbox","id":"sh/v2tcn650","slide":6,"text":"Next: local models · focus accuracy · manual interactions · retakes · confidence","textPreview":"Next: local models · focus accuracy · manual interactions · retakes · confidence","textChars":80,"textLines":1,"bbox":[68,632,1148,28]}
+{"kind":"shape","id":"sh/u1kbu1ov","slide":6,"bbox":[64,682,1152,1]}
+{"kind":"textbox","id":"sh/5svutgni","slide":6,"text":"FIVECENT · LU BOLIN · ETHAN YAP · NATHANAEL LEONG","textPreview":"FIVECENT · LU BOLIN · ETHAN YAP · NATHANAEL LEONG","textChars":49,"textLines":1,"bbox":[64,690,500,18]}
+{"kind":"notes","id":"nt/x8f69ofe","slide":6,"text":"4:02–4:55\n\nSay:\nThe immediate product is a casual camera utility: a trustworthy translation layer between spoken intent and controls already on the phone. Future distribution could involve phone makers or camera-app partners. Photo Helper might become an optional voice mode, a limited integration exposing the same allowlisted actions, validation, and Reset behavior, or an overlay for an existing camera app. That is a direction, not a current partnership. We would also explore local models for faster response, improve focus accuracy, and measure manual interactions, retakes, and agent confidence before making broader claims. Photo Helper: speak in outcomes, not camera settings.\n\nPresenter cue: Separate today’s utility from the future distribution path, then finish on the tagline.\n\n[Sources]\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\submission.md\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\submission-assets\\project-brief.md\n- C:\\Users\\bolin\\Desktop\\CameraAgent\\submission-assets\\pitch-day-plan.md"}

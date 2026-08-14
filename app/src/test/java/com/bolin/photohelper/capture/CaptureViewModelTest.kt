@@ -89,10 +89,14 @@ class CaptureViewModelTest {
 
         assertEquals(1, camera.focusCalls)
         assertEquals(.625f to .375f, camera.focusPoint)
+        assertEquals(FocusPoint(.625f, .375f), viewModel.uiState.value.focusIndicator)
         assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
         assertTrue(viewModel.uiState.value.recommendation?.action is RecommendationAction.FocusAt)
         assertTrue(viewModel.uiState.value.resetAvailable)
-        advanceTimeBy(1_500)
+        advanceTimeBy(4_999)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.recommendation?.action is RecommendationAction.FocusAt)
+        advanceTimeBy(1)
         runCurrent()
         assertEquals(null, viewModel.uiState.value.decision)
     }
@@ -109,7 +113,10 @@ class CaptureViewModelTest {
             commandRequest = { request = it },
             commandResult = {
                 planned(
-                    CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.ZOOM_IN)),
+                    CommandPlanStep.Adjust(
+                        listOf(ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.ZOOM_IN),
+                        small = true,
+                    ),
                     CommandPlanStep.FocusCell(row = 2, column = 1, rows = 4, columns = 4),
                 )
             },
@@ -124,6 +131,13 @@ class CaptureViewModelTest {
         assertEquals(camera.telemetry.value, request?.telemetry)
         assertEquals(camera.capabilities.value, request?.capabilities)
         assertEquals(1, camera.applyCalls)
+        assertEquals(
+            listOf(
+                CameraAdjustment.ExposureCompensation(1),
+                CameraAdjustment.ZoomRatio(1.12f),
+            ),
+            camera.appliedBatches.single(),
+        )
         assertEquals(1, camera.focusCalls)
         assertEquals(0, camera.captureCalls)
         assertTrue(viewModel.uiState.value.resetAvailable)
@@ -214,7 +228,10 @@ class CaptureViewModelTest {
         assertEquals(1, camera.focusCalls)
         assertEquals(0, camera.captureCalls)
         assertTrue(viewModel.uiState.value.recommendation?.action is RecommendationAction.FocusAt)
-        advanceTimeBy(1_500)
+        advanceTimeBy(4_999)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.recommendation?.action is RecommendationAction.FocusAt)
+        advanceTimeBy(1)
         runCurrent()
         assertEquals(null, viewModel.uiState.value.decision)
     }
@@ -390,7 +407,7 @@ class CaptureViewModelTest {
         assertEquals(
             listOf(
                 CameraAdjustment.ZoomRatio(3.2f),
-                CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER),
+                CameraAdjustment.WhiteBalance(WhiteBalancePreset.COOLER, targetLevel = 0),
             ),
             camera.appliedBatches.single(),
         )
@@ -1425,7 +1442,42 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `rapid double focus invokes camera hardware once`() = runTest(dispatcher) {
+    fun `ready preview tap focuses without a coaching recommendation`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(), supportsFocusMetering = true)
+        val viewModel = viewModel(camera)
+        runCurrent()
+
+        viewModel.focusAt(.2f, .7f)
+        runCurrent()
+
+        assertEquals(.2f to .7f, camera.focusPoint)
+    }
+
+    @Test
+    fun `focus point expires five seconds after the latest command even while autofocus is pending`() = runTest(dispatcher) {
+        val focusResult = CompletableDeferred<ApplyResult>()
+        val camera = FakeCamera(observation(), supportsFocusMetering = true).apply {
+            focusGate = focusResult
+        }
+        val viewModel = viewModel(camera)
+        runCurrent()
+
+        viewModel.focusAt(.2f, .7f)
+        runCurrent()
+
+        assertEquals(FocusPoint(.2f, .7f), viewModel.uiState.value.focusIndicator)
+        advanceTimeBy(4_999)
+        runCurrent()
+        assertEquals(FocusPoint(.2f, .7f), viewModel.uiState.value.focusIndicator)
+
+        advanceTimeBy(1)
+        runCurrent()
+
+        assertEquals(null, viewModel.uiState.value.focusIndicator)
+    }
+
+    @Test
+    fun `a newer focus command restarts the five second lifetime even at the same point`() = runTest(dispatcher) {
         val focusResult = CompletableDeferred<ApplyResult>()
         val camera = FakeCamera(
             observation(timestamp = 1_000, faces = listOf(face(trackingId = 7, centerX = .42f))),
@@ -1443,10 +1495,18 @@ class CaptureViewModelTest {
 
         viewModel.focusAt(.2f, .7f)
         runCurrent()
+        advanceTimeBy(3_000)
         viewModel.focusAt(.2f, .7f)
         runCurrent()
 
-        assertEquals(1, camera.focusCalls)
+        assertEquals(2, camera.focusCalls)
+        assertEquals(FocusPoint(.2f, .7f), viewModel.uiState.value.focusIndicator)
+        advanceTimeBy(4_999)
+        runCurrent()
+        assertEquals(FocusPoint(.2f, .7f), viewModel.uiState.value.focusIndicator)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(null, viewModel.uiState.value.focusIndicator)
     }
 
     @Test
@@ -2198,6 +2258,13 @@ class CaptureViewModelTest {
         assertEquals(0, camera.applyCalls)
         assertEquals(null, viewModel.uiState.value.recommendation)
         assertTrue(viewModel.uiState.value.transientMessage.orEmpty().contains("camera session", ignoreCase = true))
+
+        advanceTimeBy(4_999)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.transientMessage.orEmpty().contains("camera session", ignoreCase = true))
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(null, viewModel.uiState.value.transientMessage)
     }
 
     @Test

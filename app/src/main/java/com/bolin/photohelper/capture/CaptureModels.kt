@@ -46,6 +46,26 @@ internal fun exposureInvariantSceneDifference(previous: List<Int>?, current: Lis
 
 enum class WhiteBalancePreset { AUTO, WARMER, COOLER }
 
+internal const val MAX_WHITE_BALANCE_LEVEL = 3
+
+internal fun whiteBalanceLevelForPreset(preset: WhiteBalancePreset): Int = when (preset) {
+    WhiteBalancePreset.AUTO -> 0
+    WhiteBalancePreset.WARMER -> 1
+    WhiteBalancePreset.COOLER -> -1
+}
+
+internal fun whiteBalancePresetForLevel(level: Int): WhiteBalancePreset = when {
+    level > 0 -> WhiteBalancePreset.WARMER
+    level < 0 -> WhiteBalancePreset.COOLER
+    else -> WhiteBalancePreset.AUTO
+}
+
+private fun whiteBalanceLevelsForPresets(presets: Set<WhiteBalancePreset>): Set<Int> = buildSet {
+    if (WhiteBalancePreset.AUTO in presets) add(0)
+    if (WhiteBalancePreset.WARMER in presets) addAll(1..MAX_WHITE_BALANCE_LEVEL)
+    if (WhiteBalancePreset.COOLER in presets) addAll(-MAX_WHITE_BALANCE_LEVEL..-1)
+}
+
 enum class FlashMode { OFF, ON, TORCH }
 
 data class CameraCapabilities(
@@ -55,6 +75,7 @@ data class CameraCapabilities(
     val supportedWhiteBalancePresets: Set<WhiteBalancePreset> = emptySet(),
     val supportsFocusMetering: Boolean = false,
     val hasFlashUnit: Boolean = false,
+    val supportedWhiteBalanceLevels: Set<Int> = whiteBalanceLevelsForPresets(supportedWhiteBalancePresets),
 ) {
     val supportsExposureCompensation: Boolean
         get() = !exposureCompensationRange.isEmpty() && exposureCompensationStepEv > 0f
@@ -68,12 +89,14 @@ data class CameraTelemetry(
     val focalLengthMm: Float? = null,
     val iso: Int? = null,
     val exposureTimeNanos: Long? = null,
+    val whiteBalanceLevel: Int = whiteBalanceLevelForPreset(whiteBalancePreset),
 )
 
 internal fun capturedTelemetryOrNull(
     exposureCompensationIndex: Int?,
     zoomRatio: Float?,
     whiteBalancePreset: WhiteBalancePreset?,
+    whiteBalanceLevel: Int = whiteBalancePreset?.let(::whiteBalanceLevelForPreset) ?: 0,
     lensId: String?,
     focalLengthMm: Float?,
     iso: Int?,
@@ -87,6 +110,7 @@ internal fun capturedTelemetryOrNull(
         exposureCompensationIndex = exposureCompensationIndex,
         zoomRatio = zoomRatio,
         whiteBalancePreset = whiteBalancePreset,
+        whiteBalanceLevel = whiteBalanceLevel,
         lensId = lensId,
         focalLengthMm = focalLengthMm,
         iso = iso?.takeIf { it > 0 },
@@ -97,7 +121,14 @@ internal fun capturedTelemetryOrNull(
 sealed interface CameraAdjustment {
     data class ExposureCompensation(val targetIndex: Int) : CameraAdjustment
     data class ZoomRatio(val ratio: Float) : CameraAdjustment
-    data class WhiteBalance(val preset: WhiteBalancePreset) : CameraAdjustment
+    data class WhiteBalance(
+        val preset: WhiteBalancePreset,
+        val targetLevel: Int = whiteBalanceLevelForPreset(preset),
+    ) : CameraAdjustment {
+        init {
+            require(targetLevel in -MAX_WHITE_BALANCE_LEVEL..MAX_WHITE_BALANCE_LEVEL)
+        }
+    }
 }
 
 enum class CameraPhase { STARTING, READY, CAPTURING, REVIEWING, BLOCKED }

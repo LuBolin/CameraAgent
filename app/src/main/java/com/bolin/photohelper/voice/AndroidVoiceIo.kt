@@ -200,12 +200,10 @@ class AndroidVoiceIo(context: Context) : VoiceIo {
                     sessionFinishGate?.close()
                 }
                 override fun onPartialResults(partialResults: Bundle?) {
-                    partialResults
-                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull()
-                        ?.trim()
-                        ?.takeIf(String::isNotEmpty)
-                        ?.let { lastPartialText = it }
+                    lastPartialText = selectPartialRecognitionText(
+                        lastPartialText,
+                        partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION),
+                    )
                 }
                 override fun onEvent(eventType: Int, params: Bundle?) = Unit
             })
@@ -446,12 +444,20 @@ internal fun normalizeVoiceComplaint(text: String): String {
     }
 }
 
-internal fun selectRecognitionText(finalCandidates: List<String>?, lastPartialText: String?): String? =
-    finalCandidates
-        ?.firstOrNull()
-        ?.trim()
-        ?.takeIf(String::isNotEmpty)
-        ?: lastPartialText?.trim()?.takeIf(String::isNotEmpty)
+internal fun selectRecognitionText(finalCandidates: List<String>?, lastPartialText: String?): String? {
+    val finalText = finalCandidates?.firstOrNull()?.trim()?.takeIf(String::isNotEmpty)
+    val partialText = lastPartialText?.trim()?.takeIf(String::isNotEmpty)
+    return if (
+        finalText != null && partialText != null && partialText.length > finalText.length &&
+        partialText.trimEnd('.', ',', '!', '?').endsWith(
+            finalText.trimEnd('.', ',', '!', '?'),
+            ignoreCase = true,
+        )
+    ) partialText else finalText ?: partialText
+}
+
+internal fun selectPartialRecognitionText(currentText: String?, candidates: List<String>?): String? =
+    selectRecognitionText(candidates, currentText)
 
 internal fun onDeviceLanguageState(
     requestedLanguageTag: String,

@@ -89,7 +89,9 @@ internal fun buildCommandRequestBody(request: CommandRequest, focusGuideJpeg: By
         .put("zoomRatioMin", request.capabilities.zoomRatioRange.start)
         .put("zoomRatioMax", request.capabilities.zoomRatioRange.endInclusive)
         .put("whiteBalancePreset", request.telemetry.whiteBalancePreset.name)
+        .put("whiteBalanceLevel", request.telemetry.whiteBalanceLevel)
         .put("supportedWhiteBalancePresets", JSONArray(request.capabilities.supportedWhiteBalancePresets.map { it.name }))
+        .put("supportedWhiteBalanceLevels", JSONArray(request.capabilities.supportedWhiteBalanceLevels.sorted()))
         .put("flashMode", request.flashMode.name)
         .put("hasFlashUnit", request.capabilities.hasFlashUnit)
         .put("supportsFocusMetering", request.capabilities.supportsFocusMetering)
@@ -118,9 +120,12 @@ internal fun buildCommandRequestBody(request: CommandRequest, focusGuideJpeg: By
             "axes using this table. Exposure: subject detail missing in darkness=BRIGHTER; important subject highlights washed " +
             "out=DARKER; otherwise=NONE. Do not brighten merely for dark hair, clothing, shadows, background, or deliberate mood. " +
             "White balance: neutral areas cyan, blue, or green-cyan=WARMER; neutral areas yellow, amber, or orange=COOLER; deliberate " +
-            "colored lighting or uncertain evidence=NONE. Never warm food merely to make it appetizing. Framing: one clear subject " +
-            "below about 35 percent of the frame with meaningless empty space=ZOOM_IN; important content clipped or cramped=ZOOM_OUT; " +
-            "otherwise=NONE. Focus: visibly soft main subject or clearly misplaced focus=FOCUS_CELL; already sharp or no identifiable " +
+            "colored lighting or uncertain evidence=NONE. Exposure controls brightness; never use white balance as a brightness " +
+            "correction. If both could explain the image, prefer exposure and use white balance only for an unmistakable cast on a " +
+            "neutral area. Never warm food merely to make it appetizing. Framing: first identify one clear primary capture subject. " +
+            "No clear subject, multiple equally important subjects, or intentional context=NONE. A clear subject below about 25 percent " +
+            "of the frame with incidental empty space=ZOOM_IN; a clear subject so large that it is clipped, cramped, or leaves too little " +
+            "context=ZOOM_OUT; otherwise=NONE. Focus: visibly soft main subject or clearly misplaced focus=FOCUS_CELL; already sharp or no identifiable " +
             "subject=NONE. For focus choose visible eyes, otherwise the primary solid object, never empty space. Use SMALL unless the " +
             "defect is strong. Return one JSON object only. If the image is too degraded or evidence genuinely conflicts, return " +
             "{\"schemaVersion\":4,\"outcome\":\"UNSURE\",\"confidence\":\"LOW\"}. LOW should be rare; a good image with no defect " +
@@ -144,6 +149,8 @@ internal fun buildCommandRequestBody(request: CommandRequest, focusGuideJpeg: By
             "Translate the user's intent into actions that execute immediately without confirmation. Do not return suggestions, " +
             "Recent changes are separate prior actions, not chat messages. Use strength SMALL when the user asks for a slight " +
             "correction or wants to move partway back toward a prior value; otherwise use NORMAL. " +
+            "Each WHITE_BALANCE_WARMER or WHITE_BALANCE_COOLER action means one additional bounded color step. Return the same " +
+            "intent again when the user repeats it, even if the current whiteBalancePreset already has that direction. " +
             "questions, or actions the user did not request. Use ADJUST for requested camera-parameter changes: for example, " +
             "'too bright' means EXPOSURE_DARKER and 'too dark' means EXPOSURE_BRIGHTER. Use FOCUS_CELL when the user asks to " +
             "focus on a visible subject. Use SET_FLASH only when the user explicitly mentions flash, torch, or the camera light; " +
@@ -352,6 +359,7 @@ private fun telemetryJson(value: CameraTelemetry): JSONObject = JSONObject()
     .put("exposureCompensationIndex", value.exposureCompensationIndex)
     .put("zoomRatio", value.zoomRatio)
     .put("whiteBalancePreset", value.whiteBalancePreset.name)
+    .put("whiteBalanceLevel", value.whiteBalanceLevel)
     .put("iso", value.iso ?: JSONObject.NULL)
     .put("exposureTimeNanos", value.exposureTimeNanos ?: JSONObject.NULL)
 

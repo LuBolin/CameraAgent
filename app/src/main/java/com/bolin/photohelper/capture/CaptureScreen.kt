@@ -1,13 +1,17 @@
 package com.bolin.photohelper.capture
 
+import android.content.res.Configuration
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -23,10 +27,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -45,6 +51,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -74,6 +81,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -115,6 +123,8 @@ object CaptureTestTags {
     const val GUIDANCE = "guidance"
     const val VISUAL_LOADING = "visual_loading"
     const val REVIEW = "capture_review"
+    const val REVIEW_CONTROLS = "review_controls"
+    const val RESET = "reset"
     const val SETTINGS = "settings_sheet"
     const val FOCUS_AREA = "focus_area"
     const val FOCUS_TARGET = "focus_target"
@@ -151,6 +161,7 @@ fun CaptureScreen(
     onStartGuidance: () -> Unit = {},
     onFocusTarget: (Float, Float) -> Unit = { _, _ -> },
     onDismissDecision: () -> Unit = {},
+    onDismissTransientMessage: () -> Unit = {},
     onClarificationSelected: (ClarificationChip) -> Unit = {},
     onCancelCoaching: () -> Unit = {},
     onReset: () -> Unit = {},
@@ -210,6 +221,7 @@ fun CaptureScreen(
                 onStartGuidance = onStartGuidance,
                 onFocusTarget = onFocusTarget,
                 onDismissDecision = onDismissDecision,
+                onDismissTransientMessage = onDismissTransientMessage,
                 onClarificationSelected = onClarificationSelected,
                 onCancelCoaching = onCancelCoaching,
                 onReset = onReset,
@@ -378,6 +390,7 @@ private fun CaptureContent(
     onStartGuidance: () -> Unit,
     onFocusTarget: (Float, Float) -> Unit,
     onDismissDecision: () -> Unit,
+    onDismissTransientMessage: () -> Unit,
     onClarificationSelected: (ClarificationChip) -> Unit,
     onCancelCoaching: () -> Unit,
     onReset: () -> Unit,
@@ -385,6 +398,7 @@ private fun CaptureContent(
     onDoneReview: () -> Unit,
 ) {
     var guideOpen by rememberSaveable { mutableStateOf(false) }
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val cancellableWork = state.activeGuidance != null || state.coachingPhase in setOf(
         CoachingPhase.GUIDING,
         CoachingPhase.LISTENING,
@@ -400,6 +414,7 @@ private fun CaptureContent(
             onStartGuidance = onStartGuidance,
             onFocusTarget = onFocusTarget,
             onDismissDecision = onDismissDecision,
+            onDismissTransientMessage = onDismissTransientMessage,
             onClarificationSelected = onClarificationSelected,
             onCancelCoaching = onCancelCoaching,
             onReset = onReset,
@@ -419,6 +434,7 @@ private fun CaptureContent(
                     preview,
                     isFrontCamera,
                     canFlipCamera,
+                    isLandscape,
                     onFlipCamera,
                     onFlashModeCycle,
                     onSettingsOpen,
@@ -427,11 +443,19 @@ private fun CaptureContent(
                     onFocusTarget,
                 )
                 Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(start = 12.dp, end = 12.dp, bottom = 112.dp)
-                        .widthIn(max = 520.dp),
+                    modifier = if (isLandscape) {
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(start = 12.dp, end = 112.dp, bottom = 12.dp)
+                            .widthIn(max = 520.dp)
+                    } else {
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(start = 12.dp, end = 12.dp, bottom = 112.dp)
+                            .widthIn(max = 520.dp)
+                    },
                     verticalArrangement = Arrangement.Bottom,
                 ) {
                     Column(
@@ -449,7 +473,10 @@ private fun CaptureContent(
                     onShutter = onShutter,
                     onMicrophone = onMicrophone,
                     onAutoEnhance = onAutoEnhance,
-                    modifier = Modifier.align(Alignment.BottomCenter),
+                    isVertical = isLandscape,
+                    modifier = Modifier.align(
+                        if (isLandscape) Alignment.CenterEnd else Alignment.BottomCenter,
+                    ),
                 )
             }
 
@@ -463,6 +490,7 @@ private fun CaptureContent(
                 onStartGuidance = onStartGuidance,
                 onFocusTarget = onFocusTarget,
                 onDismissDecision = onDismissDecision,
+                onDismissTransientMessage = onDismissTransientMessage,
                 onClarificationSelected = onClarificationSelected,
                 onCancelCoaching = onCancelCoaching,
                 onReset = onReset,
@@ -482,6 +510,7 @@ private fun PreviewPane(
     preview: @Composable BoxScope.() -> Unit,
     isFrontCamera: Boolean,
     canFlipCamera: Boolean,
+    isLandscape: Boolean,
     onFlipCamera: () -> Unit,
     onFlashModeCycle: () -> Unit,
     onSettingsOpen: () -> Unit,
@@ -505,6 +534,7 @@ private fun PreviewPane(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .safeDrawingPadding()
+                .padding(end = if (isLandscape) 96.dp else 0.dp)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .testTag(CaptureTestTags.PREVIEW_CHROME)
                 .semantics {
@@ -560,6 +590,34 @@ private fun PreviewPane(
             }
         }
 
+        if (!state.settings.keyConfigured) {
+            Surface(
+                onClick = onSettingsOpen,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .safeDrawingPadding()
+                    .padding(
+                        start = 12.dp,
+                        top = 64.dp,
+                        end = if (isLandscape) 108.dp else 12.dp,
+                    )
+                    .widthIn(max = 520.dp)
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                color = Color(0xFFFFD54F),
+                contentColor = Color.Black,
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Text(
+                    "Set up your Qwen API key for Photo Helper to work as intended.",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+
         CameraPhaseStatus(state.cameraPhase)
 
         state.activeGuidance?.let { guidance ->
@@ -610,20 +668,25 @@ private fun BoxScope.ObservationLayers(
     val focusRecommendation = state.recommendation?.takeIf {
         it.action is RecommendationAction.TapToFocus || it.action is RecommendationAction.FocusAt
     }
-    if (focusRecommendation == null && !state.settings.technicalDetail) return
+    val canFocus = state.review == null && state.cameraPhase == CameraPhase.READY &&
+        state.capabilities.supportsFocusMetering
+    if (focusRecommendation == null && state.focusIndicator == null &&
+        !state.settings.technicalDetail && !canFocus
+    ) return
     val observation = if (!state.settings.technicalDetail) null else if (liveObservation == null) {
         state.observation
     } else {
         val current by liveObservation.collectAsState()
         current
     }
-    if (state.review == null && state.cameraPhase == CameraPhase.READY &&
-        state.capabilities.supportsFocusMetering &&
-        state.coachingPhase != CoachingPhase.APPLYING
-    ) {
+    if (canFocus) {
         val modelTarget = (focusRecommendation?.action as? RecommendationAction.FocusAt)
             ?.forPreview(isFrontCamera)
-        if (modelTarget == null) {
+        val visibleIndicator = state.focusIndicator
+        if (modelTarget != null) FocusCellOutline(modelTarget)
+        if ((state.coachingPhase != CoachingPhase.APPLYING || visibleIndicator != null) &&
+            (modelTarget == null || visibleIndicator != null)
+        ) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -638,11 +701,26 @@ private fun BoxScope.ObservationLayers(
                         }
                     },
             )
-            FocusTarget(.5f, .42f) { onFocusTarget(.5f, .42f) }
-        } else {
-            FocusCellOutline(modelTarget)
-            FocusTarget(modelTarget.xFraction, modelTarget.yFraction) {
+        }
+        AnimatedContent(
+            targetState = visibleIndicator,
+            modifier = Modifier.fillMaxSize(),
+            transitionSpec = {
+                fadeIn(tween(durationMillis = 120)) togetherWith
+                    fadeOut(tween(durationMillis = 300))
+            },
+            label = "focus indicator",
+        ) { indicator ->
+            indicator?.let { FocusTarget(it.xFraction, it.yFraction) }
+        }
+        when {
+            visibleIndicator != null -> Unit
+            state.coachingPhase == CoachingPhase.APPLYING -> Unit
+            modelTarget != null -> FocusTarget(modelTarget.xFraction, modelTarget.yFraction) {
                 onFocusTarget(modelTarget.xFraction, modelTarget.yFraction)
+            }
+            focusRecommendation != null -> FocusTarget(.5f, .42f) {
+                onFocusTarget(.5f, .42f)
             }
         }
     }
@@ -679,7 +757,7 @@ private fun FocusCellOutline(target: RecommendationAction.FocusAt) {
 }
 
 @Composable
-private fun FocusTarget(xFraction: Float, yFraction: Float, onTap: () -> Unit) {
+private fun FocusTarget(xFraction: Float, yFraction: Float, onTap: (() -> Unit)? = null) {
     val reticleScale = remember(xFraction, yFraction) { Animatable(1.35f) }
     LaunchedEffect(reticleScale) {
         reticleScale.animateTo(1f, tween(durationMillis = 180))
@@ -688,11 +766,10 @@ private fun FocusTarget(xFraction: Float, yFraction: Float, onTap: () -> Unit) {
         val diameter = 72.dp
         val x = (maxWidth * xFraction - diameter / 2).coerceIn(0.dp, (maxWidth - diameter).coerceAtLeast(0.dp))
         val y = (maxHeight * yFraction - diameter / 2).coerceIn(0.dp, (maxHeight - diameter).coerceAtLeast(0.dp))
-        Canvas(
+        val interaction = if (onTap == null) {
+            Modifier.semantics { contentDescription = "Focus point" }
+        } else {
             Modifier
-                .absoluteOffset(x, y)
-                .size(diameter)
-                .testTag(CaptureTestTags.FOCUS_TARGET)
                 .pointerInput(onTap) { detectTapGestures { onTap() } }
                 .semantics {
                     contentDescription = "Tap to focus at the marked point"
@@ -702,7 +779,14 @@ private fun FocusTarget(xFraction: Float, yFraction: Float, onTap: () -> Unit) {
                         onTap()
                         true
                     }
-                },
+                }
+        }
+        Canvas(
+            Modifier
+                .absoluteOffset(x, y)
+                .size(diameter)
+                .testTag(CaptureTestTags.FOCUS_TARGET)
+                .then(interaction),
         ) {
             val accent = Color(0xFFFFD54F)
             val half = 22.dp.toPx() * reticleScale.value
@@ -890,6 +974,7 @@ private fun CoachingControls(
     onStartGuidance: () -> Unit,
     onFocusTarget: (Float, Float) -> Unit,
     onDismissDecision: () -> Unit,
+    onDismissTransientMessage: () -> Unit,
     onClarificationSelected: (ClarificationChip) -> Unit,
     onCancelCoaching: () -> Unit,
     onReset: () -> Unit,
@@ -916,7 +1001,7 @@ private fun CoachingControls(
             onReset = onReset,
         )
         Spacer(Modifier.size(6.dp))
-    } else {
+    } else if (!reviewMode) {
         AnimatedVisibility(visible = state.resetAvailable, exit = fadeOut()) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 ResetCard(modifier = Modifier.align(Alignment.End), onReset = onReset)
@@ -925,9 +1010,20 @@ private fun CoachingControls(
         }
     }
 
-    state.transientMessage?.let {
-        TransientMessage(it, state.coachingPhase == CoachingPhase.TRANSIENT_ERROR, onDismissDecision)
-        Spacer(Modifier.size(6.dp))
+    AnimatedContent(
+        targetState = state.transientMessage,
+        transitionSpec = {
+            fadeIn(tween(durationMillis = 120)) togetherWith
+                fadeOut(tween(durationMillis = 300))
+        },
+        label = "transient message",
+    ) { message ->
+        message?.let {
+            Column {
+                TransientMessage(it, state.coachingPhase == CoachingPhase.TRANSIENT_ERROR, onDismissTransientMessage)
+                Spacer(Modifier.size(6.dp))
+            }
+        }
     }
 
     CoachingProgress(state.coachingPhase)
@@ -1310,26 +1406,39 @@ private fun CaptureBar(
     onShutter: () -> Unit,
     onMicrophone: () -> Unit,
     onAutoEnhance: () -> Unit,
+    isVertical: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val buttons = @Composable {
+        AutoEnhanceButton(state.shutterEnabled && state.coachingPhase == CoachingPhase.IDLE, onAutoEnhance)
+        Shutter(enabled = state.shutterEnabled, onClick = onShutter)
+        MicrophoneButton(state.coachingPhase, onMicrophone)
+    }
     Surface(
         modifier = modifier
-            .fillMaxWidth()
+            .then(if (isVertical) Modifier.fillMaxHeight().widthIn(min = 96.dp) else Modifier.fillMaxWidth())
             .testTag(CaptureTestTags.CAPTURE_BAR),
         color = Color.Black.copy(alpha = 0.94f),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .heightIn(min = 96.dp)
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AutoEnhanceButton(state.shutterEnabled && state.coachingPhase == CoachingPhase.IDLE, onAutoEnhance)
-            Shutter(enabled = state.shutterEnabled, onClick = onShutter)
-            MicrophoneButton(state.coachingPhase, onMicrophone)
+        if (isVertical) {
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
+            ) { buttons() }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .heightIn(min = 96.dp)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) { buttons() }
         }
     }
 }
@@ -1370,6 +1479,7 @@ private fun CaptureReview(
     onStartGuidance: () -> Unit,
     onFocusTarget: (Float, Float) -> Unit,
     onDismissDecision: () -> Unit,
+    onDismissTransientMessage: () -> Unit,
     onClarificationSelected: (ClarificationChip) -> Unit,
     onCancelCoaching: () -> Unit,
     onReset: () -> Unit,
@@ -1402,63 +1512,88 @@ private fun CaptureReview(
             OverlayAction("Done", onDone, enabled = !applying)
         }
 
-        Surface(
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .heightIn(max = 390.dp)
-                .semantics { isTraversalGroup = false },
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                .fillMaxWidth(),
         ) {
-            Column(
-                modifier = Modifier.padding(12.dp).safeDrawingPadding(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 390.dp)
+                    .testTag(CaptureTestTags.REVIEW_CONTROLS)
+                    .semantics { isTraversalGroup = false },
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
             ) {
-                Text("Original remains saved", fontWeight = FontWeight.SemiBold)
                 Column(
-                    Modifier
-                        .heightIn(max = 260.dp)
-                        .verticalScroll(rememberScrollState())
-                        .semantics { isTraversalGroup = false },
+                    modifier = Modifier.padding(12.dp).safeDrawingPadding(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    CoachingControls(
-                        state = state,
-                        reviewMode = true,
-                        onApplyRecommendation = onApplyRecommendation,
-                        onStartGuidance = onStartGuidance,
-                        onFocusTarget = onFocusTarget,
-                        onDismissDecision = onDismissDecision,
-                        onClarificationSelected = onClarificationSelected,
-                        onCancelCoaching = onCancelCoaching,
-                        onReset = onReset,
-                    )
+                    Text("Original remains saved", fontWeight = FontWeight.SemiBold)
+                    Column(
+                        Modifier
+                            .heightIn(max = 260.dp)
+                            .verticalScroll(rememberScrollState())
+                            .semantics { isTraversalGroup = false },
+                    ) {
+                        CoachingControls(
+                            state = state,
+                            reviewMode = true,
+                            onApplyRecommendation = onApplyRecommendation,
+                            onStartGuidance = onStartGuidance,
+                            onFocusTarget = onFocusTarget,
+                            onDismissDecision = onDismissDecision,
+                            onDismissTransientMessage = onDismissTransientMessage,
+                            onClarificationSelected = onClarificationSelected,
+                            onCancelCoaching = onCancelCoaching,
+                            onReset = onReset,
+                        )
+                    }
+                    TranscriptOverlay(state.comment, state.coachingPhase)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics {
+                                isTraversalGroup = true
+                                traversalIndex = 4f
+                            },
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    ) {
+                        MicrophoneButton(state.coachingPhase, onMicrophone)
+                        OutlinedButton(
+                            onClick = onRetake,
+                            enabled = !applying,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text("Retake")
+                        }
+                        TextButton(
+                            onClick = onDone,
+                            enabled = !applying,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text("Done")
+                        }
+                    }
                 }
-                TranscriptOverlay(state.comment, state.coachingPhase)
-                Row(
+            }
+            AnimatedVisibility(
+                visible = state.resetAvailable && state.decision == null && !applying,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 16.dp)
+                    .offset(y = (-28).dp),
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = onReset,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            isTraversalGroup = true
-                            traversalIndex = 4f
-                        },
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                ) {
-                    MicrophoneButton(state.coachingPhase, onMicrophone)
-                    OutlinedButton(
-                        onClick = onRetake,
-                        enabled = !applying,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
-                        Text("Retake")
-                    }
-                    TextButton(
-                        onClick = onDone,
-                        enabled = !applying,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
-                        Text("Done")
-                    }
-                }
+                        .testTag(CaptureTestTags.RESET)
+                        .semantics { traversalIndex = 3f },
+                    icon = { Text("↶") },
+                    text = { Text("Reset") },
+                )
             }
         }
     }

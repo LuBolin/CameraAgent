@@ -313,7 +313,8 @@ class DefaultCoachEngine(
             return LocalDecision.Advisory("Exposure control is unavailable", "This camera cannot apply an exposure change here.")
         }
         val direction = if (darker) -1 else 1
-        val delta = (direction * 0.7f / caps.exposureCompensationStepEv).roundToInt()
+        val requestedEv = if (input.relativeBaseline != null) 0.3f else 0.7f
+        val delta = direction * (requestedEv / caps.exposureCompensationStepEv).roundToInt().coerceAtLeast(1)
         val current = input.telemetry.exposureCompensationIndex
         val prior = input.relativeBaseline?.exposureCompensationIndex?.takeIf { (it - current) * direction > 0 }
         val target = if (prior != null) {
@@ -383,8 +384,9 @@ class DefaultCoachEngine(
         val prior = input.relativeBaseline?.zoomRatio?.takeIf {
             it.isFinite() && it in range && (it - current) * direction > 0.01f
         }
+        val zoomFactor = if (input.relativeBaseline != null) 1.12f else 1.25f
         val target = (prior?.let { (current + it) / 2f }
-            ?: if (inward) current * 1.25f else current / 1.25f).coerceIn(range)
+            ?: if (inward) current * zoomFactor else current / zoomFactor).coerceIn(range)
         if (abs(target - current) < 0.01f) {
             return LocalDecision.Advisory(
                 "Zoom limit reached",
@@ -602,17 +604,26 @@ class DefaultCoachEngine(
                 fromVisualHint = fromVisual,
             )
         }
-        if (preset == input.telemetry.whiteBalancePreset) {
-            return LocalDecision.Advisory(
-                if (preset == WhiteBalancePreset.AUTO) "Auto white balance is already active" else "That color setting is already active",
-                "Describe another change if the image still does not look right.",
-                fromVisualHint = fromVisual,
-            )
+        val currentLevel = input.telemetry.whiteBalanceLevel
+        val targetLevel = when (preset) {
+            WhiteBalancePreset.AUTO -> 0.takeIf {
+                currentLevel != 0 && it in input.capabilities.supportedWhiteBalanceLevels
+            }
+            WhiteBalancePreset.WARMER -> input.capabilities.supportedWhiteBalanceLevels
+                .filter { it > currentLevel }
+                .minOrNull()
+            WhiteBalancePreset.COOLER -> input.capabilities.supportedWhiteBalanceLevels
+                .filter { it < currentLevel }
+                .maxOrNull()
         }
-        if (preset !in input.capabilities.supportedWhiteBalancePresets) {
+        if (targetLevel == null) {
             return LocalDecision.Advisory(
-                "White-balance adjustment is unavailable",
-                "This camera cannot apply that color change in Photo Helper.",
+                if (preset == WhiteBalancePreset.AUTO && currentLevel == 0) {
+                    "Auto white balance is already active"
+                } else {
+                    "That color setting is already at this camera's limit"
+                },
+                "Describe another change if the image still does not look right.",
                 fromVisualHint = fromVisual,
             )
         }
@@ -639,7 +650,7 @@ class DefaultCoachEngine(
                 consequence = "This changes color across the whole image and can be reset.",
                 primaryLabel = label,
                 action = RecommendationAction.ApplySettings(
-                    CameraAdjustment.WhiteBalance(preset),
+                    CameraAdjustment.WhiteBalance(preset, targetLevel),
                     VerificationTarget.ColorBalance(
                         direction,
                         input.observation?.chromaBlueBias,
