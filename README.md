@@ -40,7 +40,7 @@ If hosted AI is unavailable, the plan fails closed while ordinary capture, manua
 ```mermaid
 flowchart LR
     A["Push-to-talk request"] --> B["On-device transcript"]
-    C["Reduced clean + gridded frames<br/>Telemetry + capability bounds"] --> D["Qwen3.7 Flash<br/>Semantic planner"]
+    C["Reduced clean frame<br/>Telemetry + capability bounds"] --> D["Qwen3.7 Flash<br/>Semantic planner"]
     B --> D
     D --> E["Strict JSON<br/>≤8 actions · 6 types"]
     E --> F["Android validates<br/>Schema · capability · context"]
@@ -52,7 +52,7 @@ Photo Helper is an agent rather than a camera chatbot because it closes an **obs
 
 The model may propose only six action types:
 
-`ADJUST` · `SET_CAMERA` · `SET_FLASH` · `FOCUS_CELL` · `RESET` · `CAPTURE`
+`ADJUST` · `SET_CAMERA` · `SET_FLASH` · `FOCUS_POINT` · `RESET` · `CAPTURE`
 
 Qwen never receives a camera-control interface. Android reparses the full response, checks it against the active lens and current session, maps semantic directions to supported device values, and remains the sole authority that acts on the camera. Setting changes run transactionally: failure restores the pre-Apply state, and Reset restores the original baseline across chained adjustments.
 

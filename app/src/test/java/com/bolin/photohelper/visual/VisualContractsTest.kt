@@ -10,23 +10,13 @@ import kotlinx.coroutines.runBlocking
 
 class VisualContractsTest {
     @Test
-    fun `object focus uses aspect-aware bounded cells`() {
-        val portrait = FocusGrid.forImage(480, 640)
-        val landscape = FocusGrid.forImage(640, 480)
-        val valid = VisualHint.FocusCell(row = 4, column = 2, rows = portrait.rows, columns = portrait.columns)
-        val invalid = runCatching { VisualHint.FocusCell(row = 4, column = 6, rows = portrait.rows, columns = portrait.columns) }
+    fun `focus point rejects coordinates outside the preview`() {
+        val point = VisualHint.FocusPoint(726 / 999f, 386 / 999f)
 
-        assertEquals(FocusGrid(columns = 6, rows = 8), portrait)
-        assertEquals(FocusGrid(columns = 8, rows = 6), landscape)
-        assertEquals(2.5f / 6f, valid.xFraction)
-        assertEquals(4.5f / 8f, valid.yFraction)
-        assertTrue(invalid.exceptionOrNull() is IllegalArgumentException)
-    }
-
-    @Test
-    fun `object focus keeps six cells across a tall camera frame`() {
-        assertEquals(FocusGrid(columns = 6, rows = 8), FocusGrid.forImage(1080, 1920))
-        assertEquals(FocusGrid(columns = 8, rows = 6), FocusGrid.forImage(1920, 1080))
+        assertEquals(726 / 999f, point.xFraction)
+        assertEquals(386 / 999f, point.yFraction)
+        assertTrue(runCatching { VisualHint.FocusPoint(1.001f, .5f) }.isFailure)
+        assertTrue(runCatching { VisualHint.FocusPoint(Float.NaN, .5f) }.isFailure)
     }
 
     @Test

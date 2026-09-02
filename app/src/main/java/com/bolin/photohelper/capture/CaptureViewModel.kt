@@ -18,7 +18,6 @@ import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.observationsComparable
 import com.bolin.photohelper.visual.VisualRequest
 import com.bolin.photohelper.visual.VisualResult
-import com.bolin.photohelper.visual.FocusGrid
 import com.bolin.photohelper.visual.CommandRequest
 import com.bolin.photohelper.visual.CommandResult
 import com.bolin.photohelper.visual.CameraChangeSnapshot
@@ -595,7 +594,7 @@ class CaptureViewModel(
         activeCommandText = sourceText
         pendingCommandSteps.addAll(plan.steps.sortedBy { step ->
             when (step) {
-                is CommandPlanStep.FocusCell -> 1
+                is CommandPlanStep.FocusPoint -> 1
                 is CommandPlanStep.Capture -> 2
                 else -> 0
             }
@@ -638,18 +637,18 @@ class CaptureViewModel(
                 },
             )
             is CommandPlanStep.SetFlash -> setFlashMode(step.mode, continuePlan = true)
-            is CommandPlanStep.FocusCell -> {
+            is CommandPlanStep.FocusPoint -> {
                 val complaintId = UUID.randomUUID().toString()
                 activeComplaintId = complaintId
                 val input = coachingInput(complaintId, activeCommandText)
                 val decision = coach.continueWithVisualHint(
                     input,
                     VisualFamily.OBJECT_FOCUS,
-                    VisualHint.FocusCell(step.row, step.column, step.rows, step.columns),
+                    VisualHint.FocusPoint(step.xFraction, step.yFraction),
                 ).withProvenance(
                     input,
                     visualFamily = VisualFamily.OBJECT_FOCUS,
-                    visualHint = VisualHint.FocusCell(step.row, step.column, step.rows, step.columns),
+                    visualHint = VisualHint.FocusPoint(step.xFraction, step.yFraction),
                 )
                 _uiState.update { it.copy(comment = activeCommandText) }
                 if (decision !is LocalDecision.Recommend) {
@@ -1077,10 +1076,6 @@ class CaptureViewModel(
                         eligibility.family,
                         originalInput.complaint,
                         ownedJpeg,
-                        focusGrid = if (eligibility.family == VisualFamily.OBJECT_FOCUS) {
-                            originalInput.observation?.let { FocusGrid.forImage(it.sourceWidth, it.sourceHeight) }
-                                ?: return@launch keepVisualFallback(fallback)
-                        } else null,
                     ),
                     ownedKey,
                 )
@@ -1187,12 +1182,10 @@ class CaptureViewModel(
                     return@launch
                 }
                 jpeg = requestJpeg
-                val grid = FocusGrid.forImage(observation.sourceWidth, observation.sourceHeight)
                 val result = interpretCommand(
                     CommandRequest(
                         comment = comment,
                         observationJpeg = requestJpeg,
-                        focusGrid = grid,
                         telemetry = originalInput.telemetry,
                         capabilities = originalInput.capabilities,
                         flashMode = originalFlashMode,

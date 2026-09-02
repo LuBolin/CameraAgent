@@ -34,9 +34,9 @@ People describe photos as “too dark,” “too warm,” “too far away,” or
 
 The prototype is a native Android app using Kotlin, Jetpack Compose, CameraX/Camera2, on-device speech recognition, and ML Kit. It works with existing phone hardware. The initial product is a voice-controlled utility for families and casual photographers; a production version would move model credentials behind a product-owned service and could expose the bounded planner as an OEM camera mode or SDK.
 
-For each request, Photo Helper sends Qwen3.7 Flash the transcript, reduced clean and gridded frames, and trusted telemetry and capability bounds. Qwen returns a semantic plan but has no camera-control interface. Android reparses it, rejects invalid or stale context, maps semantic directions to values supported by the active lens, and alone acts on the camera. Settings run transactionally: failure restores the pre-Apply state; Reset restores the baseline across chained changes.
+For each request, Photo Helper sends Qwen3.7 Flash the transcript, one reduced clean frame, and trusted telemetry and capability bounds. Qwen returns a semantic plan but has no camera-control interface. Android reparses it, rejects invalid or stale context, maps semantic directions to values supported by the active lens, and alone acts on the camera. Settings run transactionally: failure restores the pre-Apply state; Reset restores the baseline across chained changes.
 
-The prompt is a strict planning contract with at most eight ordered actions from six allowlisted types: `ADJUST`, `SET_CAMERA`, `SET_FLASH`, `FOCUS_CELL`, `RESET`, and `CAPTURE`. It forbids raw values, free-form coordinates, extra keys, and prose; visual focus is limited to a valid grid cell.
+The prompt is a strict planning contract with at most eight ordered actions from six allowlisted types: `ADJUST`, `SET_CAMERA`, `SET_FLASH`, `FOCUS_POINT`, `RESET`, and `CAPTURE`. It forbids device values, pixel coordinates, extra keys, and prose; visual focus is limited to a validated normalized point on the requested object.
 
 Voice is push-to-talk, capped at 15 seconds, transcribed on-device where supported, overwritten after use, and never sent to Alibaba. Hosted requests receive reduced still frames—not audio, continuous preview, or the full-resolution photo.
 

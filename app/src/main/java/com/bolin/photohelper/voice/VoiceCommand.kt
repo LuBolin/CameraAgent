@@ -20,10 +20,9 @@ sealed interface CommandPlanStep {
     }
     data class SetCamera(val facing: CameraFacing) : CommandPlanStep
     data class SetFlash(val mode: FlashMode) : CommandPlanStep
-    data class FocusCell(val row: Int, val column: Int, val rows: Int, val columns: Int) : CommandPlanStep {
+    data class FocusPoint(val xFraction: Float, val yFraction: Float) : CommandPlanStep {
         init {
-            require(rows in 4..8 && columns in 4..8)
-            require(row in 0 until rows && column in 0 until columns)
+            require(xFraction in 0f..1f && yFraction in 0f..1f)
         }
     }
     data object Reset : CommandPlanStep

@@ -193,7 +193,7 @@ class DefaultCoachEngine(
         hint: VisualHint,
     ): LocalDecision = when (hint) {
         is VisualHint.Clarify -> evaluateLocal(input)
-        is VisualHint.FocusCell -> if (family == VisualFamily.OBJECT_FOCUS) {
+        is VisualHint.FocusPoint -> if (family == VisualFamily.OBJECT_FOCUS) {
             objectFocus(input, hint)
         } else {
             evaluateLocal(input)
@@ -213,7 +213,7 @@ class DefaultCoachEngine(
         }
     }
 
-    private fun objectFocus(input: CoachingInput, hint: VisualHint.FocusCell): LocalDecision {
+    private fun objectFocus(input: CoachingInput, hint: VisualHint.FocusPoint): LocalDecision {
         if (input.origin == ObservationOrigin.CAPTURE_REVIEW || !input.capabilities.supportsFocusMetering) {
             return focus(input)
         }
@@ -223,15 +223,11 @@ class DefaultCoachEngine(
                 cameraSessionId = input.cameraSessionId,
                 headline = "Subject located",
                 actionText = "Tap the marked point to focus",
-                consequence = "The camera will focus at the center of the matching grid area.",
+                consequence = "The camera will focus at the marked point.",
                 primaryLabel = null,
                 action = RecommendationAction.FocusAt(
                     hint.xFraction,
                     hint.yFraction,
-                    hint.leftFraction,
-                    hint.topFraction,
-                    hint.rightFraction,
-                    hint.bottomFraction,
                 ),
                 basis = RecommendationBasis.USER_PREFERENCE,
                 fromVisualHint = true,

@@ -71,23 +71,10 @@ enum class VisualClarificationReason {
 
 sealed interface VisualHint {
     data class Intent(val value: VisualIntent) : VisualHint
-    data class FocusCell(
-        val row: Int,
-        val column: Int,
-        val rows: Int,
-        val columns: Int,
-    ) : VisualHint {
+    data class FocusPoint(val xFraction: Float, val yFraction: Float) : VisualHint {
         init {
-            require(rows in 4..8 && columns in 4..8)
-            require(row in 0 until rows && column in 0 until columns)
+            require(xFraction in 0f..1f && yFraction in 0f..1f)
         }
-
-        val xFraction: Float get() = (column + .5f) / columns
-        val yFraction: Float get() = (row + .5f) / rows
-        val leftFraction: Float get() = column.toFloat() / columns
-        val topFraction: Float get() = row.toFloat() / rows
-        val rightFraction: Float get() = (column + 1f) / columns
-        val bottomFraction: Float get() = (row + 1f) / rows
     }
     data class Clarify(val reason: VisualClarificationReason) : VisualHint
 }
@@ -164,17 +151,9 @@ sealed interface RecommendationAction {
     data class FocusAt(
         val xFraction: Float,
         val yFraction: Float,
-        val leftFraction: Float,
-        val topFraction: Float,
-        val rightFraction: Float,
-        val bottomFraction: Float,
     ) : RecommendationAction {
         init {
             require(xFraction in 0f..1f && yFraction in 0f..1f)
-            require(leftFraction in 0f..1f && topFraction in 0f..1f)
-            require(rightFraction in 0f..1f && bottomFraction in 0f..1f)
-            require(leftFraction < rightFraction && topFraction < bottomFraction)
-            require(xFraction in leftFraction..rightFraction && yFraction in topFraction..bottomFraction)
         }
     }
 }

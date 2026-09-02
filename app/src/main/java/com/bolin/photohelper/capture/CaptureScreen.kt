@@ -128,7 +128,6 @@ object CaptureTestTags {
     const val SETTINGS = "settings_sheet"
     const val FOCUS_AREA = "focus_area"
     const val FOCUS_TARGET = "focus_target"
-    const val FOCUS_CELL = "focus_cell"
     const val COUNTDOWN = "capture_countdown"
     const val PREVIEW_CHROME = "preview_chrome"
     const val CAMERA_FLIP = "camera_flip"
@@ -683,7 +682,6 @@ private fun BoxScope.ObservationLayers(
         val modelTarget = (focusRecommendation?.action as? RecommendationAction.FocusAt)
             ?.forPreview(isFrontCamera)
         val visibleIndicator = state.focusIndicator
-        if (modelTarget != null) FocusCellOutline(modelTarget)
         if ((state.coachingPhase != CoachingPhase.APPLYING || visibleIndicator != null) &&
             (modelTarget == null || visibleIndicator != null)
         ) {
@@ -728,33 +726,7 @@ private fun BoxScope.ObservationLayers(
 }
 
 private fun RecommendationAction.FocusAt.forPreview(mirrored: Boolean): RecommendationAction.FocusAt =
-    if (!mirrored) this else copy(
-        xFraction = 1f - xFraction,
-        leftFraction = 1f - rightFraction,
-        rightFraction = 1f - leftFraction,
-    )
-
-@Composable
-private fun FocusCellOutline(target: RecommendationAction.FocusAt) {
-    Canvas(Modifier.fillMaxSize().testTag(CaptureTestTags.FOCUS_CELL)) {
-        val topLeft = Offset(size.width * target.leftFraction, size.height * target.topFraction)
-        val cellSize = Size(
-            size.width * (target.rightFraction - target.leftFraction),
-            size.height * (target.bottomFraction - target.topFraction),
-        )
-        drawRect(
-            color = Color(0xFFFFD54F).copy(alpha = 0.10f),
-            topLeft = topLeft,
-            size = cellSize,
-        )
-        drawRect(
-            color = Color(0xFFFFD54F),
-            topLeft = topLeft,
-            size = cellSize,
-            style = Stroke(width = 3.dp.toPx()),
-        )
-    }
-}
+    if (!mirrored) this else copy(xFraction = 1f - xFraction)
 
 @Composable
 private fun FocusTarget(xFraction: Float, yFraction: Float, onTap: (() -> Unit)? = null) {
@@ -1698,8 +1670,8 @@ private fun GuideSheet(state: CaptureUiState, onDismiss: () -> Unit) {
             )
             GuideTopic(
                 "Focus",
-                "With Qwen enabled, say “focus on the red watch.” Qwen receives the clean frame and a labelled " +
-                    "aspect-aware grid, then returns one grid cell in its action plan. Check the marker, then tap it " +
+                "With Qwen enabled, say “focus on the red watch.” Qwen receives the clean frame and returns one " +
+                    "point on the requested object. Check the marker, then tap it " +
                     "to focus locally. Without Qwen, choose the focus point yourself.",
             )
             GuideTopic("Zoom", "Say “too zoomed in” or “too zoomed out” for a wider or tighter digital crop.")

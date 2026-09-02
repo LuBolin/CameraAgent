@@ -420,22 +420,18 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun modelFocusShowsItsGridCellWithoutAConfirmationCard() {
+    fun modelFocusShowsItsPointWithoutAConfirmationCard() {
         var focusPoint: Pair<Float, Float>? = null
         val recommendation = Recommendation(
             complaintId = "focus-watch",
             cameraSessionId = 0,
             headline = "Subject located",
             actionText = "Tap the marked point to focus",
-            consequence = "The camera will focus in the matching grid cell.",
+            consequence = "The camera will focus at the marked point.",
             primaryLabel = null,
             action = RecommendationAction.FocusAt(
                 xFraction = 2.5f / 6f,
                 yFraction = 4.5f / 8f,
-                leftFraction = 2f / 6f,
-                topFraction = 4f / 8f,
-                rightFraction = 3f / 6f,
-                bottomFraction = 5f / 8f,
             ),
             basis = RecommendationBasis.USER_PREFERENCE,
             fromVisualHint = true,
@@ -452,7 +448,6 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithTag(CaptureTestTags.FOCUS_CELL).assertIsDisplayed()
         compose.onNodeWithTag(CaptureTestTags.FOCUS_TARGET).assertIsDisplayed().assert(hasClickAction())
         compose.onNodeWithText("Choose manually").assertDoesNotExist()
         compose.onNodeWithText("Focus here").assertDoesNotExist()
@@ -473,15 +468,11 @@ class CaptureScreenTest {
             cameraSessionId = 0,
             headline = "Subject located",
             actionText = "Tap the marked point to focus",
-            consequence = "The camera will focus in the matching grid cell.",
+            consequence = "The camera will focus at the marked point.",
             primaryLabel = null,
             action = RecommendationAction.FocusAt(
                 xFraction = targetX,
                 yFraction = 4.5f / 8f,
-                leftFraction = 2f / 6f,
-                topFraction = 4f / 8f,
-                rightFraction = 3f / 6f,
-                bottomFraction = 5f / 8f,
             ),
             basis = RecommendationBasis.USER_PREFERENCE,
             fromVisualHint = true,
@@ -513,15 +504,11 @@ class CaptureScreenTest {
             cameraSessionId = 0,
             headline = "Subject located",
             actionText = "Tap the marked point to focus",
-            consequence = "The camera will focus in the matching grid cell.",
+            consequence = "The camera will focus at the marked point.",
             primaryLabel = null,
             action = RecommendationAction.FocusAt(
                 xFraction = .75f,
                 yFraction = .75f,
-                leftFraction = .7f,
-                topFraction = .7f,
-                rightFraction = .8f,
-                bottomFraction = .8f,
             ),
             basis = RecommendationBasis.USER_PREFERENCE,
             fromVisualHint = true,

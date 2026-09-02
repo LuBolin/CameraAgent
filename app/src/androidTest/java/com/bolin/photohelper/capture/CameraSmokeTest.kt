@@ -517,13 +517,9 @@ class CameraSmokeTest {
             focusArea.performTouchInput { click(percentOffset(x, y)) }
             listOf("MANUAL", x, y, focusBounds.left + focusBounds.width * x, focusBounds.top + focusBounds.height * y)
         } else {
-            assertTrue(
-                "Qwen focus did not show its selected grid cell",
-                compose.onAllNodesWithTag(CaptureTestTags.FOCUS_CELL).fetchSemanticsNodes().isNotEmpty(),
-            )
             val action = viewModel.uiState.value.recommendation?.action as com.bolin.photohelper.coach.RecommendationAction.FocusAt
             focusTarget.performClick()
-            listOf("QWEN_GRID", action.xFraction, action.yFraction, markerX, markerY)
+            listOf("QWEN_POINT", action.xFraction, action.yFraction, markerX, markerY)
         }
         compose.waitUntil(timeoutMillis = 10_000) {
             viewModel.uiState.value.transientMessage != "Focusing…" &&

@@ -74,13 +74,13 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `model focus cell focuses its center immediately`() = runTest(dispatcher) {
+    fun `model focus point focuses immediately`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(), supportsFocusMetering = true)
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
             autoApplyRecommendations = true,
-            commandResult = { planned(CommandPlanStep.FocusCell(row = 1, column = 2, rows = 4, columns = 4)) },
+            commandResult = { planned(CommandPlanStep.FocusPoint(.625f, .375f)) },
         )
 
         viewModel.updateComment("focus on the red cup")
@@ -117,7 +117,7 @@ class CaptureViewModelTest {
                         listOf(ControlIntent.EXPOSURE_BRIGHTER, ControlIntent.ZOOM_IN),
                         small = true,
                     ),
-                    CommandPlanStep.FocusCell(row = 2, column = 1, rows = 4, columns = 4),
+                    CommandPlanStep.FocusPoint(.375f, .625f),
                 )
             },
         )
@@ -214,7 +214,7 @@ class CaptureViewModelTest {
             commandResult = {
                 planned(
                     CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_BRIGHTER)),
-                    CommandPlanStep.FocusCell(row = 1, column = 2, rows = 4, columns = 4),
+                    CommandPlanStep.FocusPoint(.625f, .375f),
                 )
             },
         )
@@ -247,7 +247,7 @@ class CaptureViewModelTest {
             autoApplyRecommendations = true,
             commandResult = {
                 planned(
-                    CommandPlanStep.FocusCell(row = 1, column = 2, rows = 4, columns = 4),
+                    CommandPlanStep.FocusPoint(.625f, .375f),
                     CommandPlanStep.Adjust(listOf(ControlIntent.ZOOM_IN)),
                 )
             },
@@ -272,7 +272,7 @@ class CaptureViewModelTest {
                 CommandPlanStep.Capture(null),
             ),
             "Take a picture with the focus on the keyboard" to listOf(
-                CommandPlanStep.FocusCell(row = 1, column = 2, rows = 4, columns = 4),
+                CommandPlanStep.FocusPoint(.625f, .375f),
                 CommandPlanStep.Capture(null),
             ),
         )
@@ -1783,19 +1783,17 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `Qwen object cell becomes the only confirmed focus point`() = runTest(dispatcher) {
+    fun `Qwen object point becomes the only confirmed focus point`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(), supportsFocusMetering = true)
-        var grid: com.bolin.photohelper.visual.FocusGrid? = null
         var observationJpeg: ByteArray? = null
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
             commandRequest = {
-                grid = it.focusGrid
                 observationJpeg = it.observationJpeg.copyOf()
             },
             commandResult = {
-                planned(CommandPlanStep.FocusCell(row = 4, column = 2, rows = 6, columns = 8))
+                planned(CommandPlanStep.FocusPoint(.3125f, .75f))
             },
         )
         viewModel.setCameraPermission(true)
@@ -1804,27 +1802,26 @@ class CaptureViewModelTest {
         viewModel.submitComment()
         runCurrent()
 
-        assertEquals(com.bolin.photohelper.visual.FocusGrid(columns = 8, rows = 6), grid)
         assertArrayEquals(byteArrayOf(1, 2, 3), observationJpeg)
         val action = viewModel.uiState.value.recommendation?.action as RecommendationAction.FocusAt
-        assertEquals(2.5f / 8f, action.xFraction)
-        assertEquals(4.5f / 6f, action.yFraction)
+        assertEquals(.3125f, action.xFraction)
+        assertEquals(.75f, action.yFraction)
         assertEquals(0, camera.focusCalls)
 
         viewModel.focusAt(action.xFraction, action.yFraction)
         runCurrent()
-        assertEquals((2.5f / 8f) to (4.5f / 6f), camera.focusPoint)
+        assertEquals(.3125f to .75f, camera.focusPoint)
     }
 
     @Test
-    fun `model focus cell waits for confirmation before continuing to countdown capture`() = runTest(dispatcher) {
+    fun `model focus point waits for confirmation before continuing to countdown capture`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(), supportsFocusMetering = true)
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
             commandResult = {
                 planned(
-                    CommandPlanStep.FocusCell(row = 4, column = 2, rows = 6, columns = 8),
+                    CommandPlanStep.FocusPoint(.3125f, .75f),
                     CommandPlanStep.Capture(3),
                 )
             },
