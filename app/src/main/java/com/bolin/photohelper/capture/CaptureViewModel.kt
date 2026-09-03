@@ -9,6 +9,7 @@ import com.bolin.photohelper.coach.ControlIntent
 import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.ObservationOrigin
 import com.bolin.photohelper.coach.Recommendation
+import com.bolin.photohelper.coach.SettingChange
 import com.bolin.photohelper.coach.RecommendationAction
 import com.bolin.photohelper.coach.VerificationResult
 import com.bolin.photohelper.coach.VerificationTarget
@@ -17,11 +18,16 @@ import com.bolin.photohelper.coach.VisualFamily
 import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.observationsComparable
 import com.bolin.photohelper.visual.VisualRequest
+import com.bolin.photohelper.visual.VisualProvider
 import com.bolin.photohelper.visual.VisualResult
 import com.bolin.photohelper.visual.FocusGrid
 import com.bolin.photohelper.visual.CommandRequest
 import com.bolin.photohelper.visual.CommandResult
 import com.bolin.photohelper.visual.CameraChangeSnapshot
+import com.bolin.photohelper.arcore.ArSessionManager
+import com.bolin.photohelper.arcore.SpatialState
+import com.bolin.photohelper.arcore.SpatialTracker
+import com.bolin.photohelper.ui.ThemeMode
 import com.bolin.photohelper.voice.VoiceIo
 import com.bolin.photohelper.voice.VoiceResult
 import com.bolin.photohelper.voice.CameraFacing
@@ -37,12 +43,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -57,6 +65,10 @@ private const val VOICE_INPUT_TIMEOUT_MS = 20_000L
 private const val VOICE_INPUT_TIMEOUT_MESSAGE = "Voice input timed out. Tap the mic to try again."
 private const val TOAST_TIMEOUT_MS = 5_000L
 private const val FOCUS_INDICATOR_MS = 5_000L
+/** Two visible attempts: the first plan, then one alternative, then an honest concession. */
+private const val MAX_SETTING_ATTEMPTS = 2
+private const val SETTING_SETTLE_MS = 400L
+private const val SETTING_VERIFY_TIMEOUT_MS = 3_000L
 private val OBJECT_FOCUS_REQUEST = Regex("\\b(focus|sharp|sharpen|clear)\\b", RegexOption.IGNORE_CASE)
 private fun countdownMessage(seconds: Int) = "Photo in $seconds ${if (seconds == 1) "second" else "seconds"}…"
 
@@ -66,6 +78,7 @@ class CaptureViewModel(
     private val voice: VoiceIo,
     private val preferences: PreferenceStore,
     private val hasApiKey: () -> Boolean,
+    private val defaultVisualProvider: VisualProvider = VisualProvider.QWEN,
     private val loadApiKey: () -> CharArray?,
     private val saveApiKey: (CharArray) -> Unit,
     private val clearApiKey: () -> Unit,
@@ -75,16 +88,43 @@ class CaptureViewModel(
     private val feedback: (Feedback) -> Unit = {},
     private val nowMs: () -> Long = SystemClock::elapsedRealtime,
     private val autoApplyRecommendations: Boolean = true,
+    internal val arSession: ArSessionManager? = null,
+    private val audioCue: AudioCuePlayer? = null,
 ) : ViewModel() {
-    private val initialSettings = preferences.settings(hasApiKey())
+    private val initialSettings = preferences.settings(hasApiKey(), defaultVisualProvider)
     private val _uiState = MutableStateFlow(
         CaptureUiState(
             onboardingStep = if (preferences.onboardingComplete()) 2 else 0,
             settings = initialSettings,
             capabilities = camera.capabilities.value,
+            showFirstUseHint = !preferences.firstUseHintSeen(),
         ),
     )
     val uiState: StateFlow<CaptureUiState> = _uiState.asStateFlow()
+
+    /**
+     * How far the agent has got with the current complaint, 0f to 1f. The Helper Orb
+     * samples the Jarvis gradient at this point, which is why it is a float and not
+     * the phase enum: the ring sweeps rather than steps.
+     */
+    val confidence: StateFlow<Float> = uiState
+        .map { it.coachingPhase.confidence() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, CoachingPhase.IDLE.confidence())
+
+    /**
+     * True while the agent is mid-session. Spatial guidance is phrased against the
+     * orientation the session started in - "step left" flips meaning if the phone
+     * rotates underneath it - so the activity pins rotation until the work is done.
+     */
+    val shouldLockOrientation: StateFlow<Boolean> = uiState
+        .map { it.coachingPhase != CoachingPhase.IDLE }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    private val spatialTracker = SpatialTracker()
+    private val _spatialState = MutableStateFlow(SpatialState(0f, null, isStill = false, stillnessDuration = 0))
+    val spatialState: StateFlow<SpatialState> = _spatialState.asStateFlow()
+    private var readyForAutoCapture = false
+
     private val _cameraFacingRequests = MutableSharedFlow<CameraFacingRequest>(extraBufferCapacity = 1)
     val cameraFacingRequests: SharedFlow<CameraFacingRequest> = _cameraFacingRequests.asSharedFlow()
 
@@ -99,6 +139,11 @@ class CaptureViewModel(
     private var verificationStartObservationId: Long? = null
     private var verificationStartedAtMs: Long? = null
     private var verificationSatisfiedSamples = 0
+    /** The settings change awaiting verification, and how many attempts it has had. */
+    private var pendingSettingVerification: SettingChange? = null
+    private var settingAttempt = 0
+    private var settingAttemptComplaint = ""
+
     private var verificationIncomparableMessage: String? = null
     private var guidanceSatisfiedSinceMs: Long? = null
     private var observedSessionId = camera.state.value.sessionId
@@ -156,7 +201,10 @@ class CaptureViewModel(
                     while (comparisonSamples.size > 3) comparisonSamples.removeFirst()
                 }
                 stableFace = stableFaceTracker.update(observation, camera.state.value.sessionId)
-                if (observation != null) verifyActiveWork(observation)
+                if (observation != null) {
+                    verifyActiveWork(observation)
+                    verifySettingChange(observation)
+                }
             }
         }
         viewModelScope.launch {
@@ -179,13 +227,36 @@ class CaptureViewModel(
                 }
             }
         }
+        if (arSession != null) {
+            viewModelScope.launch {
+                arSession.latestFrame.collect { frame ->
+                    if (frame != null) {
+                        _spatialState.value = spatialTracker.update(frame)
+                    }
+                }
+            }
+            viewModelScope.launch {
+                spatialState.collect { spatial ->
+                    if (spatial.isStill && readyForAutoCapture && _uiState.value.settings.autoCaptureEnabled && _uiState.value.shutterEnabled) {
+                        readyForAutoCapture = false
+                        _uiState.update { it.copy(autoCaptureFlashKey = it.autoCaptureFlashKey + 1) }
+                        capture()
+                    }
+                }
+            }
+        }
     }
-
-    fun continueOnboarding() = _uiState.update { it.copy(onboardingStep = 1) }
 
     fun finishOnboarding() {
         preferences.setOnboardingComplete()
         _uiState.update { it.copy(onboardingStep = 2) }
+    }
+
+    /** The Orb hint is shown once ever; any interaction with the Orb retires it. */
+    fun markFirstUseHintSeen() {
+        if (!_uiState.value.showFirstUseHint) return
+        preferences.setFirstUseHintSeen()
+        _uiState.update { it.copy(showFirstUseHint = false) }
     }
 
     fun setCameraPermission(granted: Boolean) = _uiState.update {
@@ -327,8 +398,17 @@ class CaptureViewModel(
     }
 
     fun applyRecommendation() {
-        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
         val recommendation = currentRecommendation() ?: return
+        applyResolvedRecommendation(recommendation)
+    }
+
+    private fun applyResolvedRecommendation(recommendation: Recommendation) {
+        if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        if (recommendation.cameraSessionId != camera.state.value.sessionId) {
+            invalidateCameraSession()
+            failWork("The camera session changed. Describe the shot again before applying a change.")
+            return
+        }
         val action = recommendation.action as? RecommendationAction.ApplySettings ?: return
         val beforeTelemetry = camera.telemetry.value
         val requestText = activeCommandText.ifBlank { _uiState.value.comment }
@@ -372,6 +452,18 @@ class CaptureViewModel(
                             advanceCommandPlan()
                             return@launch
                         }
+                        audioCue?.play(AudioCue.CHIME)
+                        readyForAutoCapture = arSession != null
+                        markResetAvailable()
+                        if (_uiState.value.settings.haptics) feedback(Feedback.TICK)
+                        // Applying is not succeeding. Hold the frame still for a moment and
+                        // check the measurement actually moved the way the plan intended;
+                        // startSettingVerification decides whether to finish or try again.
+                        val verifiable = action.changes.singleOrNull()
+                        if (verifiable != null && _uiState.value.review == null) {
+                            startSettingVerification(verifiable, recommendation, wasReview)
+                            return@launch
+                        }
                         activeComplaintId = null
                         _uiState.update {
                             it.copy(
@@ -380,11 +472,9 @@ class CaptureViewModel(
                                 coachingPhase = CoachingPhase.IDLE,
                                 retakeSettingsActive = wasReview,
                                 activeGuidance = null,
-                                transientMessage = null,
+                                transientMessage = recommendation.actionText,
                             )
                         }
-                        markResetAvailable()
-                        if (_uiState.value.settings.haptics) feedback(Feedback.TICK)
                     }
                     is ApplyResult.Failed -> failWork(result.message)
                 }
@@ -450,6 +540,7 @@ class CaptureViewModel(
         }
         cancelJobsOnly()
         voiceFinishRequested = false
+        readyForAutoCapture = false
         activeComplaintId = null
         voice.stop()
         guidanceSatisfiedSinceMs = null
@@ -470,6 +561,8 @@ class CaptureViewModel(
     fun capture() {
         if (captureInFlight || !_uiState.value.shutterEnabled) return
         captureInFlight = true
+        readyForAutoCapture = false
+        audioCue?.play(AudioCue.SHUTTER)
         cancelCoaching()
         _uiState.update { it.copy(cameraPhase = CameraPhase.CAPTURING) }
         operationJob = viewModelScope.launch {
@@ -800,6 +893,28 @@ class CaptureViewModel(
         updateSettings { it.copy(technicalDetail = enabled) }
     }
 
+    fun setThemeMode(mode: ThemeMode) {
+        preferences.setThemeMode(mode)
+        updateSettings { it.copy(themeMode = mode) }
+    }
+
+    fun setVisualProvider(provider: VisualProvider) {
+        preferences.setVisualProvider(provider)
+        updateSettings { it.copy(visualProvider = provider) }
+    }
+
+    fun setStyleProfile(profile: String) {
+        val trimmed = profile.take(MAX_STYLE_PROFILE_CHARACTERS)
+        preferences.setStyleProfile(trimmed)
+        updateSettings { it.copy(styleProfile = trimmed) }
+    }
+
+    fun setAutoCaptureEnabled(enabled: Boolean) {
+        preferences.setAutoCaptureEnabled(enabled)
+        if (!enabled) readyForAutoCapture = false
+        updateSettings { it.copy(autoCaptureEnabled = enabled) }
+    }
+
     fun setVisualAiEnabled(enabled: Boolean) {
         if (enabled && visualCredentialsRejected) {
             camera.setObservationImageEnabled(false)
@@ -1037,6 +1152,7 @@ class CaptureViewModel(
         cancelJobsOnly()
         voice.close()
         camera.close()
+        audioCue?.release()
     }
 
     private fun requestVisualHint(
@@ -1199,6 +1315,7 @@ class CaptureViewModel(
                         autoEnhance = autoEnhance,
                         frameObservation = observation,
                         recentChanges = recentCameraChanges.toList(),
+                        styleProfile = _uiState.value.settings.styleProfile,
                     ),
                     ownedKey,
                 )
@@ -1257,15 +1374,18 @@ class CaptureViewModel(
             showToast(decision.detail)
             return
         }
+        val recommendation = (decision as? LocalDecision.Recommend)?.recommendation
+        val autoApplied = autoApplyRecommendations &&
+            recommendation?.action is RecommendationAction.ApplySettings
         _uiState.update {
             it.copy(
-                decision = decision,
+                decision = if (autoApplied) null else decision,
                 coachingPhase = if (decision is LocalDecision.Recommend) CoachingPhase.RECOMMENDATION else CoachingPhase.IDLE,
             )
         }
         if (!autoApplyRecommendations) return
-        when (val action = (decision as? LocalDecision.Recommend)?.recommendation?.action) {
-            is RecommendationAction.ApplySettings -> applyRecommendation()
+        when (val action = recommendation?.action) {
+            is RecommendationAction.ApplySettings -> applyResolvedRecommendation(recommendation)
             is RecommendationAction.FocusAt -> focusAt(action.xFraction, action.yFraction, keepRecommendation = true)
             else -> Unit
         }
@@ -1378,6 +1498,142 @@ class CaptureViewModel(
         }
     }
 
+
+    // ── Settings verification and bounded retry ────────────────────
+    //
+    // A settings change is not finished when the camera accepts it - it is finished
+    // when the frame actually moved the way the plan intended. The coach engine could
+    // always answer that question; until now nothing asked it for settings, so a change
+    // that silently did nothing still reported success.
+    //
+    // On a miss the agent gets one more attempt, and only if it has a genuinely
+    // different thing to try. Two visible attempts, then an honest concession.
+
+    private fun startSettingVerification(
+        change: SettingChange,
+        recommendation: Recommendation,
+        wasReview: Boolean,
+    ) {
+        pendingSettingVerification = change
+        if (settingAttempt == 0) settingAttemptComplaint = activeCommandText.ifBlank { _uiState.value.comment }
+        verificationStartObservationId = latestLiveObservation?.id
+        verificationStartedAtMs = nowMs()
+        _uiState.update {
+            it.copy(
+                review = null,
+                cameraPhase = CameraPhase.READY,
+                coachingPhase = CoachingPhase.VERIFYING,
+                retakeSettingsActive = wasReview,
+                activeGuidance = null,
+                transientMessage = recommendation.actionText,
+            )
+        }
+        verificationTimeoutJob?.cancel()
+        verificationTimeoutJob = viewModelScope.launch {
+            delay(SETTING_VERIFY_TIMEOUT_MS)
+            // No comparable frame arrived in time. Treat that as unverifiable rather
+            // than as failure - the change was applied, we simply cannot prove it.
+            if (_uiState.value.coachingPhase == CoachingPhase.VERIFYING) {
+                finishSettingWork(recommendation.actionText)
+            }
+        }
+    }
+
+    /** Called for every new frame while a settings change is awaiting verification. */
+    private fun verifySettingChange(observation: FrameObservation) {
+        val change = pendingSettingVerification ?: return
+        if (_uiState.value.coachingPhase != CoachingPhase.VERIFYING) return
+        // Ignore the frame the change was applied on, and give the sensor a moment to settle.
+        if (observation.id == verificationStartObservationId) return
+        if (observation.timestampMs < (verificationStartedAtMs ?: Long.MIN_VALUE) + SETTING_SETTLE_MS) return
+
+        when (val result = coach.verify(change.target, observation)) {
+            VerificationResult.Satisfied, VerificationResult.Progress -> finishSettingWork(null)
+            // Applied, but unprovable. Say which, rather than implying success.
+            is VerificationResult.Incomparable -> finishSettingWork(result.reason)
+            VerificationResult.Unchanged -> retryOrConcede(change)
+        }
+    }
+
+    private fun retryOrConcede(change: SettingChange) {
+        verificationTimeoutJob?.cancel()
+        verificationTimeoutJob = null
+        pendingSettingVerification = null
+
+        val reason = exhaustedReason(change.adjustment)
+        // Retrying only makes sense when the planner can reach a different answer. The
+        // local engine is deterministic - a second run returns the same plan - so on the
+        // local path a miss concedes immediately rather than burning a visible attempt.
+        val canReplan = canUseVisualAi()
+        if (!canReplan || settingAttempt >= MAX_SETTING_ATTEMPTS - 1 ||
+            reason != null || settingAttemptComplaint.isBlank()
+        ) {
+            settingAttempt = 0
+            // Say what stopped it, not just that something did.
+            failWork(reason ?: "That did not change the shot. Try moving or changing the angle.")
+            return
+        }
+
+        settingAttempt++
+        // The retry is a normal planning request; what makes it a second attempt is the
+        // failed change sitting in recentChanges, which the prompt already describes as
+        // prior actions. The model can read that the last step did nothing.
+        _uiState.update {
+            it.copy(
+                coachingPhase = CoachingPhase.INTERPRETING,
+                transientMessage = "That did not take. Trying something else…",
+            )
+        }
+        requestCommandPlan(settingAttemptComplaint)
+    }
+
+    /**
+     * Why another attempt on this axis would be pointless. Checking the camera's own
+     * limits first avoids spending a call to be told what the capabilities already say.
+     */
+    private fun exhaustedReason(adjustment: CameraAdjustment): String? {
+        val capabilities = _uiState.value.capabilities
+        val telemetry = camera.telemetry.value
+        return when (adjustment) {
+            is CameraAdjustment.ExposureCompensation -> {
+                val range = capabilities.exposureCompensationRange
+                when {
+                    range.isEmpty() -> "This camera cannot change brightness."
+                    telemetry.exposureCompensationIndex >= range.last ->
+                        "Brightness is already as high as this camera goes."
+                    telemetry.exposureCompensationIndex <= range.first ->
+                        "Brightness is already as low as this camera goes."
+                    else -> null
+                }
+            }
+            is CameraAdjustment.ZoomRatio -> {
+                val range = capabilities.zoomRatioRange
+                when {
+                    telemetry.zoomRatio >= range.endInclusive -> "Zoom is already at its maximum."
+                    telemetry.zoomRatio <= range.start -> "Zoom is already at its minimum."
+                    else -> null
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun finishSettingWork(message: String?) {
+        verificationTimeoutJob?.cancel()
+        verificationTimeoutJob = null
+        pendingSettingVerification = null
+        settingAttempt = 0
+        activeComplaintId = null
+        verificationStartObservationId = null
+        verificationStartedAtMs = null
+        _uiState.update {
+            it.copy(
+                coachingPhase = CoachingPhase.IDLE,
+                transientMessage = message ?: it.transientMessage,
+            )
+        }
+    }
+
     private fun verifyActiveWork(observation: FrameObservation) {
         val active = _uiState.value.activeGuidance ?: return
         if (_uiState.value.coachingPhase == CoachingPhase.VERIFYING &&
@@ -1475,6 +1731,8 @@ class CaptureViewModel(
         verificationSatisfiedSamples = 0
         verificationIncomparableMessage = null
         voice.stop()
+        audioCue?.play(AudioCue.CHIME)
+        readyForAutoCapture = arSession != null
         if (_uiState.value.settings.haptics) feedback(feedbackType)
         if (_uiState.value.settings.spokenGuidance) voice.speak(message, "result")
         _uiState.update {

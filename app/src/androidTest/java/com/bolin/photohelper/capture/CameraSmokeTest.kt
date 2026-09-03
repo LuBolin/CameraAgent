@@ -50,7 +50,7 @@ class CameraSmokeTest {
     fun virtualCameraCapturesAndEntersSavedReview() {
         openCameraAndWaitUntilReady()
         try {
-            compose.onNodeWithTag(CaptureTestTags.SHUTTER).performClick()
+            compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).performClick()
             compose.waitUntil(timeoutMillis = 60_000) {
                 compose.onAllNodesWithText("Original remains saved").fetchSemanticsNodes().isNotEmpty()
             }
@@ -74,10 +74,14 @@ class CameraSmokeTest {
         openCameraAndWaitUntilReady()
         val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
         try {
-            compose.onNodeWithTag(CaptureTestTags.SHUTTER).performClick()
+            compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).performClick()
             val timeoutMessage = "Camera did not finish saving the photo. Try again."
+            // Wait for an actual outcome. READY on its own is also the state the
+            // camera is in before the shutter has done anything, so waiting on it
+            // races the capture and can pass through before it starts.
             compose.waitUntil(timeoutMillis = 22_000) {
-                viewModel.uiState.value.review != null || viewModel.uiState.value.cameraPhase == CameraPhase.READY
+                viewModel.uiState.value.review != null ||
+                    viewModel.uiState.value.transientMessage == timeoutMessage
             }
 
             val state = viewModel.uiState.value
@@ -336,16 +340,15 @@ class CameraSmokeTest {
         var selfieUri: String? = null
 
         try {
-            compose.onNodeWithContentDescription("Switch to front camera")
+            compose.onNodeWithContentDescription("Switch to selfie camera")
                 .assertIsEnabled()
                 .performClick()
             compose.waitUntil(timeoutMillis = 30_000) {
                 viewModel.uiState.value.cameraPhase == CameraPhase.READY &&
                     session.activeLensFacing == CameraCharacteristics.LENS_FACING_FRONT
             }
-            compose.onNodeWithText("LIVE · SELFIE").assertIsDisplayed()
 
-            compose.onNodeWithTag(CaptureTestTags.SHUTTER).performClick()
+            compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).performClick()
             compose.waitUntil(timeoutMillis = 60_000) { viewModel.uiState.value.review != null }
             selfieUri = viewModel.uiState.value.review?.uri
             compose.waitUntil(timeoutMillis = 30_000) {
@@ -547,13 +550,12 @@ class CameraSmokeTest {
     }
 
     private fun openCameraAndWaitUntilReady() {
-        if (compose.onAllNodesWithText("Continue").fetchSemanticsNodes().isNotEmpty()) {
-            compose.onNodeWithText("Continue").performClick()
-            compose.onNodeWithText("Open camera").performClick()
+        if (compose.onAllNodesWithText("Tap to Start").fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNodeWithText("Tap to Start").performClick()
         }
         compose.waitUntil(timeoutMillis = 30_000) {
             runCatching {
-                compose.onNodeWithTag(CaptureTestTags.SHUTTER).assertIsEnabled()
+                compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).assertIsEnabled()
             }.isSuccess
         }
     }

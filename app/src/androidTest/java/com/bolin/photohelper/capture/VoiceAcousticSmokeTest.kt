@@ -222,15 +222,14 @@ class VoiceAcousticSmokeTest {
 
     private fun openCameraAndWaitUntilReady() {
         compose.waitUntil(timeoutMillis = 10_000) {
-            runCatching { compose.onAllNodesWithText("Continue").fetchSemanticsNodes() }.isSuccess
+            runCatching { compose.onAllNodesWithText("Tap to Start").fetchSemanticsNodes() }.isSuccess
         }
-        if (compose.onAllNodesWithText("Continue").fetchSemanticsNodes().isNotEmpty()) {
-            compose.onNodeWithText("Continue").performClick()
-            compose.onNodeWithText("Open camera").performClick()
+        if (compose.onAllNodesWithText("Tap to Start").fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNodeWithText("Tap to Start").performClick()
         }
         compose.waitUntil(timeoutMillis = 30_000) {
             runCatching {
-                compose.onNodeWithTag(CaptureTestTags.SHUTTER).assertIsEnabled()
+                compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).assertIsEnabled()
             }.isSuccess
         }
     }

@@ -1,3 +1,14 @@
+import java.util.Properties
+
+// Keys live in a gitignored `.env` at the repo root (see .env.example). Read at
+// build time and surfaced through BuildConfig; an empty or missing file just
+// means the app falls back to whatever key was pasted into settings.
+val dotenv = Properties().apply {
+    val file = rootProject.file(".env")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+fun env(name: String): String = (dotenv.getProperty(name) ?: "").trim()
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,6 +25,9 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "ANTHROPIC_API_KEY", "\"${env("ANTHROPIC_API_KEY")}\"")
+        buildConfigField("String", "DASHSCOPE_API_KEY", "\"${env("DASHSCOPE_API_KEY")}\"")
     }
 
     signingConfigs {
@@ -40,6 +54,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -56,7 +71,11 @@ android {
     }
 
     packaging {
+        // The Anthropic SDK and its transitive deps each ship these metadata files.
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        resources.excludes += "/META-INF/DEPENDENCIES"
+        resources.excludes += "/META-INF/INDEX.LIST"
+        resources.excludes += "/META-INF/{NOTICE,LICENSE}*"
     }
 }
 
@@ -71,6 +90,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
@@ -81,12 +101,17 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraX")
     implementation("androidx.camera:camera-view:$cameraX")
     implementation("com.google.mlkit:face-detection:16.1.7")
+    implementation("com.anthropic:anthropic-java:2.34.0")
+    implementation("com.google.ar:core:1.44.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation("androidx.test:rules:1.5.0")
+    // 3.5.x calls InputManager.getInstance(), which newer platforms removed; the
+    // emulator runs a much newer API than compileSdk, so these must stay current.
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation("androidx.test:rules:1.7.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }

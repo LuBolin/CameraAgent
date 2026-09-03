@@ -2,6 +2,7 @@ package com.bolin.photohelper
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -25,7 +26,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -39,16 +39,22 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bolin.photohelper.capture.CameraXSession
 import com.bolin.photohelper.capture.CameraFacingRequest
 import com.bolin.photohelper.capture.CameraPhase
 import com.bolin.photohelper.capture.CaptureScreen
+import com.bolin.photohelper.capture.CaptureScreenActions
 import com.bolin.photohelper.capture.CaptureViewModel
+import com.bolin.photohelper.capture.CoachingPhase
 import com.bolin.photohelper.capture.PermissionState
+import com.bolin.photohelper.coach.ClarificationChip
 import com.bolin.photohelper.ui.PhotoHelperTheme
+import com.bolin.photohelper.ui.ThemeMode
+import com.bolin.photohelper.visual.VisualProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -59,9 +65,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         viewModel = ViewModelProvider(this, AppGraph(applicationContext).viewModelFactory())[CaptureViewModel::class.java]
+        viewModel.arSession?.let { lifecycle.addObserver(it) }
 
         setContent {
-            PhotoHelperTheme {
+            val themeMode by viewModel.uiState.collectAsStateWithLifecycle()
+            PhotoHelperTheme(themeMode = themeMode.settings.themeMode) {
                 PhotoHelperApp(viewModel)
             }
         }
@@ -90,7 +98,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     var apiKeyInput by remember { mutableStateOf("") }
     var showMicDisclosure by remember { mutableStateOf(false) }
     var cameraBindAttempt by remember { mutableIntStateOf(0) }
@@ -160,7 +168,7 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
         if (it) viewModel.startVoiceInput()
     }
 
-    val protectsApiKey = state.settingsOpen || state.onboardingStep == 1
+    val protectsApiKey = state.settingsOpen
     DisposableEffect(protectsApiKey) {
         if (protectsApiKey) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
@@ -173,9 +181,103 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val activity = this
+    val actions = remember(viewModel) {
+        object : CaptureScreenActions {
+            override fun onFlipCamera() = switchCamera(!isFrontCamera, false)
+            override fun onFlashModeCycle() = viewModel.cycleFlashMode()
+            override fun onShutter() = viewModel.capture()
+            override fun onAutoEnhance() = viewModel.makeItNicer()
+            override fun onMicrophone() {
+                when {
+                    state.coachingPhase == CoachingPhase.LISTENING -> viewModel.finishVoiceInput()
+                    !viewModel.isVoiceInputAvailable() -> viewModel.reportVoiceUnavailable()
+                    state.microphonePermission == PermissionState.GRANTED -> viewModel.startVoiceInput()
+                    state.microphonePermission == PermissionState.DENIED -> activity.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}")),
+                    )
+                    else -> showMicDisclosure = true
+                }
+            }
+            // One tap on the landing screen finishes onboarding and goes straight to
+            // the system permission prompts; there are no intermediate steps.
+            override fun onOnboardingContinue() {
+                viewModel.finishOnboarding()
+                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    viewModel.setCameraPermission(true)
+                } else {
+                    cameraPermission.launch(Manifest.permission.CAMERA)
+                }
+            }
+            override fun onRequestCameraPermission() = cameraPermission.launch(Manifest.permission.CAMERA)
+            override fun onFirstUseHintSeen() = viewModel.markFirstUseHintSeen()
+            override fun onOpenAppSettings() {
+                activity.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}")),
+                )
+            }
+            override fun onRetryCamera() {
+                viewModel.retryCamera()
+                cameraBindAttempt++
+            }
+            override fun onApplyRecommendation() = viewModel.applyRecommendation()
+            override fun onStartGuidance() = viewModel.startGuidance()
+            override fun onFocusTarget(x: Float, y: Float) = viewModel.focusAt(x, y)
+            override fun onDismissDecision() = viewModel.dismissDecision()
+            override fun onDismissTransientMessage() = viewModel.dismissTransientMessage()
+            override fun onClarificationSelected(chip: ClarificationChip) = viewModel.selectClarification(chip.replacementComplaint)
+            override fun onCancelCoaching() = viewModel.cancelCoaching()
+            override fun onReset() = viewModel.reset()
+            override fun onRetake() = viewModel.leaveReview()
+            override fun onDoneReview() = viewModel.leaveReview()
+            override fun onSettingsOpen() = viewModel.openSettings(true)
+            override fun onSettingsDismiss() {
+                apiKeyInput = ""
+                viewModel.openSettings(false)
+            }
+            override fun onSpokenGuidanceChanged(enabled: Boolean) = viewModel.setSpokenGuidance(enabled)
+            override fun onHapticsChanged(enabled: Boolean) = viewModel.setHaptics(enabled)
+            override fun onTechnicalDetailChanged(enabled: Boolean) = viewModel.setTechnicalDetail(enabled)
+            override fun onVisualAiEnabledChanged(enabled: Boolean) = viewModel.setVisualAiEnabled(enabled)
+            override fun onThemeModeChanged(mode: ThemeMode) = viewModel.setThemeMode(mode)
+            override fun onStyleProfileChanged(profile: String) = viewModel.setStyleProfile(profile)
+            override fun onVisualProviderChanged(provider: VisualProvider) = viewModel.setVisualProvider(provider)
+            override fun onApiKeyChanged(key: String) { apiKeyInput = key }
+            override fun onTestKey() {
+                val key = apiKeyInput.toCharArray()
+                apiKeyInput = ""
+                viewModel.testAndSaveKey(key)
+            }
+            override fun onClearKey() {
+                apiKeyInput = ""
+                viewModel.clearKey()
+            }
+            override fun onAutoCaptureEnabledChanged(enabled: Boolean) = viewModel.setAutoCaptureEnabled(enabled)
+            override fun onOpenVisualAiPolicy() {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://help.aliyun.com/zh/model-studio/privacy-notice")))
+            }
+            override fun onOpenMlKitPolicy() {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://developers.google.com/ml-kit/android-data-disclosure")))
+            }
+        }
+    }
+
+    val confidence by viewModel.confidence.collectAsStateWithLifecycle()
+
+    val lockOrientation by viewModel.shouldLockOrientation.collectAsStateWithLifecycle()
+    DisposableEffect(lockOrientation) {
+        activity.requestedOrientation = if (lockOrientation) {
+            ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        onDispose { activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+    }
+
     CaptureScreen(
         state = state,
         liveObservation = viewModel.camera.observation,
+        confidence = confidence,
         apiKeyInput = apiKeyInput,
         preview = {
             CameraPreview(
@@ -191,77 +293,7 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
         },
         isFrontCamera = isFrontCamera,
         canFlipCamera = canFlipCamera,
-        onFlipCamera = {
-            switchCamera(!isFrontCamera, false)
-        },
-        onFlashModeCycle = viewModel::cycleFlashMode,
-        onAutoEnhance = viewModel::makeItNicer,
-        onOnboardingContinue = viewModel::continueOnboarding,
-        onOpenCamera = {
-            viewModel.finishOnboarding()
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                viewModel.setCameraPermission(true)
-            } else {
-                cameraPermission.launch(Manifest.permission.CAMERA)
-            }
-        },
-        onRequestCameraPermission = { cameraPermission.launch(Manifest.permission.CAMERA) },
-        onOpenAppSettings = {
-            startActivity(
-                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
-            )
-        },
-        onRetryCamera = {
-            viewModel.retryCamera()
-            cameraBindAttempt++
-        },
-        onSettingsOpen = { viewModel.openSettings(true) },
-        onSettingsDismiss = {
-            apiKeyInput = ""
-            viewModel.openSettings(false)
-        },
-        onMicrophone = {
-            when {
-                state.coachingPhase == com.bolin.photohelper.capture.CoachingPhase.LISTENING -> viewModel.finishVoiceInput()
-                !viewModel.isVoiceInputAvailable() -> viewModel.reportVoiceUnavailable()
-                state.microphonePermission == PermissionState.GRANTED -> viewModel.startVoiceInput()
-                state.microphonePermission == PermissionState.DENIED -> startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
-                )
-                else -> showMicDisclosure = true
-            }
-        },
-        onShutter = viewModel::capture,
-        onApplyRecommendation = viewModel::applyRecommendation,
-        onStartGuidance = viewModel::startGuidance,
-        onFocusTarget = viewModel::focusAt,
-        onDismissDecision = viewModel::dismissDecision,
-        onDismissTransientMessage = viewModel::dismissTransientMessage,
-        onClarificationSelected = { viewModel.selectClarification(it.replacementComplaint) },
-        onCancelCoaching = { viewModel.cancelCoaching() },
-        onReset = viewModel::reset,
-        onRetake = viewModel::leaveReview,
-        onDoneReview = viewModel::leaveReview,
-        onSpokenGuidanceChanged = viewModel::setSpokenGuidance,
-        onHapticsChanged = viewModel::setHaptics,
-        onTechnicalDetailChanged = viewModel::setTechnicalDetail,
-        onVisualAiEnabledChanged = viewModel::setVisualAiEnabled,
-        onApiKeyChanged = { apiKeyInput = it },
-        onTestKey = {
-            val key = apiKeyInput.toCharArray()
-            apiKeyInput = ""
-            viewModel.testAndSaveKey(key)
-        },
-        onClearKey = {
-            apiKeyInput = ""
-            viewModel.clearKey()
-        },
-        onOpenVisualAiPolicy = {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://help.aliyun.com/zh/model-studio/privacy-notice")))
-        },
-        onOpenMlKitPolicy = {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://developers.google.com/ml-kit/android-data-disclosure")))
-        },
+        actions = actions,
     )
 
     if (showMicDisclosure) {

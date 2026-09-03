@@ -64,7 +64,9 @@ class CaptureViewModelTest {
         runCurrent()
 
         assertEquals(1, camera.applyCalls)
-        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+        // Applied, and now checking the frame actually moved; no further observation
+        // arrives in this test, so it stays in VERIFYING until the timeout.
+        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
         assertEquals(null, viewModel.uiState.value.decision)
         assertTrue(viewModel.uiState.value.resetAvailable)
 
@@ -337,7 +339,8 @@ class CaptureViewModelTest {
             runCurrent()
         }
 
-        assertEquals(null, viewModel.uiState.value.transientMessage)
+        // A successful apply now names the change instead of falling silent.
+        assertEquals("Apply 1.25× digital zoom", viewModel.uiState.value.transientMessage)
         assertTrue(viewModel.uiState.value.resetAvailable)
 
         viewModel.reset()
@@ -373,7 +376,10 @@ class CaptureViewModelTest {
             camera.appliedBatches.single(),
         )
         assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
-        assertEquals(null, viewModel.uiState.value.transientMessage)
+        assertEquals(
+            "Zoom · 1.6× digital zoom\nColor · Cooler white balance",
+            viewModel.uiState.value.transientMessage,
+        )
         assertTrue(viewModel.uiState.value.resetAvailable)
 
         viewModel.reset()
@@ -699,7 +705,8 @@ class CaptureViewModelTest {
         runCurrent()
         assertNotNull(camera.lastAdjustment)
         assertEquals(1, camera.applyCalls)
-        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+        // The change is applied but not yet proven; the next frame decides.
+        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
 
         camera.observation.value = observation(id = 4, highlights = .08f, luma = .55f, timestamp = 1_600)
         runCurrent()
@@ -734,7 +741,7 @@ class CaptureViewModelTest {
         runCurrent()
 
         assertEquals("too bright", viewModel.uiState.value.comment)
-        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
         assertTrue(viewModel.uiState.value.resetAvailable)
     }
 
@@ -1019,7 +1026,7 @@ class CaptureViewModelTest {
 
         assertEquals(CameraAdjustment.WhiteBalance(WhiteBalancePreset.WARMER), camera.lastAdjustment)
         assertEquals(1, camera.applyCalls)
-        assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
+        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
     }
 
     @Test
@@ -2424,6 +2431,95 @@ class CaptureViewModelTest {
     private fun planned(vararg steps: CommandPlanStep): CommandResult =
         CommandResult.Planned(CommandPlan(steps.toList()))
 
+
+    @Test
+    fun `a local plan that does not move the frame concedes instead of repeating itself`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(id = 1, highlights = .3f, luma = .7f, timestamp = 1_000))
+        val viewModel = viewModel(camera, autoApplyRecommendations = true)
+        viewModel.setCameraPermission(true)
+        runCurrent()
+        camera.observation.value = observation(id = 2, highlights = .3f, luma = .7f, timestamp = 1_250)
+        runCurrent()
+        // A stable baseline needs three comparable samples spanning at least 500ms;
+        // without it the engine reports the change as unverifiable rather than failed.
+        camera.observation.value = observation(id = 3, highlights = .3f, luma = .7f, timestamp = 1_600)
+        runCurrent()
+
+        viewModel.updateComment("too bright")
+        viewModel.submitComment()
+        runCurrent()
+        assertEquals(1, camera.applyCalls)
+        assertEquals(CoachingPhase.VERIFYING, viewModel.uiState.value.coachingPhase)
+
+        // The frame did not move: same luma, same clipping. Without the model there is
+        // no second answer to reach, so it says so rather than re-running the same plan.
+        camera.observation.value = observation(id = 4, highlights = .3f, luma = .7f, timestamp = 2_000)
+        runCurrent()
+
+        assertEquals(
+            "That did not change the shot. Try moving or changing the angle.",
+            viewModel.uiState.value.transientMessage,
+        )
+        assertEquals(CoachingPhase.TRANSIENT_ERROR, viewModel.uiState.value.coachingPhase)
+        assertEquals(1, camera.applyCalls)
+    }
+
+    @Test
+    fun `a second failed attempt concedes instead of trying forever`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(id = 1, highlights = .3f, luma = .7f, timestamp = 1_000))
+        val viewModel = viewModel(camera, autoApplyRecommendations = true)
+        viewModel.setCameraPermission(true)
+        runCurrent()
+        camera.observation.value = observation(id = 2, highlights = .3f, luma = .7f, timestamp = 1_250)
+        runCurrent()
+        // A stable baseline needs three comparable samples spanning at least 500ms;
+        // without it the engine reports the change as unverifiable rather than failed.
+        camera.observation.value = observation(id = 3, highlights = .3f, luma = .7f, timestamp = 1_600)
+        runCurrent()
+
+        viewModel.updateComment("too bright")
+        viewModel.submitComment()
+        runCurrent()
+
+        // First miss -> retry, which re-plans and applies again.
+        camera.observation.value = observation(id = 4, highlights = .3f, luma = .7f, timestamp = 2_000)
+        runCurrent()
+        // Second miss -> stop. Two visible attempts, then an honest concession.
+        camera.observation.value = observation(id = 5, highlights = .7f, luma = .7f, timestamp = 3_000)
+        runCurrent()
+
+        assertEquals(CoachingPhase.TRANSIENT_ERROR, viewModel.uiState.value.coachingPhase)
+        assertTrue(
+            "expected a concession, got ${viewModel.uiState.value.transientMessage}",
+            viewModel.uiState.value.transientMessage.orEmpty().isNotBlank(),
+        )
+    }
+
+    @Test
+    fun `a pinned camera axis never reaches the retry loop`() = runTest(dispatcher) {
+        // Exposure is already at the bottom of its range. The coach refuses to plan at
+        // all, so no call is spent and no retry is needed - the capability check in
+        // exhaustedReason is the second line of defence for an axis that pins mid-loop.
+        val camera = FakeCamera(observation(id = 1, highlights = .3f, luma = .7f, timestamp = 1_000))
+        camera.telemetry.value = CameraTelemetry(exposureCompensationIndex = -6)
+        val viewModel = viewModel(camera, autoApplyRecommendations = true)
+        viewModel.setCameraPermission(true)
+        runCurrent()
+        camera.observation.value = observation(id = 2, highlights = .3f, luma = .7f, timestamp = 1_250)
+        runCurrent()
+        // A stable baseline needs three comparable samples spanning at least 500ms;
+        // without it the engine reports the change as unverifiable rather than failed.
+        camera.observation.value = observation(id = 3, highlights = .3f, luma = .7f, timestamp = 1_600)
+        runCurrent()
+
+        viewModel.updateComment("too bright")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals("Minimum brightness reached.", viewModel.uiState.value.transientMessage)
+        assertEquals(0, camera.applyCalls)
+    }
+
     private fun viewModel(
         camera: FakeCamera,
         visualEnabled: Boolean = false,
@@ -2567,11 +2663,25 @@ class CaptureViewModelTest {
 
     private class FakePreferences(private val visualEnabled: Boolean) : PreferenceStore {
         val visualAiEnabledWrites = mutableListOf<Boolean>()
+        var storedStyleProfile = ""
+        var storedProvider = com.bolin.photohelper.visual.VisualProvider.QWEN
+        var storedThemeMode = com.bolin.photohelper.ui.ThemeMode.SYSTEM
+        var hintSeen = true
         override fun onboardingComplete() = true
         override fun setOnboardingComplete() = Unit
-        override fun settings(keyConfigured: Boolean) = SettingsUiState(
+        override fun firstUseHintSeen() = hintSeen
+        override fun setFirstUseHintSeen() {
+            hintSeen = true
+        }
+        override fun settings(
+            keyConfigured: Boolean,
+            defaultProvider: com.bolin.photohelper.visual.VisualProvider,
+        ) = SettingsUiState(
             visualAiEnabled = visualEnabled,
             keyConfigured = keyConfigured,
+            themeMode = storedThemeMode,
+            styleProfile = storedStyleProfile,
+            visualProvider = storedProvider,
         )
         override fun setSpokenGuidance(enabled: Boolean) = Unit
         override fun setHaptics(enabled: Boolean) = Unit
@@ -2579,6 +2689,17 @@ class CaptureViewModelTest {
         override fun setVisualAiEnabled(enabled: Boolean) {
             visualAiEnabledWrites += enabled
         }
+        override fun setThemeMode(mode: com.bolin.photohelper.ui.ThemeMode) {
+            storedThemeMode = mode
+        }
+        override fun setStyleProfile(profile: String) {
+            storedStyleProfile = profile
+        }
+        override fun setVisualProvider(provider: com.bolin.photohelper.visual.VisualProvider) {
+            storedProvider = provider
+        }
+        override fun autoCaptureEnabled() = true
+        override fun setAutoCaptureEnabled(enabled: Boolean) = Unit
     }
 
     private fun observation(

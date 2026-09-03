@@ -178,9 +178,6 @@ class BailianVisualClient internal constructor(
     }
 
     private companion object {
-        const val VISUAL_NETWORK_TIMEOUT_MS = 5_000L
-        const val OBJECT_FOCUS_NETWORK_TIMEOUT_MS = 20_000L
-        const val COMMAND_NETWORK_TIMEOUT_MS = 30_000L
         const val MAX_HTTP_RESPONSE_BYTES = 64 * 1024
         val PROCESS_CALL_LIMITER = VisualCallLimiter()
     }
@@ -258,7 +255,7 @@ internal fun createFocusGridGuide(observationJpeg: ByteArray, grid: FocusGrid): 
 
 private const val FOCUS_GUIDE_LONG_EDGE = 384
 
-private sealed interface ProviderCall {
+internal sealed interface ProviderCall {
     data class Available(val response: String) : ProviderCall
     data class Failed(val message: String) : ProviderCall
     data object CredentialsRejected : ProviderCall
