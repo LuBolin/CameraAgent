@@ -17,7 +17,7 @@ Deadline: **14 August 2026, 6:00 PM SGT**
 ## Rubric check before submission
 
 - **AI innovation (30%):** description and video show the multimodal observe–plan–act loop, not merely an API call.
-- **Technical Excellence (20%):** include strict action validation, local camera authority, Reset/rollback, 209 unit tests, and 57 device tests.
+- **Technical Excellence (20%):** include strict action validation, local camera authority, Reset/rollback and real-device execution evidence.
 - **User Experience & Demo (25%):** use the family scene, keep the main product flow smooth, subtitle the spoken request, and keep the automatic enhancer out of the hero demo.
 - **Business Value & Viability (25%):** explain the common outcome-language gap, initial family/older-adult scenario, OEM/SDK path, and honest pilot requirements.
 

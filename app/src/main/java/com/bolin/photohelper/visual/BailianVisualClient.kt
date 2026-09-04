@@ -30,10 +30,12 @@ private fun httpFailureMessage(status: Int): String = when (status) {
 class BailianVisualClient internal constructor(
     private val connectionFactory: (URL) -> HttpsURLConnection,
     private val callLimiter: VisualCallLimiter = VisualCallLimiter(),
+    private val captionCallLimiter: VisualCallLimiter = VisualCallLimiter(),
 ) {
     constructor() : this(
         connectionFactory = { it.openConnection() as HttpsURLConnection },
         callLimiter = PROCESS_CALL_LIMITER,
+        captionCallLimiter = PROCESS_CAPTION_CALL_LIMITER,
     )
 
     suspend fun interpret(request: VisualRequest, apiKey: CharArray): VisualResult {
@@ -64,9 +66,21 @@ class BailianVisualClient internal constructor(
         }
     }
 
+    suspend fun caption(request: CaptionRequest, apiKey: CharArray): CaptionResult {
+        val result = call(apiKey, COMMAND_NETWORK_TIMEOUT_MS, captionCallLimiter) { buildCaptionRequestBody(request) }
+        return when (result) {
+            is ProviderCall.Available -> parseCaptionResponse(result.response, request.length)
+                ?.let(CaptionResult::Available) ?: CaptionResult.Failed("AI returned an invalid caption. Try again.")
+            is ProviderCall.Failed -> CaptionResult.Failed(result.message)
+            ProviderCall.CredentialsRejected -> CaptionResult.CredentialsRejected
+            ProviderCall.Unavailable -> CaptionResult.Unavailable
+        }
+    }
+
     private suspend fun call(
         apiKey: CharArray,
         timeoutMs: Long,
+        limiter: VisualCallLimiter = callLimiter,
         buildBody: () -> ByteArray,
     ): ProviderCall {
         val authorization = try {
@@ -82,7 +96,7 @@ class BailianVisualClient internal constructor(
         } catch (_: JSONException) {
             return ProviderCall.Unavailable
         }
-        if (!callLimiter.tryAcquire()) {
+        if (!limiter.tryAcquire()) {
             body.fill(0)
             return ProviderCall.Failed("Too many AI requests. Try again in a minute.")
         }
@@ -161,6 +175,7 @@ class BailianVisualClient internal constructor(
         const val COMMAND_NETWORK_TIMEOUT_MS = 30_000L
         const val MAX_HTTP_RESPONSE_BYTES = 64 * 1024
         val PROCESS_CALL_LIMITER = VisualCallLimiter()
+        val PROCESS_CAPTION_CALL_LIMITER = VisualCallLimiter()
     }
 }
 

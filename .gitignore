@@ -18,6 +18,10 @@ jdk21.zip
 *.keystore
 /window.xml
 
+# Local presentation build scratch.
+submission-assets/.codex-slide-build/
+submission-assets/.demo-day-build/
+
 # Local tooling and generated artefacts - not project source.
 .claude/
 .agents/

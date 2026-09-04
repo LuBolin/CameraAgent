@@ -12,6 +12,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.rounded.FlashOff
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.FlashlightOn
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -55,7 +57,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -355,6 +359,7 @@ fun OverlayIconAction(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    image: ImageBitmap? = null,
 ) {
     val overlays = LocalOverlayColors.current
     var focused by remember { mutableStateOf(false) }
@@ -375,12 +380,21 @@ fun OverlayIconAction(
         ),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(48.dp)) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = overlays.onOverlay,
-                modifier = Modifier.size(24.dp),
-            )
+            if (image == null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = overlays.onOverlay,
+                    modifier = Modifier.size(24.dp),
+                )
+            } else {
+                Image(
+                    bitmap = image,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }
@@ -421,8 +435,8 @@ fun OverlayAction(
 }
 
 /**
- * Landscape home for the same four controls. A frosted strip pinned to the right edge
- * holding flash, flip, the Orb, and settings, so the viewfinder stays completely clean.
+ * Landscape home for the primary controls. A frosted strip pinned to the right edge
+ * keeps the viewfinder clean.
  */
 @Composable
 fun ControlStrip(
@@ -435,6 +449,8 @@ fun ControlStrip(
     onOrbTap: () -> Unit,
     onOrbLongPress: () -> Unit,
     onMicrophone: () -> Unit,
+    onOpenGallery: () -> Unit,
+    galleryThumbnail: ImageBitmap? = null,
     modifier: Modifier = Modifier,
 ) {
     val overlays = LocalOverlayColors.current
@@ -450,6 +466,13 @@ fun ControlStrip(
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
     ) {
         if (canFlipCamera) FlipChromeAction(isFrontCamera, onFlipCamera)
+        OverlayIconAction(
+            icon = Icons.Rounded.PhotoLibrary,
+            image = galleryThumbnail,
+            contentDescription = "Open gallery",
+            onClick = onOpenGallery,
+            modifier = Modifier.testTag(CaptureTestTags.GALLERY),
+        )
         MicrophoneButton(phase = state.coachingPhase, onMicrophone = onMicrophone)
         HelperOrb(
             state = orbStateFor(state.coachingPhase),

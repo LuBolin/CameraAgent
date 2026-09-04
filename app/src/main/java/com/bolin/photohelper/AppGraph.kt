@@ -13,9 +13,13 @@ import com.bolin.photohelper.capture.CaptureViewModel
 import com.bolin.photohelper.capture.Feedback
 import com.bolin.photohelper.capture.SoundPoolCuePlayer
 import com.bolin.photohelper.capture.UserPreferences
+import com.bolin.photohelper.gallery.MediaStoreGallery
+import com.bolin.photohelper.gallery.PhotoWorkflowViewModel
 import com.bolin.photohelper.coach.DefaultCoachEngine
 import com.bolin.photohelper.visual.DemoApiKeyStore
 import com.bolin.photohelper.visual.BailianVisualClient
+import com.bolin.photohelper.visual.BailianImageEditClient
+import com.bolin.photohelper.visual.VisualProvider
 import com.bolin.photohelper.voice.AndroidVoiceIo
 import java.io.ByteArrayOutputStream
 
@@ -25,6 +29,23 @@ class AppGraph(context: Context) {
     fun viewModelFactory(): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass == PhotoWorkflowViewModel::class.java) {
+                val keyStore = DemoApiKeyStore(appContext)
+                val preferences = UserPreferences(appContext)
+                return PhotoWorkflowViewModel(
+                    gallery = MediaStoreGallery(appContext),
+                    imageEditor = BailianImageEditClient(),
+                    captionClient = BailianVisualClient(),
+                    voice = AndroidVoiceIo(appContext),
+                    loadQwenKey = {
+                        if (preferences.settings(keyStore.hasKey(), VisualProvider.QWEN).visualProvider == VisualProvider.QWEN) {
+                            keyStore.load()
+                        } else {
+                            null
+                        }
+                    },
+                ) as T
+            }
             require(modelClass == CaptureViewModel::class.java)
             val session = CameraXSession(appContext)
             val keyStore = DemoApiKeyStore(appContext)

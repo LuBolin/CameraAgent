@@ -486,6 +486,42 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         }
     }
 
+    fun unbind() {
+        if (closed.get()) return
+        bindingGeneration.incrementAndGet()
+        val sessionId = cameraSessionId.incrementAndGet()
+        pendingControl.getAndSet(null)?.cancel(true)
+        pendingStillTelemetry.getAndSet(null)?.cancel()
+        analysisPaused.set(true)
+        stopRollSensor()
+        observationImages.invalidate()
+        _observation.value = null
+        _capabilities.value = CameraCapabilities()
+        _telemetry.value = CameraTelemetry()
+        controlBaseline = null
+        _state.value = CameraState(CameraPhase.STARTING, sessionId = sessionId)
+        val releaseCamera = {
+            previewUseCase = null
+            imageAnalysis?.clearAnalyzer()
+            imageAnalysis = null
+            imageCapture = null
+            camera = null
+            activeCameraId = null
+            activeLensFacing = null
+            activeFocalLengthsMm = emptyList()
+            activePhysicalCameraIds = emptySet()
+            activePhysicalCameraId = null
+            activeFocalLengthMm = null
+            focusPointFactory = null
+            previewWidth = 0
+            previewHeight = 0
+            removeZoomObserver()
+            cameraProvider?.unbindAll()
+            cameraProvider = null
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) releaseCamera() else mainExecutor.execute(releaseCamera)
+    }
+
     override suspend fun apply(adjustment: CameraAdjustment): ApplyResult =
         applyAtomically(listOf(adjustment))
 

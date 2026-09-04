@@ -1,6 +1,6 @@
 # Photo Coaching
 
-This context describes how a photographer expresses dissatisfaction with a shot and how Photo Helper turns it into bounded, verifiable coaching.
+This context describes Photo Helper's camera coaching and post-capture photo workflows.
 
 ## Language
 
@@ -115,3 +115,37 @@ _Avoid_: Face size, perspective distortion
 **Close-Perspective Distortion**:
 The change in apparent facial proportions caused by a short camera-to-subject distance.
 _Avoid_: Face occupancy, big face
+
+## Library, editing, and sharing language
+
+**Library Asset**:
+An image the app can currently read through a content URI. Readability is a capability, not permanent ownership.
+_Avoid_: Photo record, file
+
+**Edit Original**:
+The fixed, immutable Library Asset selected when an Edit Session begins.
+_Avoid_: Current image, Retake Baseline
+
+**Edit Session**:
+One process-scoped lineage rooted at one Edit Original. It is distinct from Capture Review and its Retake Baseline.
+_Avoid_: Chat, Capture Review
+
+**Working Asset**:
+The Edit Original or Edit Variant that receives the next edit request.
+_Avoid_: Latest result, Current Variant
+
+**Edit Variant**:
+A saved AI-generated copy with one Working Asset parent and one fixed Edit Original.
+_Avoid_: Edited original, overwrite
+
+**Share Selection**:
+An ordered, currently readable list of one to nine Library Assets that the photographer intends to send together.
+_Avoid_: Album, set
+
+**Current Caption Draft**:
+The last accepted AI draft or user-edited text associated with the current Share Selection and length choice.
+_Avoid_: AI caption, chat history
+
+**App-created Asset**:
+A MediaStore image inserted by this app installation.
+_Avoid_: App-owned photo, Pictures/PhotoHelper item

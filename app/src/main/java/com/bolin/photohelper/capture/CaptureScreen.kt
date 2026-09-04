@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.isTraversalGroup
@@ -70,6 +73,7 @@ object CaptureTestTags {
     const val PREVIEW_CHROME = "preview_chrome"
     const val CAMERA_FLIP = "camera_flip"
     const val FLASH_MODE = "flash_mode"
+    const val GALLERY = "gallery"
 }
 
 @Composable
@@ -83,6 +87,7 @@ fun CaptureScreen(
     canFlipCamera: Boolean,
     actions: CaptureScreenActions,
     guideProgress: GuideProgress? = null,
+    galleryThumbnail: ImageBitmap? = null,
 ) {
     var showGuide by remember { mutableStateOf(false) }
     var activeExercise by remember { mutableStateOf<ActiveExercise?>(null) }
@@ -131,6 +136,7 @@ fun CaptureScreen(
                         preview = preview,
                         isFrontCamera = isFrontCamera,
                         canFlipCamera = canFlipCamera,
+                        galleryThumbnail = galleryThumbnail,
                         actions = actions,
                     )
                     val review = state.review
@@ -232,6 +238,7 @@ private fun CaptureContent(
     preview: @Composable BoxScope.() -> Unit,
     isFrontCamera: Boolean,
     canFlipCamera: Boolean,
+    galleryThumbnail: ImageBitmap?,
     actions: CaptureScreenActions,
 ) {
     val config = LocalConfiguration.current
@@ -296,6 +303,8 @@ private fun CaptureContent(
                 onOrbTap = onOrbTap,
                 onOrbLongPress = onOrbLongPress,
                 onMicrophone = actions::onMicrophone,
+                onOpenGallery = actions::onOpenGallery,
+                galleryThumbnail = galleryThumbnail,
                 modifier = Modifier.width(CONTROL_STRIP_WIDTH),
             )
             }
@@ -315,6 +324,17 @@ private fun CaptureContent(
                 showTopChrome = chromeVisible,
             )
             if (chromeVisible) {
+            OverlayIconAction(
+                icon = Icons.Rounded.PhotoLibrary,
+                image = galleryThumbnail,
+                contentDescription = "Open gallery",
+                onClick = actions::onOpenGallery,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, bottom = 24.dp)
+                    .testTag(CaptureTestTags.GALLERY),
+            )
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

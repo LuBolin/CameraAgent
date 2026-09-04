@@ -10,6 +10,7 @@ interface CaptureScreenActions {
     fun onFlashModeCycle()
     fun onShutter()
     fun onAutoEnhance()
+    fun onOpenGallery()
 
     // Voice
     fun onMicrophone()

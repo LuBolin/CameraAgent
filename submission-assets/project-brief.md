@@ -8,7 +8,7 @@
 
 A family photo is time-sensitive. The photographer can often see what is wrong—people look dark or far away, or the camera is focused on the wrong person—but may not know terms such as exposure compensation, metering region, white balance, or zoom ratio. This is especially relevant to older adults and first-time smartphone photographers, although the problem is not age-specific.
 
-Photo Helper lets the user state the outcome in ordinary language: “Make it brighter, focus on the person in red, and take a photo after three seconds.” The agent translates that request into a visible, bounded camera plan and executes it with approval, capability checks, Reset, and recovery. It operates supported camera controls instead of teaching settings. It does not claim to have superior photographic taste or direct the photographer around a scene.
+Photo Helper lets the user state the outcome in ordinary language: “Make the picture brighter, focus on the panda, and take a photo in five seconds.” The agent translates that request into a visible, bounded camera plan and executes it with capability checks, Reset and recovery. It operates supported camera controls instead of teaching settings.
 
 ## Agent and technical architecture
 
@@ -32,8 +32,8 @@ Settings execute transactionally: failure restores the pre-Apply state, and Rese
 
 The initial product is a voice-controlled camera utility for families, older adults, and other casual photographers. Its differentiation is a natural-language control layer over existing phone hardware—not a tutorial, chat wrapper, or automatic beauty filter. A longer-term route could be an OEM camera mode or SDK for assisted capture in family photography, product listings, and field documentation.
 
-The prototype demonstrates the complete real-device loop. It currently passes 209 JVM unit tests and 57 deterministic physical-device tests, with evidence for Reset restoration, responsive layouts, large text, encrypted key storage, and voice capture. A production pilot should measure successful outcome-to-capture completion, time-to-capture, manual control interactions, retakes, and user confidence. Direct research with older adults and a backend credential boundary are required before accessibility or photo-quality claims.
+The prototype demonstrates the complete real-device loop, including grounded focus, bounded camera changes, timed capture, Reset restoration, responsive layouts, encrypted key storage and voice capture. A production pilot should measure successful outcome-to-capture completion, time-to-capture, manual control interactions, retakes and user confidence.
 
 ## WorkBuddy contribution
 
-WorkBuddy was used as a bounded product-quality pipeline: repository-scale investigation, specialist UI/UX judgment, human-approved implementation, regression testing, APK installation, and physical-device verification. Its findings changed the shipped listening and Reset interactions. This created evidence that the required development agent contributed to the product rather than being added only for presentation.
+WorkBuddy accelerated implementation and strengthened product quality through repository-scale HY3 work and specialist review across architecture, UX and QA. The resulting build, review and verification loop made WorkBuddy a substantive part of product development.

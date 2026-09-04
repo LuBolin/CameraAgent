@@ -2,6 +2,7 @@ package com.bolin.photohelper
 
 import android.Manifest
 import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
@@ -9,6 +10,7 @@ import android.hardware.camera2.CameraManager
 import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.provider.Settings
 import android.view.View
 import android.view.WindowManager
@@ -16,24 +18,33 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.camera.core.CameraSelector
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
@@ -53,6 +64,17 @@ import com.bolin.photohelper.capture.CoachingPhase
 import com.bolin.photohelper.capture.PermissionState
 import com.bolin.photohelper.coach.ClarificationChip
 import com.bolin.photohelper.guide.GuideProgress
+import com.bolin.photohelper.gallery.GalleryAccess
+import com.bolin.photohelper.gallery.MAX_SHARE_SELECTION
+import com.bolin.photohelper.gallery.PhotoDestination
+import com.bolin.photohelper.gallery.PhotoWorkflowScreen
+import com.bolin.photohelper.gallery.PhotoWorkflowViewModel
+import com.bolin.photohelper.gallery.VoiceInputTarget
+import com.bolin.photohelper.gallery.galleryAccessFor
+import com.bolin.photohelper.gallery.LibraryAsset
+import com.bolin.photohelper.share.chooserIntent
+import com.bolin.photohelper.share.telegramIntent
+import com.bolin.photohelper.ui.Charcoal
 import com.bolin.photohelper.ui.PhotoHelperTheme
 import com.bolin.photohelper.ui.ThemeMode
 import com.bolin.photohelper.visual.VisualProvider
@@ -61,17 +83,20 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: CaptureViewModel
+    private lateinit var photoWorkflow: PhotoWorkflowViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        viewModel = ViewModelProvider(this, AppGraph(applicationContext).viewModelFactory())[CaptureViewModel::class.java]
+        val factory = AppGraph(applicationContext).viewModelFactory()
+        viewModel = ViewModelProvider(this, factory)[CaptureViewModel::class.java]
+        photoWorkflow = ViewModelProvider(this, factory)[PhotoWorkflowViewModel::class.java]
         viewModel.arSession?.let { lifecycle.addObserver(it) }
 
         setContent {
             val themeMode by viewModel.uiState.collectAsStateWithLifecycle()
             PhotoHelperTheme(themeMode = themeMode.settings.themeMode) {
-                PhotoHelperApp(viewModel)
+                PhotoHelperApp(viewModel, photoWorkflow)
             }
         }
     }
@@ -89,19 +114,37 @@ class MainActivity : ComponentActivity() {
                 microphoneGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
             )
         }
+        if (::photoWorkflow.isInitialized) photoWorkflow.refreshAccess(currentGalleryAccess())
     }
 
     override fun onStop() {
         if (::viewModel.isInitialized) viewModel.onBackground()
+        if (::photoWorkflow.isInitialized) photoWorkflow.onBackground()
         super.onStop()
     }
 }
 
 @Composable
-private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
+private fun MainActivity.PhotoHelperApp(
+    viewModel: CaptureViewModel,
+    photoWorkflow: PhotoWorkflowViewModel,
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val photoState by photoWorkflow.uiState.collectAsStateWithLifecycle()
+    val cameraVisible = photoState.destination == PhotoDestination.CAMERA
+    val systemBarColor = if (cameraVisible) Charcoal else MaterialTheme.colorScheme.background
+    val useDarkSystemBarIcons = !cameraVisible && systemBarColor.luminance() > 0.5f
+    SideEffect {
+        window.statusBarColor = systemBarColor.toArgb()
+        window.navigationBarColor = systemBarColor.toArgb()
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = useDarkSystemBarIcons
+            isAppearanceLightNavigationBars = useDarkSystemBarIcons
+        }
+    }
     var apiKeyInput by remember { mutableStateOf("") }
     var showMicDisclosure by remember { mutableStateOf(false) }
+    var pendingGalleryVoiceTarget by remember { mutableStateOf<VoiceInputTarget?>(null) }
     var cameraBindAttempt by remember { mutableIntStateOf(0) }
     var isFrontCamera by rememberSaveable { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -117,6 +160,14 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
     val latestState by rememberUpdatedState(state)
     val latestCanFlipCamera by rememberUpdatedState(canFlipCamera)
     val latestIsFrontCamera by rememberUpdatedState(isFrontCamera)
+    val galleryPreviewUri = photoState.assets.firstOrNull()?.uri ?: photoState.pickedAssets.lastOrNull()?.uri
+    val galleryThumbnail by produceState<ImageBitmap?>(null, galleryPreviewUri) {
+        value = galleryPreviewUri?.let { photoWorkflow.gallery.thumbnail(it, 160).getOrNull()?.asImageBitmap() }
+    }
+
+    LaunchedEffect(state.review?.uri) {
+        if (state.review != null) photoWorkflow.refreshAccess(currentGalleryAccess())
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.cameraFacingRequests.collect { request ->
@@ -166,7 +217,24 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
     }
     val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         viewModel.setMicrophonePermission(it)
-        if (it) viewModel.startVoiceInput()
+        val target = pendingGalleryVoiceTarget
+        pendingGalleryVoiceTarget = null
+        if (it) {
+            if (target == null) viewModel.startVoiceInput() else photoWorkflow.startVoiceInput(target)
+        }
+    }
+    val galleryPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        photoWorkflow.refreshAccess(currentGalleryAccess())
+    }
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(MAX_SHARE_SELECTION),
+    ) { uris ->
+        uris.forEach { uri ->
+            runCatching {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        photoWorkflow.addPickedUris(uris)
     }
 
     val protectsApiKey = state.settingsOpen
@@ -183,12 +251,16 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
     }
 
     val activity = this
-    val actions = remember(viewModel) {
+    val actions = remember(viewModel, state, isFrontCamera) {
         object : CaptureScreenActions {
             override fun onFlipCamera() = switchCamera(!isFrontCamera, false)
             override fun onFlashModeCycle() = viewModel.cycleFlashMode()
             override fun onShutter() = viewModel.capture()
             override fun onAutoEnhance() = viewModel.makeItNicer()
+            override fun onOpenGallery() {
+                viewModel.cancelCoaching()
+                photoWorkflow.openGallery(currentGalleryAccess())
+            }
             override fun onMicrophone() {
                 when {
                     state.coachingPhase == CoachingPhase.LISTENING -> viewModel.finishVoiceInput()
@@ -197,7 +269,10 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
                     state.microphonePermission == PermissionState.DENIED -> activity.startActivity(
                         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}")),
                     )
-                    else -> showMicDisclosure = true
+                    else -> {
+                        pendingGalleryVoiceTarget = null
+                        showMicDisclosure = true
+                    }
                 }
             }
             // One tap on the landing screen finishes onboarding and goes straight to
@@ -276,32 +351,61 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
         onDispose { activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     }
 
-    CaptureScreen(
-        state = state,
-        liveObservation = viewModel.camera.observation,
-        confidence = confidence,
-        apiKeyInput = apiKeyInput,
-        preview = {
-            CameraPreview(
-                session = viewModel.camera as CameraXSession,
-                enabled = state.cameraPermission == PermissionState.GRANTED,
-                bindAttempt = cameraBindAttempt,
-                lensFacing = if (isFrontCamera) {
-                    CameraSelector.LENS_FACING_FRONT
-                } else {
-                    CameraSelector.LENS_FACING_BACK
-                },
-            )
-        },
-        isFrontCamera = isFrontCamera,
-        canFlipCamera = canFlipCamera,
-        actions = actions,
-        guideProgress = guideProgress,
-    )
+    if (photoState.destination == PhotoDestination.CAMERA) {
+        CaptureScreen(
+            state = state,
+            liveObservation = viewModel.camera.observation,
+            confidence = confidence,
+            apiKeyInput = apiKeyInput,
+            preview = {
+                CameraPreview(
+                    session = viewModel.camera as CameraXSession,
+                    enabled = state.cameraPermission == PermissionState.GRANTED,
+                    bindAttempt = cameraBindAttempt,
+                    lensFacing = if (isFrontCamera) {
+                        CameraSelector.LENS_FACING_FRONT
+                    } else {
+                        CameraSelector.LENS_FACING_BACK
+                    },
+                )
+            },
+            isFrontCamera = isFrontCamera,
+            canFlipCamera = canFlipCamera,
+            actions = actions,
+            galleryThumbnail = galleryThumbnail,
+            guideProgress = guideProgress,
+        )
+    } else {
+        PhotoWorkflowScreen(
+            state = photoState,
+            viewModel = photoWorkflow,
+            onRequestGalleryAccess = { galleryPermission.launch(galleryPermissionNames()) },
+            onPickPhotos = {
+                photoPicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
+            },
+            onShare = ::launchShare,
+            onTelegram = ::launchTelegram,
+            onVoiceInput = { target ->
+                when (state.microphonePermission) {
+                    PermissionState.GRANTED -> photoWorkflow.startVoiceInput(target)
+                    PermissionState.DENIED -> startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
+                    )
+                    PermissionState.NOT_REQUESTED -> {
+                        pendingGalleryVoiceTarget = target
+                        showMicDisclosure = true
+                    }
+                }
+            },
+        )
+    }
 
     if (showMicDisclosure) {
         AlertDialog(
-            onDismissRequest = { showMicDisclosure = false },
+            onDismissRequest = {
+                showMicDisclosure = false
+                pendingGalleryVoiceTarget = null
+            },
             title = { Text("On-device voice input") },
             text = {
                 Text(
@@ -318,9 +422,53 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
                 ) { Text("Continue") }
             },
             dismissButton = {
-                TextButton(onClick = { showMicDisclosure = false }) { Text("Not now") }
+                TextButton(onClick = {
+                    showMicDisclosure = false
+                    pendingGalleryVoiceTarget = null
+                }) { Text("Not now") }
             },
         )
+    }
+}
+
+private fun MainActivity.currentGalleryAccess(): GalleryAccess = galleryAccessFor(
+    apiLevel = Build.VERSION.SDK_INT,
+    legacyReadGranted = hasPermission(Manifest.permission.READ_EXTERNAL_STORAGE),
+    mediaImagesGranted = if (Build.VERSION.SDK_INT >= 33) hasPermission(Manifest.permission.READ_MEDIA_IMAGES) else false,
+    selectedImagesGranted = if (Build.VERSION.SDK_INT >= 34) {
+        hasPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+    } else {
+        false
+    },
+)
+
+private fun MainActivity.galleryPermissionNames(): Array<String> = when {
+    Build.VERSION.SDK_INT >= 34 -> arrayOf(
+        Manifest.permission.READ_MEDIA_IMAGES,
+        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+    )
+    Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+    else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+}
+
+private fun MainActivity.hasPermission(permission: String): Boolean =
+    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+private fun MainActivity.launchShare(assets: List<LibraryAsset>, caption: String) {
+    launchOrFallback(chooserIntent(assets, caption), null)
+}
+
+private fun MainActivity.launchTelegram(assets: List<LibraryAsset>, caption: String) {
+    launchOrFallback(telegramIntent(packageManager, assets, caption), chooserIntent(assets, caption))
+}
+
+private fun MainActivity.launchOrFallback(primary: Intent?, fallback: Intent?) {
+    try {
+        startActivity(primary ?: fallback ?: return)
+    } catch (_: ActivityNotFoundException) {
+        if (fallback != null && primary !== fallback) runCatching { startActivity(fallback) }
+    } catch (_: SecurityException) {
+        if (fallback != null && primary !== fallback) runCatching { startActivity(fallback) }
     }
 }
 
@@ -387,6 +535,9 @@ private fun BoxScope.CameraPreview(
             previewView.removeOnLayoutChangeListener(layoutListener)
             previewView.removeCallbacks(bindCamera)
         }
+    }
+    DisposableEffect(session) {
+        onDispose { session.unbind() }
     }
     AndroidView(
         factory = { previewView },

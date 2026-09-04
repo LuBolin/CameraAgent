@@ -1,17 +1,18 @@
 # Photo Helper — Pitch Day Plan
 
-The handbook contains two different pitch timings: the checklist says **5-minute presentation + 5-minute Q&A**, while the later judging-process section says **8-minute presentation + 5-minute Q&A**. Prepare a complete five-minute version because it satisfies the stricter limit; keep three optional appendix slides if organizers later confirm eight minutes.
+Confirmed format: **5-minute presentation/demo + 3-minute Q&A**.
 
 ## Five-minute presentation
 
 | Time | Slide / action | Message |
 |---|---|---|
-| **0:00–0:35** | 1. Family moment and problem | “People think in outcomes, while cameras expose settings.” Introduce older adults and first-time users as the starting audience, without claiming completed user validation. |
-| **0:35–2:05** | 2. Live demo | Speak the family-scene command, show plan → Apply → focus → countdown → capture, then Reset. If the hosted request stalls, switch immediately to the local backup recording. |
-| **2:05–3:05** | 3. Why this is an agent | Show `voice + frame + telemetry → constrained plan → Android validation → camera → verify/rollback`. Emphasize multimodal interpretation and local camera authority. |
-| **3:05–3:50** | 4. Engineering evidence | Six allowlisted action types, up to eight actions, stale-context checks, transactional rollback, 209 unit tests, and 57 physical-device tests. |
-| **3:50–4:35** | 5. Value and route to market | Consumer family-camera utility first; possible OEM/SDK integration later. State what a user pilot must measure. |
-| **4:35–5:00** | 6. Close | “Photo Helper does not promise AI taste. It lets people speak in outcomes, not camera settings.” End on the cover and working phone. |
+| **0:00–0:50** | Poster: problem and promise | “People know the photo they want, but cameras expose controls.” Introduce Photo Helper as the translator between an outcome and a safe camera plan. |
+| **0:50–2:15** | Live panda demo | Speak the compound panda command, show planning → adjustment → focus → countdown → capture, then Reset. Switch to backup after 10 seconds of no progress. |
+| **2:15–2:35** | Smart Mode | Point to the sparkle button and explain the one-tap `Make this shot look nicer` path. Do not start a second live request. |
+| **2:35–3:20** | Why this is an agent | Use the poster flow: `SPEAK → PLAN → CHECK → ACT → RESET`. Land `AI proposes · Phone decides · Human controls`. |
+| **3:20–3:55** | WorkBuddy | “WorkBuddy accelerated implementation and strengthened product quality.” Support it with HY3 implementation and specialist review across architecture, UX and QA. |
+| **3:55–4:35** | Value and route to market | Everyday photographers first; assistive camera mode or OEM/SDK integration next. Name the planned pilot measures. |
+| **4:35–5:00** | Close | “One spoken goal. A safe camera plan. Speak in outcomes, not camera settings.” |
 
 ## Live demo and backup
 
@@ -20,8 +21,8 @@ The handbook contains two different pitch timings: the checklist says **5-minute
 - Put the phone on Do Not Disturb and keep it powered.
 - Store the backup video on both the presentation laptop and phone.
 - The presenter should be able to switch to backup within five seconds, saying: “Here is the same recorded run from this device.”
-- Keep a second, simpler request ready: `Make the picture brighter`, followed by a local capture.
-- Do not demonstrate the experimental automatic enhancer unless a judge specifically asks.
+- Keep a second, simpler request ready: `Focus on the panda`, followed by a local capture.
+- Mention Smart Mode by pointing to the sparkle button. Use the prepared Smart Mode clip if a judge asks to see it.
 
 ## Likely Q&A
 
@@ -51,7 +52,7 @@ The first route is a focused consumer utility or accessibility-oriented camera m
 
 ### What did WorkBuddy contribute?
 
-WorkBuddy owned a documented review-to-verification loop: repository-scale investigation, specialist UI/UX judgment, approved implementation, regression testing, APK installation, and physical-device evidence. Its findings changed the listening and Reset interactions in the shipped product.
+WorkBuddy accelerated implementation and added structured specialist review across architecture, UX and QA. It created a repeatable build, review and product-verification loop.
 
 ## Three optional slides for an eight-minute version
 
@@ -64,4 +65,4 @@ WorkBuddy owned a documented review-to-verification loop: repository-scale inves
 1. **Scenario:** family photo, target user, outcome-language gap.
 2. **Architecture:** multimodal input, constrained plan, Android authority, rollback, privacy boundary.
 3. **Business value:** initial consumer use, OEM/SDK path, defined pilot metrics.
-4. **Proof:** working Android build, 209 unit tests, 57 device tests, backup demo link.
+4. **Proof:** working Android build, physical-device flow, bounded authority model and backup demo link.

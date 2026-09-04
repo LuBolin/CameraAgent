@@ -19,6 +19,7 @@ class TestActions(
     var flashModeCycle: () -> Unit = {},
     var shutter: () -> Unit = {},
     var autoEnhance: () -> Unit = {},
+    var openGallery: () -> Unit = {},
     var microphone: () -> Unit = {},
     var onboardingContinue: () -> Unit = {},
     var requestCameraPermission: () -> Unit = {},
@@ -55,6 +56,7 @@ class TestActions(
     override fun onFlashModeCycle() = flashModeCycle()
     override fun onShutter() = shutter()
     override fun onAutoEnhance() = autoEnhance()
+    override fun onOpenGallery() = openGallery()
     override fun onMicrophone() = microphone()
     override fun onOnboardingContinue() = onboardingContinue()
     override fun onRequestCameraPermission() = requestCameraPermission()

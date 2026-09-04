@@ -1,0 +1,55 @@
+{"kind":"deck","id":"pr/87d1o2","name":"Deck"}
+{"kind":"layout","layoutId":"8e4af2b2-d71e-4d95-ab09-cd72452edca3","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"503bd737-1233-4624-861c-9f87708fc3fc","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/sogl41","slide":1,"title":"LIFE AGENT · TEAM FIVECENT","textShapes":42}
+{"kind":"shape","id":"sh/svipgnqt","slide":1,"bbox":[0,0,500,720]}
+{"kind":"shape","id":"sh/6t07ed8n","slide":1,"bbox":[500,0,780,720]}
+{"kind":"textbox","id":"sh/5sr6l8r2","slide":1,"text":"LIFE AGENT · TEAM FIVECENT","textPreview":"LIFE AGENT · TEAM FIVECENT","textChars":26,"textLines":1,"bbox":[34,38,300,28]}
+{"kind":"textbox","id":"sh/4ri5c3qx","slide":1,"text":"VOICE REQUEST","textPreview":"VOICE REQUEST","textChars":13,"textLines":1,"bbox":[34,360,200,22]}
+{"kind":"textbox","id":"sh/jq9ojy9c","slide":1,"text":"“Focus on the panda.”","textPreview":"“Focus on the panda.”","textChars":21,"textLines":1,"bbox":[34,388,425,40]}
+{"kind":"textbox","id":"sh/ip0natsr","slide":1,"text":"The yellow reticle is the focus point Android applied on-device.","textPreview":"The yellow reticle is the focus point Android applied on-device.","textChars":64,"textLines":1,"bbox":[34,438,425,52]}
+{"kind":"shape","id":"sh/ho76h8r6","slide":1,"bbox":[34,522,420,1]}
+{"kind":"textbox","id":"sh/w3y583al","slide":1,"text":"One spoken goal.\nA safe camera plan.","textPreview":"One spoken goal. | A safe camera plan.","textChars":36,"textLines":2,"bbox":[34,558,410,100]}
+{"kind":"textbox","id":"sh/e9kn21wz","slide":1,"text":"PHOTO HELPER","textPreview":"PHOTO HELPER","textChars":12,"textLines":1,"bbox":[540,30,540,62]}
+{"kind":"textbox","id":"sh/zat4b6xk","slide":1,"text":"Speak in outcomes, not camera settings.","textPreview":"Speak in outcomes, not camera settings.","textChars":39,"textLines":1,"bbox":[540,92,650,34]}
+{"kind":"shape","id":"sh/0b254be5","slide":1,"bbox":[540,138,700,2]}
+{"kind":"textbox","id":"sh/1cvmdwfq","slide":1,"text":"PROBLEM","textPreview":"PROBLEM","textChars":7,"textLines":1,"bbox":[540,158,320,22]}
+{"kind":"textbox","id":"sh/q5knyhw3","slide":1,"text":"People speak in outcomes.\nCameras expose controls.","textPreview":"People speak in outcomes. | Cameras expose controls.","textChars":50,"textLines":2,"bbox":[540,182,320,62]}
+{"kind":"textbox","id":"sh/r6t47mx8","slide":1,"text":"“Make it brighter” still requires exposure, focus and timer decisions.","textPreview":"“Make it brighter” still requires exposure, focus and timer decisions.","textChars":70,"textLines":1,"bbox":[540,248,320,46]}
+{"kind":"textbox","id":"sh/c7250ret","slide":1,"text":"SOLUTION","textPreview":"SOLUTION","textChars":8,"textLines":1,"bbox":[900,158,320,22]}
+{"kind":"textbox","id":"sh/d8bm9wfe","slide":1,"text":"Say the result.\nPhoto Helper handles the controls.","textPreview":"Say the result. | Photo Helper handles the controls.","textChars":50,"textLines":2,"bbox":[900,182,320,62]}
+{"kind":"textbox","id":"sh/2h0nuhwr","slide":1,"text":"Voice, the live frame and device telemetry become a bounded camera plan.","textPreview":"Voice, the live frame and device telemetry become a bounded camera plan.","textChars":72,"textLines":1,"bbox":[900,248,320,46]}
+{"kind":"shape","id":"sh/3i943mxc","slide":1,"bbox":[540,306,700,1]}
+{"kind":"textbox","id":"sh/7mpkvid4","slide":1,"text":"HOW IT WORKS","textPreview":"HOW IT WORKS","textChars":12,"textLines":1,"bbox":[540,326,300,22]}
+{"kind":"textbox","id":"sh/6lgj2dcj","slide":1,"text":"AI proposes. The phone decides.","textPreview":"AI proposes. The phone decides.","textChars":31,"textLines":1,"bbox":[540,350,500,32]}
+{"kind":"textbox","id":"sh/to72xsva","slide":1,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[650,392,28,28]}
+{"kind":"textbox","id":"sh/sny14nup","slide":1,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[785,392,28,28]}
+{"kind":"textbox","id":"sh/fapkzid0","slide":1,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[920,392,28,28]}
+{"kind":"textbox","id":"sh/u9gj6dcv","slide":1,"text":"→","textPreview":"→","textChars":1,"textLines":1,"bbox":[1055,392,28,28]}
+{"kind":"textbox","id":"sh/hc721sv6","slide":1,"text":"1  SPEAK","textPreview":"1  SPEAK","textChars":8,"textLines":1,"bbox":[550,388,105,28]}
+{"kind":"textbox","id":"sh/gby18nul","slide":1,"text":"Human","textPreview":"Human","textChars":5,"textLines":1,"bbox":[550,416,105,20]}
+{"kind":"textbox","id":"sh/ve5knydw","slide":1,"text":"2  PLAN","textPreview":"2  PLAN","textChars":7,"textLines":1,"bbox":[685,388,105,28]}
+{"kind":"textbox","id":"sh/adcjutcb","slide":1,"text":"Qwen","textPreview":"Qwen","textChars":4,"textLines":1,"bbox":[685,416,105,20]}
+{"kind":"textbox","id":"sh/0nqp8v6x","slide":1,"text":"3  CHECK","textPreview":"3  CHECK","textChars":8,"textLines":1,"bbox":[820,388,105,28]}
+{"kind":"textbox","id":"sh/18zqh07i","slide":1,"text":"Android","textPreview":"Android","textChars":7,"textLines":1,"bbox":[820,416,105,20]}
+{"kind":"textbox","id":"sh/el876lo7","slide":1,"text":"4  ACT","textPreview":"4  ACT","textChars":6,"textLines":1,"bbox":[955,388,105,28]}
+{"kind":"textbox","id":"sh/fmh8fqpc","slide":1,"text":"CameraX","textPreview":"CameraX","textChars":7,"textLines":1,"bbox":[955,416,105,20]}
+{"kind":"textbox","id":"sh/sjqp4v61","slide":1,"text":"5  RESET","textPreview":"5  RESET","textChars":8,"textLines":1,"bbox":[1090,388,105,28]}
+{"kind":"textbox","id":"sh/dkzqd07m","slide":1,"text":"Human","textPreview":"Human","textChars":5,"textLines":1,"bbox":[1090,416,105,20]}
+{"kind":"shape","id":"sh/qh872lov","slide":1,"bbox":[540,448,700,54]}
+{"kind":"textbox","id":"sh/rih8bqpg","slide":1,"text":"The model proposes; Android validates and executes.","textPreview":"The model proposes; Android validates and executes.","textChars":51,"textLines":1,"bbox":[560,464,660,24]}
+{"kind":"textbox","id":"sh/cfa9gf65","slide":1,"text":"AI proposes","textPreview":"AI proposes","textChars":11,"textLines":1,"bbox":[540,516,135,22]}
+{"kind":"textbox","id":"sh/xg3qpk7q","slide":1,"text":"voice + frame → plan","textPreview":"voice + frame → plan","textChars":20,"textLines":1,"bbox":[540,538,190,22]}
+{"kind":"textbox","id":"sh/tkvmhcn2","slide":1,"text":"Phone decides","textPreview":"Phone decides","textChars":13,"textLines":1,"bbox":[780,516,150,22]}
+{"kind":"textbox","id":"sh/8jm587mh","slide":1,"text":"validate → execute","textPreview":"validate → execute","textChars":18,"textLines":1,"bbox":[780,538,190,22]}
+{"kind":"textbox","id":"sh/7id4f25w","slide":1,"text":"Human controls","textPreview":"Human controls","textChars":14,"textLines":1,"bbox":[1030,516,170,22]}
+{"kind":"textbox","id":"sh/6xkn6x4r","slide":1,"text":"start → stop → reset","textPreview":"start → stop → reset","textChars":20,"textLines":1,"bbox":[1030,538,190,22]}
+{"kind":"shape","id":"sh/hovmlwne","slide":1,"bbox":[540,574,700,1]}
+{"kind":"textbox","id":"sh/gnm5crmt","slide":1,"text":"WORKBUDDY’S ROLE","textPreview":"WORKBUDDY’S ROLE","textChars":16,"textLines":1,"bbox":[540,592,300,22]}
+{"kind":"textbox","id":"sh/vmd4jm58","slide":1,"text":"WorkBuddy accelerated implementation and strengthened product quality.","textPreview":"WorkBuddy accelerated implementation and strengthened product quality.","textChars":70,"textLines":1,"bbox":[540,616,430,48]}
+{"kind":"textbox","id":"sh/ul4nah4n","slide":1,"text":"HY3 implementation · specialist review across architecture, UX and QA","textPreview":"HY3 implementation · specialist review across architecture, UX and QA","textChars":69,"textLines":1,"bbox":[540,664,430,46]}
+{"kind":"textbox","id":"sh/5sf6pwna","slide":1,"text":"SMART MODE","textPreview":"SMART MODE","textChars":10,"textLines":1,"bbox":[990,592,250,22]}
+{"kind":"textbox","id":"sh/4r65grmp","slide":1,"text":"“Make this shot look nicer”","textPreview":"“Make this shot look nicer”","textChars":27,"textLines":1,"bbox":[990,616,250,44]}
+{"kind":"textbox","id":"sh/mxgjatk7","slide":1,"text":"Tap ✨: Qwen safely adjusts exposure, colour, framing or focus.","textPreview":"Tap ✨: Qwen safely adjusts exposure, colour, framing or focus.","textChars":62,"textLines":1,"bbox":[990,662,250,52]}
+{"kind":"image","id":"im/i1cnixcr","slide":1,"name":"","alt":"Photo Helper grounding focus on a panda in the real Android interface","bbox":[0,84,500,245]}
+{"kind":"notes","id":"nt/sogl41","slide":1,"text":"[Sources]\n- W:\\Projects\\CameraAgent\\README.md — architecture, privacy, product behavior, device-test evidence\n- W:\\Projects\\CameraAgent\\submission.md — product positioning and WorkBuddy contribution\n- W:\\Projects\\CameraAgent\\submission-assets\\project-brief.md — WorkBuddy product-quality pipeline and shipped interaction changes\n- W:\\Projects\\CameraAgent\\submission-assets\\demo-video-plan.md — HY3, Kimi-K3, UI/UX expert, and human-approval division of labor\n- W:\\Projects\\CameraAgent\\submission-assets\\demo-video-full-script.md — WorkBuddy build-reflection narrative and before/after Stop/Reset evidence\n- W:\\Projects\\CameraAgent\\app\\src\\main\\java\\com\\bolin\\photohelper\\capture\\CaptureScreen.kt — Smart Mode button label and interaction\n- W:\\Projects\\CameraAgent\\app\\src\\main\\java\\com\\bolin\\photohelper\\capture\\CaptureViewModel.kt — Smart Mode request path and result handling\n- W:\\Projects\\CameraAgent\\app\\src\\main\\java\\com\\bolin\\photohelper\\visual\\CommandContracts.kt — bounded Smart Mode output schema and supported camera changes\n- W:\\Projects\\CameraAgent\\submission-assets\\demo-day-screenshots\\panda-02.png — frame extracted from the project’s physical-device demo recording\n[/Sources]"}
