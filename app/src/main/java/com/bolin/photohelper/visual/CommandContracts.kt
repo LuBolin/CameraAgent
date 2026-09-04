@@ -52,6 +52,7 @@ class CommandRequest(
     val autoEnhance: Boolean = false,
     val frameObservation: FrameObservation? = null,
     val recentChanges: List<CameraChangeSnapshot> = emptyList(),
+    val styleProfile: String = "",
 ) {
     init {
         require(comment.isNotBlank() && comment.length <= MAX_COMMENT_CHARACTERS) {

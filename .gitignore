@@ -17,3 +17,10 @@ jdk21.zip
 *.jks
 *.keystore
 /window.xml
+
+# Local tooling and generated artefacts - not project source.
+.claude/
+.agents/
+.vscode/
+graphify-out/
+skills-lock.json

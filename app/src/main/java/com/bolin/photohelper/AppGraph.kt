@@ -7,9 +7,11 @@ import android.os.VibrationEffect
 import android.os.VibratorManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.bolin.photohelper.arcore.ArSessionManager
 import com.bolin.photohelper.capture.CameraXSession
 import com.bolin.photohelper.capture.CaptureViewModel
 import com.bolin.photohelper.capture.Feedback
+import com.bolin.photohelper.capture.SoundPoolCuePlayer
 import com.bolin.photohelper.capture.UserPreferences
 import com.bolin.photohelper.coach.DefaultCoachEngine
 import com.bolin.photohelper.visual.DemoApiKeyStore
@@ -26,12 +28,15 @@ class AppGraph(context: Context) {
             require(modelClass == CaptureViewModel::class.java)
             val session = CameraXSession(appContext)
             val keyStore = DemoApiKeyStore(appContext)
+            val preferences = UserPreferences(appContext)
             val visualClient = BailianVisualClient()
+            val arSession = ArSessionManager(appContext).apply { checkAvailability() }
+            val audioCue = SoundPoolCuePlayer(appContext)
             return CaptureViewModel(
                 camera = session,
                 coach = DefaultCoachEngine(),
                 voice = AndroidVoiceIo(appContext),
-                preferences = UserPreferences(appContext),
+                preferences = preferences,
                 hasApiKey = keyStore::hasKey,
                 loadApiKey = keyStore::load,
                 saveApiKey = keyStore::save,
@@ -40,6 +45,8 @@ class AppGraph(context: Context) {
                 interpretCommand = visualClient::plan,
                 createTestImage = ::neutralTestJpeg,
                 feedback = ::performFeedback,
+                arSession = arSession,
+                audioCue = audioCue,
             ) as T
         }
     }

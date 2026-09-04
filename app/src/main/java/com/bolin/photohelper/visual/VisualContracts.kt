@@ -12,6 +12,8 @@ import org.json.JSONException
 import org.json.JSONObject
 import org.json.JSONTokener
 
+enum class VisualProvider { QWEN, CLAUDE }
+
 internal const val BAILIAN_ENDPOINT = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 internal const val QWEN_MODEL = "qwen3.7-flash-2026-07-15"
 internal const val MAX_API_KEY_CHARACTERS = 512
