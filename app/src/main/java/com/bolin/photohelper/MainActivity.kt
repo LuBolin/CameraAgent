@@ -52,6 +52,7 @@ import com.bolin.photohelper.capture.CaptureViewModel
 import com.bolin.photohelper.capture.CoachingPhase
 import com.bolin.photohelper.capture.PermissionState
 import com.bolin.photohelper.coach.ClarificationChip
+import com.bolin.photohelper.guide.GuideProgress
 import com.bolin.photohelper.ui.PhotoHelperTheme
 import com.bolin.photohelper.ui.ThemeMode
 import com.bolin.photohelper.visual.VisualProvider
@@ -263,6 +264,7 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
     }
 
     val confidence by viewModel.confidence.collectAsStateWithLifecycle()
+    val guideProgress = remember { GuideProgress(activity.applicationContext) }
 
     val lockOrientation by viewModel.shouldLockOrientation.collectAsStateWithLifecycle()
     DisposableEffect(lockOrientation) {
@@ -294,6 +296,7 @@ private fun MainActivity.PhotoHelperApp(viewModel: CaptureViewModel) {
         isFrontCamera = isFrontCamera,
         canFlipCamera = canFlipCamera,
         actions = actions,
+        guideProgress = guideProgress,
     )
 
     if (showMicDisclosure) {

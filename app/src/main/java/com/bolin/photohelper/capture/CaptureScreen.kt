@@ -41,6 +41,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.RecommendationAction
+import com.bolin.photohelper.guide.ActiveExercise
+import com.bolin.photohelper.guide.ExerciseOverlay
+import com.bolin.photohelper.guide.ExerciseType
+import com.bolin.photohelper.guide.GuideProgress
+import com.bolin.photohelper.guide.GuideScreen
 import kotlinx.coroutines.flow.StateFlow
 
 object CaptureTestTags {
@@ -77,8 +82,11 @@ fun CaptureScreen(
     isFrontCamera: Boolean,
     canFlipCamera: Boolean,
     actions: CaptureScreenActions,
+    guideProgress: GuideProgress? = null,
 ) {
     var showGuide by remember { mutableStateOf(false) }
+    var activeExercise by remember { mutableStateOf<ActiveExercise?>(null) }
+    var exerciseCompleted by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier
@@ -166,15 +174,52 @@ fun CaptureScreen(
             onAutoCaptureEnabledChanged = actions::onAutoCaptureEnabledChanged,
             onOpenVisualAiPolicy = actions::onOpenVisualAiPolicy,
             onOpenMlKitPolicy = actions::onOpenMlKitPolicy,
-            onGuideOpen = { showGuide = true },
+            onGuideOpen = {
+                actions.onSettingsDismiss()
+                showGuide = true
+            },
         )
     }
 
-    if (showGuide) {
-        GuideSheet(onDismiss = { showGuide = false })
+    if (showGuide && guideProgress != null) {
+        GuideScreen(
+            progress = guideProgress,
+            onDismiss = { showGuide = false },
+            onStartExercise = { exercise, lessonId ->
+                showGuide = false
+                activeExercise = ActiveExercise(lessonId, exercise)
+            },
+        )
     }
 
-    BackHandler(enabled = state.coachingPhase != CoachingPhase.IDLE) {
+    activeExercise?.let { exercise ->
+        val autoComplete = when (exercise.exercise.type) {
+            ExerciseType.TAKE_PHOTO -> state.review != null
+            ExerciseType.VOICE_COMMAND -> state.coachingPhase == CoachingPhase.LISTENING
+            ExerciseType.LONG_PRESS_ORB -> state.coachingPhase == CoachingPhase.APPLYING
+            else -> false
+        }
+        if (autoComplete && !exerciseCompleted) exerciseCompleted = true
+
+        ExerciseOverlay(
+            active = exercise,
+            completed = exerciseCompleted,
+            onCancel = {
+                activeExercise = null
+                exerciseCompleted = false
+            },
+            onComplete = {
+                guideProgress?.markLessonComplete(exercise.lessonId)
+                activeExercise = null
+                exerciseCompleted = false
+            },
+        )
+    }
+
+    BackHandler(enabled = showGuide) {
+        showGuide = false
+    }
+    BackHandler(enabled = !showGuide && state.coachingPhase != CoachingPhase.IDLE) {
         actions.onCancelCoaching()
     }
 }
