@@ -256,9 +256,9 @@ class DefaultCoachEngine(
         when (target) {
             is VerificationTarget.Exposure -> {
                 if (target.baselineObservation == null) {
-                    VerificationResult.Incomparable("Setting applied, but there was no stable baseline to verify the visual result.")
+                    VerificationResult.Incomparable("Changed, but I can’t check the result.")
                 } else if (!observationsComparable(target.baselineObservation, current)) {
-                    VerificationResult.Incomparable("Setting applied, but the scene changed, so I can’t verify the visual result.")
+                    VerificationResult.Incomparable("Changed, but the scene moved, so I can’t check.")
                 } else {
                     val lumaDelta = current.meanLuma - target.baselineLuma
                     val clip = if (target.direction < 0) current.highlightClipFraction else current.shadowClipFraction
@@ -274,21 +274,21 @@ class DefaultCoachEngine(
             }
             is VerificationTarget.FaceOccupancy -> singleFace(current)?.widthFraction?.let {
                 if (it in target.min..target.max) VerificationResult.Satisfied else VerificationResult.Progress
-            } ?: VerificationResult.Incomparable("I lost the face—point back at the person")
+            } ?: VerificationResult.Incomparable("I lost the face. Point back at the person.")
             is VerificationTarget.FacePosition -> singleFace(current)?.let {
                 if (it.centerX in target.xRange && it.centerY in target.yRange) VerificationResult.Satisfied else VerificationResult.Progress
-            } ?: VerificationResult.Incomparable("I lost the face—point back at the person")
+            } ?: VerificationResult.Incomparable("I lost the face. Point back at the person.")
             is VerificationTarget.StepBack -> singleFace(current)?.widthFraction?.let {
                 if (it <= target.maxFaceWidthFraction) VerificationResult.Satisfied else VerificationResult.Progress
-            } ?: VerificationResult.Incomparable("I lost the face—point back at the person")
+            } ?: VerificationResult.Incomparable("I lost the face. Point back at the person.")
             is VerificationTarget.Level -> current.deviceRollDegrees?.let {
                 if (abs(it) <= target.maxAbsoluteRollDegrees) VerificationResult.Satisfied else VerificationResult.Progress
             } ?: VerificationResult.Incomparable("This phone is not reporting its angle")
             is VerificationTarget.ColorBalance -> {
                 if (target.baselineObservation == null) {
-                    VerificationResult.Incomparable("Setting applied, but there was no stable baseline to verify the visual result.")
+                    VerificationResult.Incomparable("Changed, but I can’t check the result.")
                 } else if (!observationsComparable(target.baselineObservation, current)) {
-                    VerificationResult.Incomparable("Setting applied, but the scene changed, so I can’t verify the visual result.")
+                    VerificationResult.Incomparable("Changed, but the scene moved, so I can’t check.")
                 } else {
                     val baseline = target.baselineBlueBias
                     val currentBias = current.chromaBlueBias

@@ -66,12 +66,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
 import com.bolin.photohelper.ui.LocalOverlayColors
 import com.bolin.photohelper.ui.Mango
 import com.bolin.photohelper.ui.SoftCream
 import com.bolin.photohelper.ui.Charcoal
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import kotlinx.coroutines.flow.StateFlow
 
 @Composable
@@ -84,6 +86,7 @@ fun PreviewPane(
     onFlipCamera: () -> Unit,
     onFocusTarget: (Float, Float) -> Unit,
     onSettingsOpen: () -> Unit,
+    onHelpOpen: () -> Unit,
     modifier: Modifier = Modifier,
     /** False in landscape, where the same controls live in the right-hand strip. */
     showTopChrome: Boolean = true,
@@ -118,15 +121,27 @@ fun PreviewPane(
                     .padding(12.dp)
                     .semantics { traversalIndex = 1f },
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Top,
             ) {
-                if (canFlipCamera) FlipChromeAction(isFrontCamera, onFlipCamera)
-                else Spacer(Modifier.size(48.dp))
-                OverlayIconAction(
-                    icon = Icons.Rounded.Settings,
-                    contentDescription = "Settings",
-                    onClick = onSettingsOpen,
+                if (canFlipCamera) OverlayIconAction(
+                    icon = Icons.Rounded.Cameraswitch,
+                    contentDescription = if (isFrontCamera) "Switch to rear camera" else "Switch to selfie camera",
+                    onClick = onFlipCamera,
+                    modifier = Modifier.testTag(CaptureTestTags.CAMERA_FLIP),
                 )
+                else Spacer(Modifier.size(56.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OverlayIconAction(
+                        icon = Icons.AutoMirrored.Rounded.HelpOutline,
+                        contentDescription = "Open the guide",
+                        onClick = onHelpOpen,
+                    )
+                    OverlayIconAction(
+                        icon = Icons.Rounded.Settings,
+                        contentDescription = "Open settings menu",
+                        onClick = onSettingsOpen,
+                    )
+                }
             }
         }
 
@@ -174,16 +189,6 @@ fun FlashChromeAction(flashMode: FlashMode, onFlashModeCycle: () -> Unit, modifi
         contentDescription = "Flash: $label. Tap to cycle.",
         onClick = onFlashModeCycle,
         modifier = modifier.testTag(CaptureTestTags.FLASH_MODE),
-    )
-}
-
-@Composable
-fun FlipChromeAction(isFrontCamera: Boolean, onFlipCamera: () -> Unit, modifier: Modifier = Modifier) {
-    OverlayIconAction(
-        icon = Icons.Rounded.Cameraswitch,
-        contentDescription = if (isFrontCamera) "Switch to rear camera" else "Switch to selfie camera",
-        onClick = onFlipCamera,
-        modifier = modifier.testTag(CaptureTestTags.CAMERA_FLIP),
     )
 }
 
@@ -286,7 +291,7 @@ fun FocusTarget(xFraction: Float, yFraction: Float, onTap: (() -> Unit)? = null)
         ) {
             val half = 22.dp.toPx() * reticleScale.value
             val segment = 10.dp.toPx()
-            val stroke = 2.5.dp.toPx()
+            val stroke = 3.dp.toPx()
             val left = center.x - half
             val right = center.x + half
             val top = center.y - half
@@ -347,8 +352,27 @@ fun ScrimLabel(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * A frosted glass chrome button: translucent charcoal, a cream hairline, and a mango
- * ring when it takes keyboard or D-pad focus.
+ * How much presence a control has over the viewfinder.
+ *
+ * Chrome drawn on the preview sits on an arbitrary camera scene - a night sky one
+ * second, a white wall the next - so it can never take its colours from
+ * [MaterialTheme.colorScheme], which is built for surfaces whose background is known
+ * and which flips with a theme setting that has nothing to do with what is behind the
+ * lens. Every value here comes from `OverlayColors`, charcoal-based in both themes.
+ *
+ * There is no scrim under the control row: each button carries its own contrast.
+ */
+enum class OverlayTier {
+    /** Talk and Improve: the two controls the app exists for. Heavy fill, accent ring. */
+    PRIMARY,
+
+    /** Flip, Help and Menu: always there, rarely the point. Neutral hairline. */
+    SECONDARY,
+}
+
+/**
+ * A frosted glass chrome button: translucent charcoal, a hairline edge, and a mango
+ * ring when it takes keyboard or D-pad focus. [tier] decides how loud it is.
  *
  * Compose on this SDK level cannot blur what is drawn behind a composable, so the
  * "glass" is a translucent fill plus the hairline rather than a true backdrop blur.
@@ -359,33 +383,47 @@ fun OverlayIconAction(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Gallery thumbnail: when set it replaces [icon] and fills the button. */
     image: ImageBitmap? = null,
+    tier: OverlayTier = OverlayTier.SECONDARY,
+    enabled: Boolean = true,
+    stateDescription: String? = null,
+    traversalIndex: Float? = null,
 ) {
     val overlays = LocalOverlayColors.current
     var focused by remember { mutableStateOf(false) }
+    val primary = tier == OverlayTier.PRIMARY
     Surface(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier
-            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .sizeIn(minWidth = 56.dp, minHeight = 56.dp)
             .onFocusChanged { focused = it.isFocused }
             .semantics {
                 this.contentDescription = contentDescription
                 this.role = Role.Button
+                stateDescription?.let { this.stateDescription = it }
+                traversalIndex?.let { this.traversalIndex = it }
             },
-        color = overlays.frostedGlass,
+        color = if (primary) overlays.frostedGlassStrong else overlays.frostedGlass,
         shape = CircleShape,
-        border = BorderStroke(
-            width = if (focused) 2.dp else 1.dp,
-            color = if (focused) Mango else overlays.frostedGlassBorder,
-        ),
+        // No resting border: the fill alone separates the button from the scene
+        // (3.5:1 on a mid-tone, 4.9:1 on a white wall at the secondary weight, 7.0:1
+        // at the primary one). The ring returns only on keyboard or D-pad focus,
+        // where WCAG 2.4.7 requires a visible indicator.
+        border = if (focused) BorderStroke(2.dp, Mango) else null,
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(48.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(56.dp)) {
             if (image == null) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = overlays.onOverlay,
-                    modifier = Modifier.size(24.dp),
+                    tint = when {
+                        !enabled -> overlays.onOverlayDisabled
+                        primary -> overlays.accentOnOverlay
+                        else -> overlays.onOverlay
+                    },
+                    modifier = Modifier.size(26.dp),
                 )
             } else {
                 Image(
@@ -395,6 +433,44 @@ fun OverlayIconAction(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+        }
+    }
+}
+
+/**
+ * A chip offered as an answer to a question the agent asked, drawn over the viewfinder.
+ *
+ * Material's `AssistChip` takes its label from `colorScheme.onSurface`, which is
+ * charcoal in light theme - on a charcoal overlay card that is roughly 1.2:1. These are
+ * answers to a question, so they sit at [OverlayTier.PRIMARY].
+ */
+@Composable
+fun OverlayChip(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val overlays = LocalOverlayColors.current
+    var focused by remember { mutableStateOf(false) }
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .heightIn(min = 56.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .semantics { this.role = Role.Button },
+        color = overlays.frostedGlassStrong,
+        shape = CircleShape,
+        border = if (focused) BorderStroke(2.dp, Mango) else null,
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = overlays.onOverlay,
+            )
         }
     }
 }
@@ -412,7 +488,7 @@ fun OverlayAction(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
-            .heightIn(min = 48.dp)
+            .heightIn(min = 56.dp)
             .onFocusChanged { focused = it.isFocused }
             .semantics {
                 this.role = Role.Button
@@ -446,8 +522,9 @@ fun ControlStrip(
     confidence: Float,
     onFlipCamera: () -> Unit,
     onSettingsOpen: () -> Unit,
+    onHelpOpen: () -> Unit,
     onOrbTap: () -> Unit,
-    onOrbLongPress: () -> Unit,
+    onAutoEnhance: () -> Unit,
     onMicrophone: () -> Unit,
     onOpenGallery: () -> Unit,
     galleryThumbnail: ImageBitmap? = null,
@@ -465,7 +542,11 @@ fun ControlStrip(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
     ) {
-        if (canFlipCamera) FlipChromeAction(isFrontCamera, onFlipCamera)
+        if (canFlipCamera) OverlayIconAction(
+            icon = Icons.Rounded.Cameraswitch,
+            contentDescription = if (isFrontCamera) "Switch to rear camera" else "Switch to selfie camera",
+            onClick = onFlipCamera,
+        )
         OverlayIconAction(
             icon = Icons.Rounded.PhotoLibrary,
             image = galleryThumbnail,
@@ -479,13 +560,21 @@ fun ControlStrip(
             confidence = confidence,
             enabled = orbEnabled(state),
             onTap = onOrbTap,
-            onLongPress = onOrbLongPress,
             size = 56.dp,
             autoCaptureFlashKey = state.autoCaptureFlashKey,
         )
+        AutoEnhanceButton(
+            onClick = onAutoEnhance,
+            enabled = orbEnabled(state) && orbStateFor(state.coachingPhase) == OrbState.IDLE,
+        )
+        OverlayIconAction(
+            icon = Icons.AutoMirrored.Rounded.HelpOutline,
+            contentDescription = "Open the guide",
+            onClick = onHelpOpen,
+        )
         OverlayIconAction(
             icon = Icons.Rounded.Settings,
-            contentDescription = "Settings",
+            contentDescription = "Open settings menu",
             onClick = onSettingsOpen,
         )
     }

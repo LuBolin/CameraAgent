@@ -165,7 +165,7 @@ internal suspend fun <T> runCameraControlTransaction(
         finishRollback(restored)
         ApplyResult.Failed(
             if (restored) error.message ?: "Camera rejected the adjustment"
-            else "Camera controls could not be restored. Retry the camera before shooting.",
+            else "Camera controls did not reset. Restart the camera.",
         )
     }
 }
@@ -577,7 +577,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            ApplyResult.Failed(error.message ?: "The camera could not focus there")
+            ApplyResult.Failed("The camera could not focus there")
         }
     }
 

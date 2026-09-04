@@ -134,6 +134,7 @@ class CaptureViewModel(
             settings = initialSettings,
             capabilities = camera.capabilities.value,
             showFirstUseHint = !preferences.firstUseHintSeen(),
+            showVoiceHints = preferences.firstUseHintSeen() && !preferences.hasUsedVoice(),
         ),
     )
     val uiState: StateFlow<CaptureUiState> = _uiState.asStateFlow()
@@ -295,7 +296,12 @@ class CaptureViewModel(
     fun markFirstUseHintSeen() {
         if (!_uiState.value.showFirstUseHint) return
         preferences.setFirstUseHintSeen()
-        _uiState.update { it.copy(showFirstUseHint = false) }
+        _uiState.update {
+            it.copy(
+                showFirstUseHint = false,
+                showVoiceHints = !preferences.hasUsedVoice(),
+            )
+        }
     }
 
     fun setCameraPermission(granted: Boolean) = _uiState.update {
@@ -445,7 +451,7 @@ class CaptureViewModel(
             _uiState.update {
                 it.copy(
                     coachingPhase = CoachingPhase.TRANSIENT_ERROR,
-                    transientMessage = "Enable AI interpretation with a tested Qwen key to use Make it nicer.",
+                    transientMessage = "Automatic improvements are not set up yet. See Settings.",
                 )
             }
             return
@@ -793,6 +799,10 @@ class CaptureViewModel(
         if (_uiState.value.microphonePermission != PermissionState.GRANTED ||
             _uiState.value.coachingPhase == CoachingPhase.APPLYING
         ) return
+        if (_uiState.value.showVoiceHints) {
+            preferences.setHasUsedVoice()
+            _uiState.update { it.copy(showVoiceHints = false) }
+        }
         cancelCoaching(clearDecision = false)
         voiceFinishRequested = false
         _uiState.update { it.copy(coachingPhase = CoachingPhase.LISTENING, comment = "", transientMessage = null) }
@@ -923,7 +933,7 @@ class CaptureViewModel(
         _uiState.update {
             it.copy(
                 coachingPhase = CoachingPhase.APPLYING,
-                transientMessage = "Restoring approved adjustments on this camera…",
+                transientMessage = "Putting your changes back…",
             )
         }
         settingApplyInFlight = true
@@ -947,7 +957,7 @@ class CaptureViewModel(
                         advanceCommandPlan()
                     }
                     is ApplyResult.Failed -> failWork(
-                        "Camera switched, but its controls could not reproduce the approved adjustments: ${result.message}",
+                        "The other camera could not make those changes.",
                     )
                 }
             } finally {
@@ -1063,10 +1073,10 @@ class CaptureViewModel(
             updateSettings {
                 it.copy(
                     visualAiEnabled = false,
-                    keyStatus = "Saved key rejected—test it again",
+                    keyStatus = "Saved key rejected. Test it again",
                 )
             }
-            _uiState.update { it.copy(transientMessage = "AI interpretation remains disabled until the key passes a new test.") }
+            _uiState.update { it.copy(transientMessage = "Still off. Test the key again to turn it on.") }
             return
         }
         val allowed = enabled && _uiState.value.settings.keyConfigured
@@ -1086,7 +1096,7 @@ class CaptureViewModel(
                         } else {
                             CoachingPhase.IDLE
                         },
-                        transientMessage = "AI interpretation turned off—using local coaching.",
+                        transientMessage = "Turned off. Using on-device coaching now.",
                     )
                 }
             }
@@ -1320,7 +1330,7 @@ class CaptureViewModel(
                         it.copy(
                             visualAiEnabled = false,
                             keyConfigured = false,
-                            keyStatus = "Saved key unavailable—enter it again",
+                            keyStatus = "Saved key unavailable. Enter it again",
                         )
                     }
                     if (activeComplaintId == originalInput.complaintId) keepVisualFallback(fallback)
@@ -1345,11 +1355,11 @@ class CaptureViewModel(
                         it.copy(
                             visualAiEnabled = false,
                             keyConfigured = true,
-                            keyStatus = "Saved key rejected—test it again",
+                            keyStatus = "Saved key rejected. Test it again",
                         )
                     }
                     if (activeComplaintId == originalInput.complaintId) {
-                        keepVisualFallback(fallback, "AI interpretation disabled—the saved key was rejected.")
+                        keepVisualFallback(fallback, "AI interpretation disabled. The saved key was rejected.")
                     }
                     return@launch
                 }
@@ -1370,7 +1380,7 @@ class CaptureViewModel(
                         publishLocalDecision(decision)
                     }
                     VisualResult.CredentialsRejected ->
-                        keepVisualFallback(fallback, "AI interpretation disabled—the saved key was rejected.")
+                        keepVisualFallback(fallback, "AI interpretation disabled. The saved key was rejected.")
                     is VisualResult.Failed -> {
                         pendingSubjectZoom = null
                         showToast(result.message)
@@ -1428,23 +1438,23 @@ class CaptureViewModel(
                 if (ownedKey == null) {
                     markSavedKeyUnavailable()
                     if (activeComplaintId == complaintId) {
-                        useLocalFallback("AI interpretation unavailable—using local coaching.")
+                        useLocalFallback("AI interpretation unavailable. Using local coaching.")
                     }
                     return@launch
                 }
                 if (!complaintProvenanceMatches(originalInput)) {
                     if (activeComplaintId == complaintId) {
-                        useLocalFallback("Camera frame changed—using local coaching.")
+                        useLocalFallback("Camera frame changed. Using local coaching.")
                     }
                     return@launch
                 }
                 val observation = originalInput.observation
                 if (observation == null) {
-                    useLocalFallback("No camera frame was available—using local coaching.")
+                    useLocalFallback("No camera frame was available. Using local coaching.")
                     return@launch
                 }
                 val requestJpeg = camera.observationImage(null) ?: run {
-                    useLocalFallback("Camera image unavailable—using local coaching.")
+                    useLocalFallback("Camera image unavailable. Using local coaching.")
                     return@launch
                 }
                 jpeg = requestJpeg
@@ -1465,13 +1475,13 @@ class CaptureViewModel(
                 if (result == CommandResult.CredentialsRejected) {
                     markSavedKeyRejected()
                     if (activeComplaintId == complaintId) {
-                        useLocalFallback("AI interpretation disabled—the saved key was rejected.")
+                        useLocalFallback("AI interpretation disabled. The saved key was rejected.")
                     }
                     return@launch
                 }
                 if (!complaintProvenanceMatches(originalInput)) {
                     if (activeComplaintId == complaintId) {
-                        useLocalFallback("Camera frame changed—using local coaching.")
+                        useLocalFallback("Camera frame changed. Using local coaching.")
                     }
                     return@launch
                 }
@@ -1480,20 +1490,20 @@ class CaptureViewModel(
                         startCommandPlan(result.plan, comment)
                     }
                     is CommandResult.Clarified ->
-                        useLocalFallback("AI interpretation needs clarification—using local coaching.")
+                        useLocalFallback("AI interpretation needs clarification. Using local coaching.")
                     CommandResult.NoChange -> showToast("Looks good already.")
                     CommandResult.Unsure -> showToast("The model isn’t sure what to do. Please try again.")
                     is CommandResult.Failed -> showToast(result.message)
                     CommandResult.CredentialsRejected ->
-                        useLocalFallback("AI interpretation disabled—the saved key was rejected.")
+                        useLocalFallback("AI interpretation disabled. The saved key was rejected.")
                     CommandResult.Unavailable ->
-                        useLocalFallback("AI interpretation unavailable—using local coaching.")
+                        useLocalFallback("AI interpretation unavailable. Using local coaching.")
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 if (activeComplaintId == complaintId) {
-                    useLocalFallback("AI interpretation unavailable—using local coaching.")
+                    useLocalFallback("AI interpretation unavailable. Using local coaching.")
                 }
             } finally {
                 jpeg?.fill(0)
@@ -1504,7 +1514,7 @@ class CaptureViewModel(
 
     private fun keepVisualFallback(
         fallback: LocalDecision,
-        message: String = "AI interpretation unavailable—using local coaching.",
+        message: String = "AI interpretation unavailable. Using local coaching.",
     ) {
         pendingSubjectZoom = null
         _uiState.update { it.copy(transientMessage = message) }
@@ -1632,7 +1642,7 @@ class CaptureViewModel(
             it.copy(
                 visualAiEnabled = false,
                 keyConfigured = false,
-                keyStatus = "Saved key unavailable—enter it again",
+                keyStatus = "Saved key unavailable. Enter it again",
             )
         }
     }
@@ -1644,7 +1654,7 @@ class CaptureViewModel(
             it.copy(
                 visualAiEnabled = false,
                 keyConfigured = true,
-                keyStatus = "Saved key rejected—test it again",
+                keyStatus = "Saved key rejected. Test it again",
             )
         }
     }
@@ -1850,9 +1860,9 @@ class CaptureViewModel(
                 guidanceSatisfiedSinceMs = null
                 failWork(
                     when {
-                        observation.faces.isEmpty() -> "I lost the person—point back at them, then start guidance again."
-                        observation.faces.size > 1 -> "I can’t isolate the same person—frame one person, then start guidance again."
-                        else -> "The tracked person changed—start guidance again."
+                        observation.faces.isEmpty() -> "I lost the person. Point back at them, then start guidance again."
+                        observation.faces.size > 1 -> "I can’t isolate the same person. Frame one person, then start guidance again."
+                        else -> "The tracked person changed. Start guidance again."
                     },
                 )
                 return
@@ -2142,7 +2152,7 @@ class CaptureViewModel(
                 resetAvailable = false,
                 retakeSettingsActive = false,
                 flashMode = FlashMode.OFF,
-                transientMessage = if (hadCameraWork) "Camera session changed—check the shot again." else it.transientMessage,
+                transientMessage = if (hadCameraWork) "Camera session changed. Check the shot again." else it.transientMessage,
             )
         }
     }

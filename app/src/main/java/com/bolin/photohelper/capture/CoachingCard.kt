@@ -106,10 +106,9 @@ fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifi
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 decision.chips.forEach { chip ->
-                    AssistChip(
+                    OverlayChip(
+                        label = chip.label,
                         onClick = { actions.onClarificationSelected(chip) },
-                        label = { Text(chip.label) },
-                        modifier = Modifier.heightIn(min = 48.dp),
                     )
                 }
             }
@@ -140,7 +139,7 @@ fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifi
 private fun FrostedCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val overlays = LocalOverlayColors.current
     Surface(
-        color = overlays.mirrorBar,
+        color = overlays.scrimOpaque,
         shape = CARD_SHAPE,
         border = BorderStroke(1.dp, overlays.mirrorBarBorder),
         modifier = modifier
@@ -192,14 +191,14 @@ private fun CardActions(
             Button(
                 onClick = onPrimary,
                 enabled = primaryEnabled,
-                modifier = Modifier.heightIn(min = 48.dp),
+                modifier = Modifier.heightIn(min = 56.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Mango,
                     contentColor = Charcoal,
                 ),
             ) { Text(primaryLabel) }
         }
-        TextButton(onClick = onSecondary, modifier = Modifier.heightIn(min = 48.dp)) {
+        TextButton(onClick = onSecondary, modifier = Modifier.heightIn(min = 56.dp)) {
             Text(secondaryLabel, color = overlays.onOverlay)
         }
     }
@@ -326,7 +325,7 @@ private fun ReviewDecisionCard(
     ) {
         Column(
             modifier = Modifier
-                .heightIn(max = 260.dp)
+                .heightIn(max = 340.dp)
                 .verticalScroll(rememberScrollState())
                 .semantics { isTraversalGroup = false }
                 .padding(16.dp),
@@ -360,14 +359,14 @@ private fun ReviewDecisionCard(
                                 onClick = { onClarificationSelected(chip) },
                                 label = { Text(chip.label) },
                                 modifier = Modifier
-                                    .heightIn(min = 48.dp)
+                                    .heightIn(min = 56.dp)
                                     .semantics { traversalIndex = 1f },
                             )
                         }
                     }
                     TextButton(
                         onClick = onDismiss,
-                        modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 2f },
+                        modifier = Modifier.heightIn(min = 56.dp).semantics { traversalIndex = 2f },
                     ) { Text("Dismiss") }
                 }
 
@@ -386,12 +385,12 @@ private fun ReviewDecisionCard(
                         if (resetAvailable) {
                             Button(
                                 onClick = onReset,
-                                modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 1f },
+                                modifier = Modifier.heightIn(min = 56.dp).semantics { traversalIndex = 1f },
                             ) { Text("Reset") }
                         }
                         TextButton(
                             onClick = onDismiss,
-                            modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 2f },
+                            modifier = Modifier.heightIn(min = 56.dp).semantics { traversalIndex = 2f },
                         ) { Text("Dismiss") }
                     }
                 }
@@ -460,19 +459,19 @@ private fun RecommendationContent(
                     }
                 },
                 enabled = !applying,
-                modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 1f },
+                modifier = Modifier.heightIn(min = 56.dp).semantics { traversalIndex = 1f },
             ) { Text(primaryLabel) }
         }
         Spacer(Modifier.weight(1f))
         if (resetAvailable) {
             TextButton(
                 onClick = onReset,
-                modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 2f },
+                modifier = Modifier.heightIn(min = 56.dp).semantics { traversalIndex = 2f },
             ) { Text("Reset") }
         } else {
             TextButton(
                 onClick = onDismiss,
-                modifier = Modifier.heightIn(min = 48.dp).semantics { traversalIndex = 2f },
+                modifier = Modifier.heightIn(min = 56.dp).semantics { traversalIndex = 2f },
             ) { Text("Dismiss") }
         }
     }
@@ -500,7 +499,7 @@ private fun RecommendationContent(
 @Composable
 private fun Provenance() {
     Text(
-        "AI-interpreted by Qwen via Alibaba Cloud; camera controls checked on device",
+        "Analyzed by cloud AI · Changes applied on this phone",
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -514,7 +513,7 @@ fun ResetCard(onReset: () -> Unit, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onReset, modifier = Modifier.heightIn(min = 48.dp)) { Text("Reset") }
+            TextButton(onClick = onReset, modifier = Modifier.heightIn(min = 56.dp)) { Text("Reset") }
         }
     }
 }
@@ -595,7 +594,7 @@ fun TranscriptOverlay(comment: String, phase: CoachingPhase) {
             color = overlays.onOverlay,
             textAlign = TextAlign.Center,
             modifier = Modifier
-                .heightIn(max = 52.dp)
+                .heightIn(max = 96.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 12.dp, vertical = 6.dp)
                 .testTag(CaptureTestTags.COMMENT)

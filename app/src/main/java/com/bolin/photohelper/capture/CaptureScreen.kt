@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -30,7 +29,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -93,6 +95,15 @@ fun CaptureScreen(
     var activeExercise by remember { mutableStateOf<ActiveExercise?>(null) }
     var exerciseCompleted by remember { mutableStateOf(false) }
 
+    val cameraReady = state.onboardingStep > 0 &&
+        state.cameraPermission == PermissionState.GRANTED &&
+        state.cameraPhase != CameraPhase.BLOCKED
+    LaunchedEffect(cameraReady) {
+        if (cameraReady && guideProgress != null && !guideProgress.hasSeenGuide()) {
+            guideProgress.markGuideSeen()
+        }
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxSize()
@@ -138,6 +149,7 @@ fun CaptureScreen(
                         canFlipCamera = canFlipCamera,
                         galleryThumbnail = galleryThumbnail,
                         actions = actions,
+                        onHelpOpen = { showGuide = true },
                     )
                     val review = state.review
                     if (review != null) {
@@ -180,10 +192,6 @@ fun CaptureScreen(
             onAutoCaptureEnabledChanged = actions::onAutoCaptureEnabledChanged,
             onOpenVisualAiPolicy = actions::onOpenVisualAiPolicy,
             onOpenMlKitPolicy = actions::onOpenMlKitPolicy,
-            onGuideOpen = {
-                actions.onSettingsDismiss()
-                showGuide = true
-            },
         )
     }
 
@@ -202,7 +210,7 @@ fun CaptureScreen(
         val autoComplete = when (exercise.exercise.type) {
             ExerciseType.TAKE_PHOTO -> state.review != null
             ExerciseType.VOICE_COMMAND -> state.coachingPhase == CoachingPhase.LISTENING
-            ExerciseType.LONG_PRESS_ORB -> state.coachingPhase == CoachingPhase.APPLYING
+            ExerciseType.TAP_ENHANCE -> state.coachingPhase == CoachingPhase.APPLYING
             else -> false
         }
         if (autoComplete && !exerciseCompleted) exerciseCompleted = true
@@ -240,12 +248,25 @@ private fun CaptureContent(
     canFlipCamera: Boolean,
     galleryThumbnail: ImageBitmap?,
     actions: CaptureScreenActions,
+    onHelpOpen: () -> Unit,
 ) {
     val config = LocalConfiguration.current
     val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
     val orbState = orbStateFor(state.coachingPhase)
-    val instruction = mirrorBarText(state)
+    val baseInstruction = mirrorBarText(state)
     val chromeVisible = state.review == null
+
+    var voiceHintIndex by remember { mutableIntStateOf(0) }
+    LaunchedEffect(state.showVoiceHints) {
+        if (!state.showVoiceHints) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(5000)
+            voiceHintIndex = (voiceHintIndex + 1) % VOICE_HINTS.size
+        }
+    }
+    val instruction = baseInstruction ?: if (
+        state.showVoiceHints && orbState == OrbState.IDLE && state.review == null
+    ) VOICE_HINTS[voiceHintIndex] else null
 
     val onOrbTap: () -> Unit = {
         if (state.showFirstUseHint) actions.onFirstUseHintSeen()
@@ -257,11 +278,6 @@ private fun CaptureContent(
             OrbState.ERROR -> actions.onDismissTransientMessage()
         }
     }
-    val onOrbLongPress: () -> Unit = {
-        if (state.showFirstUseHint) actions.onFirstUseHintSeen()
-        actions.onAutoEnhance()
-    }
-
     if (isLandscape) {
         Row(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxHeight().weight(1f)) {
@@ -274,6 +290,7 @@ private fun CaptureContent(
                     onFlipCamera = actions::onFlipCamera,
                     onFocusTarget = actions::onFocusTarget,
                     onSettingsOpen = actions::onSettingsOpen,
+                    onHelpOpen = onHelpOpen,
                     modifier = Modifier.fillMaxSize(),
                     showTopChrome = false,
                 )
@@ -300,8 +317,9 @@ private fun CaptureContent(
                 confidence = confidence,
                 onFlipCamera = actions::onFlipCamera,
                 onSettingsOpen = actions::onSettingsOpen,
+                onHelpOpen = onHelpOpen,
                 onOrbTap = onOrbTap,
-                onOrbLongPress = onOrbLongPress,
+                onAutoEnhance = actions::onAutoEnhance,
                 onMicrophone = actions::onMicrophone,
                 onOpenGallery = actions::onOpenGallery,
                 galleryThumbnail = galleryThumbnail,
@@ -320,6 +338,7 @@ private fun CaptureContent(
                 onFlipCamera = actions::onFlipCamera,
                 onFocusTarget = actions::onFocusTarget,
                 onSettingsOpen = actions::onSettingsOpen,
+                onHelpOpen = onHelpOpen,
                 modifier = Modifier.fillMaxSize(),
                 showTopChrome = chromeVisible,
             )
@@ -348,23 +367,35 @@ private fun CaptureContent(
             ) {
                 DecisionSurface(state, actions)
                 MirrorBar(instruction)
-                // The Orb is the brand signature and the primary control, so it sits on
-                // the screen axis. The mic is offset beside it rather than sharing a Row,
-                // which would push the Orb off-centre by half the mic's width.
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    HelperOrb(
-                        state = orbState,
-                        confidence = confidence,
-                        enabled = orbEnabled(state),
-                        onTap = onOrbTap,
-                        onLongPress = onOrbLongPress,
-                        autoCaptureFlashKey = state.autoCaptureFlashKey,
-                    )
-                    MicrophoneButton(
-                        phase = state.coachingPhase,
-                        onMicrophone = actions::onMicrophone,
-                        modifier = Modifier.offset(x = -MIC_OFFSET_FROM_ORB),
-                    )
+                // Three equal-weight cells rather than a Box with hardcoded offsets:
+                // the middle cell's centre is the screen axis whatever the side
+                // buttons measure, so the Orb stays centred when the system font
+                // scale grows the labels.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        MicrophoneButton(
+                            phase = state.coachingPhase,
+                            onMicrophone = actions::onMicrophone,
+                        )
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        HelperOrb(
+                            state = orbState,
+                            confidence = confidence,
+                            enabled = orbEnabled(state),
+                            onTap = onOrbTap,
+                            autoCaptureFlashKey = state.autoCaptureFlashKey,
+                        )
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        AutoEnhanceButton(
+                            onClick = actions::onAutoEnhance,
+                            enabled = orbState == OrbState.IDLE && state.shutterEnabled,
+                        )
+                    }
                 }
             }
             }
@@ -376,14 +407,12 @@ private enum class Screen { LANDING, PERMISSION, BLOCKED, CAMERA }
 
 private val CONTROL_STRIP_WIDTH = 72.dp
 
-/** Half the Orb's glow box (46dp) + a 16dp gap + half the mic (28dp): no overlap, Orb on axis. */
-private val MIC_OFFSET_FROM_ORB = 90.dp
-
 /**
  * What a tap on a decided Orb means. The Orb is the confirm button for whatever the
  * agent proposed, so it routes to the same handler the decision card's primary action
  * would have used.
  */
+
 private fun confirmDecision(state: CaptureUiState, actions: CaptureScreenActions) {
     if (state.activeGuidance != null) {
         actions.onCancelCoaching()
@@ -411,14 +440,18 @@ private fun CameraPermission(onRequest: () -> Unit, onSettings: () -> Unit) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("Camera access needed", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                "Camera access needed",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.semantics { heading() },
+            )
             Spacer(Modifier.size(12.dp))
             Text("Photo Helper needs the camera to take photos and help you frame them.")
             Spacer(Modifier.size(24.dp))
-            Button(onClick = onRequest, modifier = Modifier.heightIn(min = 48.dp)) {
+            Button(onClick = onRequest, modifier = Modifier.heightIn(min = 56.dp)) {
                 Text("Allow camera")
             }
-            TextButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) {
+            TextButton(onClick = onSettings, modifier = Modifier.heightIn(min = 56.dp)) {
                 Text("Open settings")
             }
         }
@@ -439,14 +472,18 @@ private fun RecoverySurface(onRetry: () -> Unit, onSettings: () -> Unit) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("Camera unavailable", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                "Camera unavailable",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.semantics { heading() },
+            )
             Spacer(Modifier.size(12.dp))
             Text("Another app may be using the camera, or the device camera is not available.")
             Spacer(Modifier.size(24.dp))
-            Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+            Button(onClick = onRetry, modifier = Modifier.heightIn(min = 56.dp)) {
                 Text("Retry")
             }
-            TextButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) {
+            TextButton(onClick = onSettings, modifier = Modifier.heightIn(min = 56.dp)) {
                 Text("Open settings")
             }
         }

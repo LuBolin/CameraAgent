@@ -19,6 +19,8 @@ interface PreferenceStore {
     fun setVisualProvider(provider: VisualProvider)
     fun autoCaptureEnabled(): Boolean
     fun setAutoCaptureEnabled(enabled: Boolean)
+    fun hasUsedVoice(): Boolean
+    fun setHasUsedVoice()
 }
 
 class UserPreferences(context: Context) : PreferenceStore {
@@ -56,6 +58,9 @@ class UserPreferences(context: Context) : PreferenceStore {
     override fun autoCaptureEnabled(): Boolean = values.getBoolean(AUTO_CAPTURE_ENABLED, true)
     override fun setAutoCaptureEnabled(enabled: Boolean) = put(AUTO_CAPTURE_ENABLED, enabled)
 
+    override fun hasUsedVoice(): Boolean = values.getBoolean(HAS_USED_VOICE, false)
+    override fun setHasUsedVoice() = put(HAS_USED_VOICE, true)
+
     override fun setVisualProvider(provider: VisualProvider) =
         values.edit().putString(VISUAL_PROVIDER, provider.name).apply()
 
@@ -83,5 +88,6 @@ class UserPreferences(context: Context) : PreferenceStore {
         const val STYLE_PROFILE = "style_profile"
         const val VISUAL_PROVIDER = "visual_provider"
         const val AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
+        const val HAS_USED_VOICE = "has_used_voice"
     }
 }

@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bolin.photohelper.ui.LocalOverlayColors
 import com.bolin.photohelper.ui.LocalReducedMotion
@@ -58,7 +59,7 @@ fun MirrorBar(text: String?, modifier: Modifier = Modifier) {
             color = overlays.mirrorBar,
             shape = RoundedCornerShape(50),
             modifier = Modifier
-                .widthIn(max = 320.dp)
+                .widthIn(max = 360.dp)
                 .border(1.dp, overlays.mirrorBarBorder, RoundedCornerShape(50))
                 .testTag(CaptureTestTags.MIRROR_BAR)
                 .semantics {
@@ -71,9 +72,12 @@ fun MirrorBar(text: String?, modifier: Modifier = Modifier) {
                 text = shown,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 color = overlays.onOverlay,
-                style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
+                style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
                 textAlign = TextAlign.Center,
-                maxLines = 2,
+                // Without an explicit overflow this defaults to Clip, which cut the
+                // longer messages off mid-word with no ellipsis to show it happened.
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -103,4 +107,11 @@ fun mirrorBarText(state: CaptureUiState): String? {
     }
 }
 
-const val FIRST_USE_HINT = "Tap to shoot · mic to talk"
+const val FIRST_USE_HINT = "Tap the circle to take a photo"
+
+val VOICE_HINTS = listOf(
+    "Try saying: \"make it brighter\"",
+    "Try: \"focus on the person\"",
+    "Try: \"too dark\"",
+    "Tap Help for a quick tour",
+)

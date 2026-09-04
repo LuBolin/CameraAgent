@@ -11,7 +11,7 @@ enum class ExerciseType {
     HOLD_STEADY,
     TAP_TO_FOCUS,
     VOICE_COMMAND,
-    LONG_PRESS_ORB,
+    TAP_ENHANCE,
     AUTO_CAPTURE,
     TAKE_PHOTO,
 }

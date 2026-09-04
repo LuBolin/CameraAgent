@@ -81,7 +81,6 @@ fun SettingsSheet(
     onOpenVisualAiPolicy: () -> Unit,
     onOpenMlKitPolicy: () -> Unit,
     onAutoCaptureEnabledChanged: (Boolean) -> Unit,
-    onGuideOpen: () -> Unit,
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
 
@@ -101,47 +100,42 @@ fun SettingsSheet(
                 modifier = Modifier.semantics { heading() },
             )
 
-            SettingsGroup("Camera")
-            ToggleRow("Smart auto-capture", state.settings.autoCaptureEnabled, onAutoCaptureEnabledChanged)
-
-            SettingsGroup("Interaction")
-            ToggleRow("Spoken guidance", state.settings.spokenGuidance, onSpokenGuidanceChanged)
-            ToggleRow("Vibration", state.settings.haptics, onHapticsChanged)
+            SettingsGroup("Sound & Vibration")
+            ToggleRow("Read instructions aloud", state.settings.spokenGuidance, onSpokenGuidanceChanged)
+            ToggleRow("Vibration feedback", state.settings.haptics, onHapticsChanged)
             if (state.microphonePermission == PermissionState.DENIED) {
                 Text("Microphone access is off.", style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = onEnableMicrophone, modifier = Modifier.heightIn(min = 48.dp)) {
+                TextButton(onClick = onEnableMicrophone, modifier = Modifier.heightIn(min = 56.dp)) {
                     Text("Enable microphone")
                 }
             }
 
-            SettingsGroup("Appearance")
+            SettingsGroup("Smart Features")
+            ToggleRow("Auto-capture when steady", state.settings.autoCaptureEnabled, onAutoCaptureEnabledChanged)
+
+            SettingsGroup("Theme")
             ThemeModeChooser(state.settings.themeMode, onThemeModeChanged)
 
-            SettingsGroup("Style")
-            StyleProfileField(state.settings.styleProfile, onStyleProfileChanged)
-
-            SettingsGroup("Help")
-            TextButton(onClick = onGuideOpen, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("How it works")
-            }
-
-            Spacer(Modifier.size(8.dp))
+            Spacer(Modifier.size(16.dp))
             HorizontalDivider()
-            OutlinedButton(
+            Spacer(Modifier.size(4.dp))
+            TextButton(
                 onClick = { advancedExpanded = !advancedExpanded },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
+                    .heightIn(min = 56.dp)
                     .semantics { stateDescription = if (advancedExpanded) "Expanded" else "Collapsed" },
             ) {
-                Text("Advanced")
-                Spacer(Modifier.size(8.dp))
+                Text("Advanced options")
+                Spacer(Modifier.size(4.dp))
                 Icon(
                     imageVector = if (advancedExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = null,
+                    modifier = Modifier.size(18.dp),
                 )
             }
             if (advancedExpanded) {
+                StyleProfileField(state.settings.styleProfile, onStyleProfileChanged)
+                Spacer(Modifier.size(8.dp))
                 ToggleRow("Show camera measurements", state.settings.technicalDetail, onTechnicalDetailChanged)
                 ToggleRow(
                     label = "AI interpretation",
@@ -159,12 +153,12 @@ fun SettingsSheet(
                     onClearKey = onClearKey,
                     onOpenVisualAiPolicy = onOpenVisualAiPolicy,
                 )
-                TextButton(onClick = onOpenMlKitPolicy, modifier = Modifier.heightIn(min = 48.dp)) {
+                TextButton(onClick = onOpenMlKitPolicy, modifier = Modifier.heightIn(min = 56.dp)) {
                     Text("ML Kit data disclosure")
                 }
             }
 
-            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp)) {
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End).heightIn(min = 56.dp)) {
                 Text("Close")
             }
             Spacer(Modifier.size(16.dp))
@@ -313,7 +307,7 @@ private fun QwenKeySetup(
                 clipboard.getText()?.text?.let { onApiKeyChanged(it.take(MAX_API_KEY_CHARACTERS)) }
             },
             enabled = !settings.testingKey,
-            modifier = Modifier.heightIn(min = 48.dp),
+            modifier = Modifier.heightIn(min = 56.dp),
         ) { Text("Paste") }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -332,12 +326,12 @@ private fun QwenKeySetup(
         Button(
             onClick = onTestKey,
             enabled = !settings.testingKey && apiKeyInput.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
         ) { Text("Test, save & enable") }
         OutlinedButton(
             onClick = onClearKey,
             enabled = !settings.testingKey && (apiKeyInput.isNotBlank() || settings.keyConfigured),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
         ) { Text("Clear key") }
     }
     Text(
@@ -346,7 +340,7 @@ private fun QwenKeySetup(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    TextButton(onClick = onOpenVisualAiPolicy, modifier = Modifier.heightIn(min = 48.dp)) {
+    TextButton(onClick = onOpenVisualAiPolicy, modifier = Modifier.heightIn(min = 56.dp)) {
         Text("Alibaba Cloud privacy notice")
     }
 }

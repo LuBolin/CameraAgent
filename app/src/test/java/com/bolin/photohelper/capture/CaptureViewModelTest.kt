@@ -1224,7 +1224,7 @@ class CaptureViewModelTest {
         runCurrent()
 
         assertTrue(viewModel.uiState.value.decision is LocalDecision.Clarify)
-        assertTrue(viewModel.uiState.value.transientMessage.orEmpty().contains("using local coaching"))
+        assertTrue(viewModel.uiState.value.transientMessage.orEmpty().contains("Using local coaching"))
     }
 
     @Test
@@ -1247,7 +1247,7 @@ class CaptureViewModelTest {
         assertFalse(viewModel.uiState.value.settings.visualAiEnabled)
         assertTrue(viewModel.uiState.value.settings.keyConfigured)
         assertFalse(camera.observationImagesEnabled)
-        assertEquals("Saved key rejected—test it again", viewModel.uiState.value.settings.keyStatus)
+        assertEquals("Saved key rejected. Test it again", viewModel.uiState.value.settings.keyStatus)
         assertTrue(viewModel.uiState.value.transientMessage.orEmpty().contains("disabled"))
         assertTrue(viewModel.uiState.value.decision is LocalDecision.Clarify)
         assertEquals(0, clearCalls)
@@ -1946,7 +1946,7 @@ class CaptureViewModelTest {
         runCurrent()
 
         assertTrue(viewModel.uiState.value.recommendation?.action is RecommendationAction.TapToFocus)
-        assertEquals("AI interpretation unavailable—using local coaching.", viewModel.uiState.value.transientMessage)
+        assertEquals("AI interpretation unavailable. Using local coaching.", viewModel.uiState.value.transientMessage)
     }
 
     @Test
@@ -2325,7 +2325,7 @@ class CaptureViewModelTest {
         assertFalse(viewModel.uiState.value.settings.visualAiEnabled)
         assertFalse(viewModel.uiState.value.settings.keyConfigured)
         assertFalse(camera.observationImagesEnabled)
-        assertEquals("Saved key unavailable—enter it again", viewModel.uiState.value.settings.keyStatus)
+        assertEquals("Saved key unavailable. Enter it again", viewModel.uiState.value.settings.keyStatus)
     }
 
     @Test
@@ -2779,6 +2779,8 @@ class CaptureViewModelTest {
         }
         override fun autoCaptureEnabled() = true
         override fun setAutoCaptureEnabled(enabled: Boolean) = Unit
+        override fun hasUsedVoice() = false
+        override fun setHasUsedVoice() = Unit
     }
 
     private fun observation(

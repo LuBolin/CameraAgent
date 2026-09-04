@@ -110,6 +110,8 @@ data class CaptureUiState(
     val settings: SettingsUiState = SettingsUiState(),
     /** Shown in the mirror bar the first time the camera opens, then never again. */
     val showFirstUseHint: Boolean = false,
+    /** Rotating voice-command examples in the MirrorBar until the user tries voice. */
+    val showVoiceHints: Boolean = false,
     /** Incremented each time auto-capture fires; drives the Orb sage flash animation. */
     val autoCaptureFlashKey: Int = 0,
 ) {

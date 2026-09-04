@@ -6,9 +6,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -21,21 +23,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.onLongClick
-import androidx.compose.ui.semantics.role
+
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.traversalIndex
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.bolin.photohelper.ui.LocalOverlayColors
 import com.bolin.photohelper.ui.LocalReducedMotion
+import com.bolin.photohelper.ui.Mango
 import com.bolin.photohelper.ui.Sage
 import com.bolin.photohelper.ui.jarvisColor
 import kotlinx.coroutines.delay
@@ -92,7 +94,6 @@ fun HelperOrb(
     confidence: Float,
     enabled: Boolean,
     onTap: () -> Unit,
-    onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 72.dp,
     autoCaptureFlashKey: Int = 0,
@@ -158,19 +159,33 @@ fun HelperOrb(
     }
 
     val description = when (state) {
-        OrbState.IDLE -> "Take photo. Hold to auto-enhance."
+        OrbState.IDLE -> "Take photo"
         OrbState.LISTENING -> "Listening. Tap to finish."
         OrbState.PROCESSING -> "Working on it."
         OrbState.DECIDED -> "Ready. Tap to confirm."
         OrbState.ERROR -> "That did not work. Tap to try again."
     }
 
+    var focused by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
             .size(size + GLOW_MARGIN * 2)
+            // The Orb is the primary action, so it has to be reachable the same way
+            // every other control is. A bare pointerInput left it focusable=false in
+            // the hierarchy: unreachable by D-pad, keyboard and switch access.
+            // clickable brings focus traversal and DPAD_CENTER/Enter with it;
+            // indication stays null so the ripple never fights the glow.
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(
+                enabled = enabled,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClickLabel = "Take photo",
+                role = Role.Button,
+                onClick = onTap,
+            )
             .semantics(mergeDescendants = true) {
                 contentDescription = description
-                role = Role.Button
                 traversalIndex = 4f
                 stateDescription = when (state) {
                     OrbState.IDLE -> "Idle"
@@ -178,10 +193,6 @@ fun HelperOrb(
                     OrbState.PROCESSING -> "Working"
                     OrbState.DECIDED -> "Decided"
                     OrbState.ERROR -> "Error"
-                }
-                if (enabled) {
-                    onClick(label = "Take photo") { onTap(); true }
-                    onLongClick(label = "Auto-enhance") { onLongPress(); true }
                 }
             }
             .testTag(CaptureTestTags.HELPER_ORB),
@@ -210,13 +221,9 @@ fun HelperOrb(
         Box(
             modifier = Modifier
                 .size(size)
-                .pointerInput(enabled) {
-                    if (!enabled) return@pointerInput
-                    detectTapGestures(
-                        onTap = { onTap() },
-                        onLongPress = { onLongPress() },
-                    )
-                },
+                .then(
+                    if (focused) Modifier.border(3.dp, Mango, CircleShape) else Modifier,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Canvas(Modifier.size(size)) {
@@ -227,38 +234,39 @@ fun HelperOrb(
                     style = Stroke(width = stroke),
                 )
             }
+            val glyphSize = size / 2
             when (state) {
-                OrbState.IDLE -> Canvas(Modifier.size(size / 3)) {
+                OrbState.IDLE -> Canvas(Modifier.size(size / 2.5f)) {
                     drawCircle(color = ringColor.copy(alpha = if (enabled) 1f else 0.4f))
                 }
                 OrbState.LISTENING -> Icon(
                     imageVector = Icons.Rounded.Mic,
                     contentDescription = null,
                     tint = overlays.onOverlay,
-                    modifier = Modifier.size(size / 3),
+                    modifier = Modifier.size(glyphSize),
                 )
                 OrbState.PROCESSING -> CircularProgressIndicator(
-                    modifier = Modifier.size(size / 3),
+                    modifier = Modifier.size(glyphSize),
                     color = ringColor,
-                    strokeWidth = 2.dp,
+                    strokeWidth = 2.5.dp,
                 )
                 OrbState.DECIDED -> Icon(
                     imageVector = Icons.Rounded.Check,
                     contentDescription = null,
                     tint = overlays.onOverlay,
-                    modifier = Modifier.size(size / 2.4f),
+                    modifier = Modifier.size(glyphSize),
                 )
                 OrbState.ERROR -> Icon(
                     imageVector = Icons.Rounded.PriorityHigh,
                     contentDescription = null,
                     tint = overlays.onOverlay,
-                    modifier = Modifier.size(size / 2.4f),
+                    modifier = Modifier.size(glyphSize),
                 )
             }
         }
     }
 }
 
-private val RING_STROKE = 3.5.dp
+private val RING_STROKE = 5.dp
 private val GLOW_BLUR = 14.dp
 private val GLOW_MARGIN = 10.dp

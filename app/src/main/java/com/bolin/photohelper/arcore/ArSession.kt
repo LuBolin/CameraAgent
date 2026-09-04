@@ -20,7 +20,7 @@ enum class ArAvailability { SUPPORTED, UNSUPPORTED, CHECKING }
  * camera lifecycle so the two never fight over the sensor.
  *
  * When ARCore is unavailable the session stays null and every feature that
- * depends on it degrades gracefully — auto-capture simply requires a manual tap.
+ * depends on it degrades gracefully. Auto-capture simply requires a manual tap.
  */
 class ArSessionManager(private val context: Context) : DefaultLifecycleObserver {
 

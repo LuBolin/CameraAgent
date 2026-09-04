@@ -41,8 +41,15 @@ class GuideProgress(context: Context) {
     fun nextIncompleteLesson(module: GuideModule): GuideLesson? =
         module.lessons.firstOrNull { !isLessonComplete(it.id) }
 
+    fun hasSeenGuide(): Boolean = prefs.getBoolean(GUIDE_SEEN, false)
+
+    fun markGuideSeen() {
+        prefs.edit().putBoolean(GUIDE_SEEN, true).apply()
+    }
+
     private companion object {
         const val NAME = "guide_progress"
         const val COMPLETED_LESSONS = "completed_lessons"
+        const val GUIDE_SEEN = "guide_seen"
     }
 }

@@ -48,7 +48,7 @@ private val GUIDE_CARDS = listOf(
     GuideCard(
         icon = Icons.Rounded.Mic,
         gesture = "Tap the mic",
-        detail = "Say what you want — \"too dark\", \"focus on the red mug\", \"take a photo in five seconds\". Tap again to send.",
+        detail = "Say what you want: \"too dark\", \"focus on the red mug\", \"take a photo in five seconds\". Tap again to send.",
     ),
     GuideCard(
         icon = Icons.Rounded.AutoAwesome,
@@ -58,7 +58,7 @@ private val GUIDE_CARDS = listOf(
     GuideCard(
         icon = Icons.Rounded.Check,
         gesture = "Watch the colour",
-        detail = "Orange means it is working. Green means it is ready — tap once more to confirm.",
+        detail = "Orange means it is working. Green means it is ready. Tap once more to confirm.",
     ),
 )
 

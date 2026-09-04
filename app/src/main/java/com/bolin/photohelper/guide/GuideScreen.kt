@@ -32,7 +32,9 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Camera
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.FrontHand
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +64,19 @@ sealed interface GuideNav {
     data class LessonDetail(val moduleId: String, val lessonId: String) : GuideNav
     data class ModuleComplete(val moduleId: String) : GuideNav
 }
+
+private data class QuickStartAction(
+    val label: String,
+    val moduleId: String,
+    val lessonId: String,
+    val icon: ImageVector,
+)
+
+private val QUICK_START_ACTIONS = listOf(
+    QuickStartAction("Take your first photo", "getting_started", "1.1", Icons.Rounded.Camera),
+    QuickStartAction("Try voice control", "focus_exposure", "3.2", Icons.Rounded.Mic),
+    QuickStartAction("Steady your hands", "steady_hands", "2.1", Icons.Rounded.FrontHand),
+)
 
 @Composable
 fun GuideScreen(
@@ -116,6 +132,9 @@ fun GuideScreen(
                     moduleDone = { moduleComplete(it) },
                     onModuleTap = { m ->
                         if (!m.comingSoon) nav = GuideNav.LessonList(m.id)
+                    },
+                    onQuickStart = { action ->
+                        nav = GuideNav.LessonDetail(action.moduleId, action.lessonId)
                     },
                     onBack = onDismiss,
                 )
@@ -179,6 +198,7 @@ private fun ModuleListPane(
     overallTotal: Int,
     moduleDone: (GuideModule) -> Int,
     onModuleTap: (GuideModule) -> Unit,
+    onQuickStart: (QuickStartAction) -> Unit,
     onBack: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -188,9 +208,21 @@ private fun ModuleListPane(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            item {
-                OverallProgressCard(done = overallDone, total = overallTotal)
-                Spacer(Modifier.height(8.dp))
+            if (overallDone == 0) {
+                item {
+                    QuickStartCard(onAction = onQuickStart)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "All lessons",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                    )
+                }
+            } else {
+                item {
+                    OverallProgressCard(done = overallDone, total = overallTotal)
+                    Spacer(Modifier.height(8.dp))
+                }
             }
             items(GUIDE_MODULES) { module ->
                 val done = moduleDone(module)
@@ -227,16 +259,77 @@ private fun OverallProgressCard(done: Int, total: Int) {
                 )
                 if (done < total) {
                     Text(
-                        "Keep going — you're making great progress",
+                        if (done == 0) "Start with the first module. Just 3 short lessons"
+                        else "Keep going, you're making great progress",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     Text(
-                        "Congratulations — you finished the course!",
+                        "Congratulations! You finished the course!",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickStartCard(onAction: (QuickStartAction) -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Start here",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.semantics { heading() },
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Three quick lessons to get you going",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+            )
+            Spacer(Modifier.height(12.dp))
+            QUICK_START_ACTIONS.forEach { action ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp)
+                        .padding(vertical = 3.dp)
+                        .clickable { onAction(action) },
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            action.icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Text(
+                            action.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.Rounded.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
         }
@@ -457,7 +550,7 @@ private fun LessonDetailPane(
         ) {
             item {
                 Text(
-                    "${module.title} — lesson ${lesson.id}",
+                    "${module.title}, lesson ${lesson.id}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -483,19 +576,19 @@ private fun LessonDetailPane(
                 if (lesson.exercise != null) {
                     Button(
                         onClick = onTryIt,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Icon(Icons.Rounded.Camera, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Try it now — back to camera")
+                        Text("Try it now")
                     }
                     Spacer(Modifier.height(8.dp))
                 }
                 if (!isDone) {
                     OutlinedButton(
                         onClick = onMarkDone,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -664,7 +757,7 @@ private fun ModuleCompletePane(
         Spacer(Modifier.height(24.dp))
         Button(
             onClick = onContinue,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
             shape = RoundedCornerShape(12.dp),
         ) {
             Text(if (nextModule != null) "Continue to next module" else "Back to guide")
@@ -672,7 +765,7 @@ private fun ModuleCompletePane(
         Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = onBack,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
             shape = RoundedCornerShape(12.dp),
         ) {
             Text("Back to all modules")
@@ -696,7 +789,7 @@ private fun GuideTopBar(title: String, onBack: () -> Unit) {
         Text(
             title,
             style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).semantics { heading() },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

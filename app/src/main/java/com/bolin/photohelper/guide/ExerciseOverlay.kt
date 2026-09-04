@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -51,7 +52,7 @@ fun ExerciseOverlay(
 ) {
     LaunchedEffect(completed) {
         if (completed) {
-            delay(2000)
+            delay(3500)
             onComplete()
         }
     }
@@ -93,11 +94,11 @@ fun ExerciseOverlay(
                             modifier = Modifier.weight(1f),
                         )
                         if (!completed) {
-                            IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
+                            IconButton(onClick = onCancel, modifier = Modifier.size(56.dp)) {
                                 Icon(
                                     Icons.Rounded.Close,
                                     contentDescription = "Cancel exercise",
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(24.dp),
                                 )
                             }
                         }
@@ -116,7 +117,7 @@ fun ExerciseOverlay(
                         Spacer(Modifier.height(10.dp))
                         FilledTonalButton(
                             onClick = onComplete,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                             ),

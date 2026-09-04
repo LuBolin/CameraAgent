@@ -154,7 +154,7 @@ class CameraControlTransactionTest {
         )
 
         assertEquals(
-            "Camera controls could not be restored. Retry the camera before shooting.",
+            "Camera controls did not reset. Restart the camera.",
             (result as ApplyResult.Failed).message,
         )
     }

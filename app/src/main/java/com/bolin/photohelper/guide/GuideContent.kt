@@ -57,7 +57,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                     Tip("Your app can help", "When you voice-command \"zoom in\", the coach warns if the zoom level exceeds the optical range and suggests stepping closer.", isAppAssist = true),
                 ),
                 exercise = GuidedExercise(
-                    instruction = "Take a photo by moving closer — no zooming!",
+                    instruction = "Take a photo by moving closer. No zooming!",
                     hint = "Walk toward your subject instead of pinching to zoom.",
                     successMessage = "Sharp photo without digital zoom!",
                     type = ExerciseType.TAKE_PHOTO,
@@ -70,7 +70,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 description = "Phones live in pockets and bags. Fingerprints and lint on the lens cause foggy, low-contrast photos.",
                 tips = listOf(
                     Tip("Build the habit", "Wipe the lens with a soft microfiber cloth before every session."),
-                    Tip("Be gentle", "Avoid paper towels or rough fabric — they can scratch the lens coating over time."),
+                    Tip("Be gentle", "Avoid paper towels or rough fabric. They can scratch the lens coating over time."),
                 ),
             ),
             GuideLesson(
@@ -80,12 +80,12 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 description = "Smartphones struggle in poor lighting. The built-in flash creates harsh, flat light and washed-out faces.",
                 tips = listOf(
                     Tip("Seek natural light", "Position subjects near windows or move outdoors for soft, diffused light."),
-                    Tip("Golden hour", "The period just after sunrise or before sunset gives warm, magical light that flatters textures and faces."),
+                    Tip("Golden hour", "The hour after sunrise or before sunset gives warm, soft light. Faces and textures look their best."),
                     Tip("Your app can help", "The exposure analysis detects dark scenes and suggests finding better light instead of defaulting to flash.", isAppAssist = true),
                 ),
                 exercise = GuidedExercise(
                     instruction = "Find good natural light and take a photo.",
-                    hint = "Move near a window or step outside — no flash!",
+                    hint = "Move near a window or step outside. No flash!",
                     successMessage = "Great use of natural light!",
                     type = ExerciseType.TAKE_PHOTO,
                 ),
@@ -102,7 +102,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "2.1",
                 title = "The stable triangle",
                 tag = LessonTag.PASSIVE,
-                description = "For those managing arthritis or shaky hands, physical stability is the foundation of a sharp photo.",
+                description = "If arthritis or shaky hands are part of your life, a few simple tricks make all the difference.",
                 tips = listOf(
                     Tip("Both hands", "Grip the phone firmly with both hands."),
                     Tip("Elbows in", "Tuck both elbows tightly against your ribs. This creates a stable triangle anchored to your core."),
@@ -139,12 +139,12 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 description = "Jabbing the screen shakes the camera at the exact moment the shutter opens.",
                 tips = listOf(
                     Tip("Volume button", "Roll your finger over the side volume button to take the photo. Much gentler than tapping the screen."),
-                    Tip("Self-timer", "Set a 2–3 second timer. Press, then steady your grip before the shutter fires."),
+                    Tip("Self-timer", "Set a 2-3 second timer. Press, then steady your grip before the shutter fires."),
                     Tip("Breathe", "Exhale slowly and press the shutter at the bottom of the breath for maximum steadiness."),
                     Tip("Your app can help", "Zero-Shake auto-capture detects when you're holding perfectly still and takes the photo automatically. No tap needed.", isAppAssist = true),
                 ),
                 exercise = GuidedExercise(
-                    instruction = "Hold perfectly still — auto-capture will fire.",
+                    instruction = "Hold perfectly still. Auto-capture will fire.",
                     hint = "Breathe out slowly, then freeze.",
                     successMessage = "Auto-captured! Zero shake, zero tap.",
                     type = ExerciseType.AUTO_CAPTURE,
@@ -203,11 +203,11 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
             ),
             GuideLesson(
                 id = "3.4",
-                title = "HDR — balancing bright and dark",
+                title = "HDR: bright meets dark",
                 tag = LessonTag.PASSIVE,
-                description = "HDR merges multiple exposures into one balanced image, rescuing both shadows and highlights.",
+                description = "HDR merges multiple exposures so you keep detail in both bright and dark areas.",
                 tips = listOf(
-                    Tip("Set it to Auto", "The phone activates HDR only when the scene needs it — dark landscape under bright sky, for example."),
+                    Tip("Set it to Auto", "The phone activates HDR only when the scene needs it, like a dark landscape under bright sky."),
                     Tip("When it helps most", "High-contrast scenes: a window behind someone, a sunset landscape, indoor scenes with bright spots."),
                 ),
             ),
@@ -231,7 +231,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 ),
                 exercise = GuidedExercise(
                     instruction = "Place your subject on a grid intersection, then shoot.",
-                    hint = "Imagine the screen divided into thirds — put the subject where lines cross.",
+                    hint = "Imagine the screen divided into thirds. Put the subject where lines cross.",
                     successMessage = "Composed like a pro!",
                     type = ExerciseType.TAKE_PHOTO,
                 ),
@@ -267,7 +267,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "4.4",
                 title = "Foreground interest",
                 tag = LessonTag.PASSIVE,
-                description = "Including an object in the foreground adds depth and invites the viewer into the scene.",
+                description = "Including something in the foreground adds depth and draws people into the photo.",
                 tips = listOf(
                     Tip("Add a layer", "A flower, a textured rock, a railing, or even your hand framing the shot adds dimension."),
                     Tip("Don't block the subject", "The foreground element should complement, not compete with, your main subject."),
@@ -277,7 +277,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "4.5",
                 title = "Straight horizons",
                 tag = LessonTag.ACTIVE,
-                description = "A crooked horizon is immediately distracting. Use gridlines or your phone's level to keep it straight.",
+                description = "A crooked horizon stands out right away. Use gridlines or your phone's level to keep it straight.",
                 tips = listOf(
                     Tip("Use the gridlines", "The horizontal grid line is your built-in level. Align the horizon to it."),
                     Tip("Your app can help", "The spatial tracker detects phone tilt and nudges you: \"Tilt slightly left to level the horizon.\"", isAppAssist = true),
@@ -296,7 +296,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 description = "Avoid lining everyone up in a flat row. Arrange heads at different heights to form a triangle shape.",
                 tips = listOf(
                     Tip("Vary the heights", "Have some people sit, others stand, one kneel. Wider at the base, one person at the top."),
-                    Tip("Unity and cohesion", "The triangle creates a visual sense of togetherness that a flat line never achieves."),
+                    Tip("Why it works", "A triangle shape looks way more natural than a flat line."),
                 ),
             ),
         ),
@@ -311,16 +311,16 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "5.1",
                 title = "Avoid wide-angle distortion",
                 tag = LessonTag.ACTIVE,
-                description = "Shooting too close with the standard lens exaggerates facial features — the \"big nose\" effect.",
+                description = "Shooting too close with the standard lens exaggerates facial features, sometimes called the \"big nose\" effect.",
                 tips = listOf(
-                    Tip("Use telephoto", "Switch to the 2x or 3x lens and stand 2–8 feet away. This compresses features and looks professional."),
+                    Tip("Use telephoto", "Switch to the 2x or 3x lens and stand 2-8 feet away. This compresses features and looks much better."),
                     Tip("Portrait mode", "It combines telephoto framing with background blur (bokeh) for a flattering look."),
                     Tip("Your app can help", "Face detection warns about perspective distortion and suggests stepping back when you're too close.", isAppAssist = true),
                 ),
                 exercise = GuidedExercise(
                     instruction = "Step back, switch to 2x lens, and take a portrait.",
-                    hint = "Stand 4–8 feet from the person. Use the telephoto lens.",
-                    successMessage = "Flattering portrait — no distortion!",
+                    hint = "Stand 4-8 feet from the person. Use the telephoto lens.",
+                    successMessage = "Flattering portrait, no distortion!",
                     type = ExerciseType.TAKE_PHOTO,
                 ),
             ),
@@ -330,7 +330,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 tag = LessonTag.PASSIVE,
                 description = "Light direction and quality matter more than any filter for making people look good.",
                 tips = listOf(
-                    Tip("Face the window", "Position the subject facing a window — soft, even light minimizes shadows and wrinkles."),
+                    Tip("Face the window", "Position the subject facing a window. Soft, even light minimizes shadows and wrinkles."),
                     Tip("Avoid midday sun", "Overhead sun creates harsh shadows under eyes and nose. Open shade is better."),
                     Tip("DIY reflector", "A piece of white cardboard held below chin level fills in under-eye shadows."),
                 ),
@@ -339,11 +339,11 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "5.3",
                 title = "Group photo management",
                 tag = LessonTag.PASSIVE,
-                description = "Managing groups is stressful. A systematic approach keeps everyone smiling.",
+                description = "Group photos are tricky. A few simple tricks keep everyone looking their best.",
                 tips = listOf(
                     Tip("Anti-blink trick", "Have everyone close their eyes, then open on the count of three. Far fewer blinks."),
                     Tip("Use burst mode", "Hold the shutter to capture rapid frames, then pick the best one where everyone looks great."),
-                    Tip("Direct with confidence", "Give clear, kind instructions — \"Everyone look at the camera lens, not the screen.\""),
+                    Tip("Direct with confidence", "Give clear, kind instructions: \"Everyone look at the camera lens, not the screen.\""),
                 ),
             ),
             GuideLesson(
@@ -352,7 +352,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 tag = LessonTag.ACTIVE,
                 description = "Groups need more space than solo portraits. Make sure everyone fits comfortably.",
                 tips = listOf(
-                    Tip("Room to breathe", "Leave some space around the edges of the group — don't clip anyone."),
+                    Tip("Room to breathe", "Leave some space around the edges of the group. Don't clip anyone."),
                     Tip("Your app can help", "Spatial tracking detects multiple faces and suggests \"Step back a bit to fit everyone in\" when the group is being clipped.", isAppAssist = true),
                 ),
             ),
@@ -368,10 +368,10 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "6.1",
                 title = "Low-light photography",
                 tag = LessonTag.ACTIVE,
-                description = "Low light challenges every camera. Understanding a few principles keeps photos sharp and noise-free.",
+                description = "Low light is tough on every camera. A few simple habits keep your photos sharp and clean.",
                 tips = listOf(
                     Tip("Keep ISO low", "High ISO (above 800) introduces visible grain. Let the phone manage it through Night Mode instead."),
-                    Tip("Use Night Mode", "Most modern phones capture multiple frames and merge them — use it in dim environments."),
+                    Tip("Use Night Mode", "Most modern phones capture multiple frames and merge them. Use it in dim environments."),
                     Tip("Your app can help", "The coach detects underexposed scenes and suggests enabling Night Mode or finding better light.", isAppAssist = true),
                 ),
             ),
@@ -398,7 +398,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 tag = LessonTag.PASSIVE,
                 description = "Most phones have a minimum focus distance. Getting too close causes blur.",
                 tips = listOf(
-                    Tip("Shoot and crop", "Take the photo from a comfortable distance and crop in the gallery afterward — preserves sharpness."),
+                    Tip("Shoot and crop", "Take the photo from a comfortable distance and crop in the gallery afterward. Keeps everything sharp."),
                     Tip("Check for Macro mode", "Some phones have a dedicated Macro mode in the camera modes menu."),
                 ),
             ),
@@ -415,7 +415,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "7.1",
                 title = "Key adjustments",
                 tag = LessonTag.ACTIVE,
-                description = "Brightness, shadows, warmth, and saturation — the four sliders that transform a photo.",
+                description = "Brightness, shadows, warmth, and saturation. These four sliders make the biggest difference.",
                 tips = listOf(
                     Tip("Coming soon", "Voice-driven post-processing presets will let you say \"make it warmer\" or \"bring out the shadows\" after the shot."),
                 ),
@@ -462,7 +462,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "8.2",
                 title = "Captions that tell the story",
                 tag = LessonTag.ACTIVE,
-                description = "A good caption adds context and emotional depth to your shared photos.",
+                description = "A good caption gives your photos a story when you share them.",
                 tips = listOf(
                     Tip("Coming soon", "AI caption generation from your photo. Say \"Write a caption\" and choose short or long."),
                 ),
@@ -474,7 +474,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 description = "Set up auto-backup on Google Photos or Apple Photos to protect your memories.",
                 tips = listOf(
                     Tip("Safety first", "Auto-backup protects memories if the phone is lost or damaged."),
-                    Tip("Share smart", "Generate private sharing links for family — no need to send large files that clog up everyone's phone."),
+                    Tip("Share smart", "Use private sharing links for family. No need to send large files that clog up everyone's phone."),
                 ),
             ),
             GuideLesson(
@@ -501,7 +501,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 tag = LessonTag.PASSIVE,
                 description = "Commit to one intentional photo every day to stay observant and engaged.",
                 tips = listOf(
-                    Tip("Consistency over perfection", "It doesn't have to be great — it's about building the habit of seeing."),
+                    Tip("Consistency over perfection", "It doesn't have to be great. It's about building the habit of seeing."),
                     Tip("Watch the progress", "Over weeks, the improvement is visible and motivating."),
                 ),
             ),
@@ -511,7 +511,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 tag = LessonTag.PASSIVE,
                 description = "Don't hoard blurry shots or duplicates. Culling makes great photos stand out.",
                 tips = listOf(
-                    Tip("Keep the best 2–3", "From each session, pick the standouts and delete the rest."),
+                    Tip("Keep the best 2-3", "From each session, pick the standouts and delete the rest."),
                     Tip("Free up space", "Fewer photos means faster scrolling and less storage anxiety."),
                 ),
             ),
@@ -519,10 +519,10 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "9.3",
                 title = "Your memory book",
                 tag = LessonTag.PASSIVE,
-                description = "Curate your best photos into a printed book or digital album. The capstone of your photography journey.",
+                description = "Collect your best photos into a printed book or digital album. A great way to see how far you've come.",
                 tips = listOf(
                     Tip("Two-sentence backstory", "For each selected photo, write where it was taken and how you felt."),
-                    Tip("Share it", "Show it to grandchildren, friends, or the class. Photography is a bridge to others."),
+                    Tip("Share it", "Show it to grandchildren, friends, or the class. Photos are better when you share them."),
                 ),
             ),
         ),

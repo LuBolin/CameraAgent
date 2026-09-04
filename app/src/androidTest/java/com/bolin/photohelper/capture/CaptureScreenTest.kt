@@ -339,7 +339,7 @@ class CaptureScreenTest {
         compose.onNodeWithContentDescription("Settings").assertIsDisplayed()
         compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).assertIsDisplayed()
 
-        // Flash removed from persistent controls — accessible only via voice.
+        // Flash removed from persistent controls. Accessible only via voice.
         compose.onNodeWithContentDescription("Flash: Flash off. Tap to cycle.").assertDoesNotExist()
         compose.onNodeWithText("LIVE").assertDoesNotExist()
     }
@@ -518,7 +518,7 @@ class CaptureScreenTest {
 
     @Test
     fun transientMessagesSurfaceInTheMirrorBarWithoutTouchingTheDecision() {
-        val message = "AI interpretation unavailable—using local coaching."
+        val message = "AI interpretation unavailable. Using local coaching."
         val state = mutableStateOf(
             readyState(decision = LocalDecision.Advisory("Keep framing", "Still actionable."))
                 .copy(transientMessage = message),

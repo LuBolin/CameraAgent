@@ -73,16 +73,37 @@ data class OverlayColors(
     val scrim: Color = Charcoal.copy(alpha = 0.55f),
     val scrimHeavy: Color = Charcoal.copy(alpha = 0.75f),
     val scrimOpaque: Color = Charcoal.copy(alpha = 0.92f),
-    /** Frosted glass fill for the four persistent chrome buttons. */
-    val frostedGlass: Color = Charcoal.copy(alpha = 0.45f),
+    /** Frosted glass fill for secondary chrome buttons (Flip, Help, Menu). */
+    val frostedGlass: Color = Charcoal.copy(alpha = 0.75f),
+    /**
+     * Fill for primary chrome buttons (Talk, Improve). Heavier than [frostedGlass]
+     * because a primary button tints its icon with [accentOnOverlay], and Mango needs
+     * a darker ground to clear 3:1 against a white wall - on the 0.75 fill it drops to
+     * 2.7:1, on this one it holds 3.9:1. The extra opacity doubles as hierarchy: the
+     * two controls that drive the app read as more present than the ones that don't.
+     */
+    val frostedGlassStrong: Color = Charcoal.copy(alpha = 0.88f),
     /** Hairline that gives frosted glass its edge. */
-    val frostedGlassBorder: Color = SoftCream.copy(alpha = 0.08f),
+    val frostedGlassBorder: Color = SoftCream.copy(alpha = 0.25f),
+    /** Ring that marks a primary overlay action apart from neutral chrome. */
+    val accentOverlayBorder: Color = Mango.copy(alpha = 0.55f),
     /** Mirror bar and decision cards sit one step heavier than the buttons. */
-    val mirrorBar: Color = Charcoal.copy(alpha = 0.55f),
-    val mirrorBarBorder: Color = SoftCream.copy(alpha = 0.10f),
+    val mirrorBar: Color = Charcoal.copy(alpha = 0.80f),
+    val mirrorBarBorder: Color = SoftCream.copy(alpha = 0.30f),
     /** Text and icons drawn on any of the above. */
     val onOverlay: Color = SoftCream,
-    val onOverlayDim: Color = SoftCreamDim.copy(alpha = 0.72f),
+    /**
+     * Accent for primary overlay icons. Only legal over [frostedGlassStrong]: Mango is
+     * a light colour (luminance 0.54) and vanishes on a bare bright viewfinder, so it
+     * always needs a known dark ground underneath it.
+     */
+    val accentOnOverlay: Color = Mango,
+    /**
+     * Disabled overlay content. Material's default disabled alpha (0.38) is tuned for
+     * a known surface and disappears over a camera scene; this holds ~2.6:1 on the
+     * fill, which reads as present-but-inactive rather than absent.
+     */
+    val onOverlayDisabled: Color = SoftCream.copy(alpha = 0.5f),
 )
 
 val LocalOverlayColors = staticCompositionLocalOf { OverlayColors() }
@@ -128,9 +149,9 @@ val QuicksandFontFamily = FontFamily(
 
 // ── Typography ─────────────────────────────────────────────────────
 //
-// Every weight lives in a named token so composables never set fontWeight by hand.
-// 14sp is the floor for anything a user reads; line height is 1.4x on body and
-// 1.2x on headings.
+// 16sp floor for elderly readability. Quicksand stays on display/headline/title
+// for brand presence; body and label text uses the system font (Roboto) for
+// maximum legibility at smaller sizes. Minimum weight is Medium.
 
 private fun quicksand(size: Int, lineHeight: Int, weight: FontWeight) = TextStyle(
     fontFamily = QuicksandFontFamily,
@@ -139,22 +160,28 @@ private fun quicksand(size: Int, lineHeight: Int, weight: FontWeight) = TextStyl
     lineHeight = lineHeight.sp,
 )
 
+private fun body(size: Int, lineHeight: Int, weight: FontWeight) = TextStyle(
+    fontWeight = weight,
+    fontSize = size.sp,
+    lineHeight = lineHeight.sp,
+)
+
 private val PhotoHelperTypography = Typography(
-    displayLarge = quicksand(32, 38, FontWeight.Medium),
-    displayMedium = quicksand(28, 34, FontWeight.Medium),
-    displaySmall = quicksand(26, 32, FontWeight.Medium),
-    headlineLarge = quicksand(26, 32, FontWeight.SemiBold),
-    headlineMedium = quicksand(22, 26, FontWeight.SemiBold),
-    headlineSmall = quicksand(20, 24, FontWeight.SemiBold),
-    titleLarge = quicksand(20, 26, FontWeight.SemiBold),
-    titleMedium = quicksand(18, 24, FontWeight.SemiBold),
-    titleSmall = quicksand(16, 22, FontWeight.SemiBold),
-    bodyLarge = quicksand(18, 25, FontWeight.Medium),
-    bodyMedium = quicksand(16, 22, FontWeight.Normal),
-    bodySmall = quicksand(14, 20, FontWeight.Normal),
-    labelLarge = quicksand(16, 20, FontWeight.SemiBold),
-    labelMedium = quicksand(14, 18, FontWeight.Medium),
-    labelSmall = quicksand(14, 18, FontWeight.Medium),
+    displayLarge = quicksand(34, 40, FontWeight.Medium),
+    displayMedium = quicksand(30, 36, FontWeight.Medium),
+    displaySmall = quicksand(28, 34, FontWeight.Medium),
+    headlineLarge = quicksand(28, 34, FontWeight.SemiBold),
+    headlineMedium = quicksand(24, 30, FontWeight.SemiBold),
+    headlineSmall = quicksand(22, 28, FontWeight.SemiBold),
+    titleLarge = quicksand(22, 28, FontWeight.SemiBold),
+    titleMedium = quicksand(20, 26, FontWeight.SemiBold),
+    titleSmall = quicksand(18, 24, FontWeight.SemiBold),
+    bodyLarge = body(20, 28, FontWeight.Medium),
+    bodyMedium = body(18, 25, FontWeight.Medium),
+    bodySmall = body(16, 22, FontWeight.Medium),
+    labelLarge = body(18, 22, FontWeight.SemiBold),
+    labelMedium = body(16, 20, FontWeight.Medium),
+    labelSmall = body(16, 20, FontWeight.Medium),
 )
 
 // ── Dark color scheme (Charcoal background, Cream AI) ──────────────
