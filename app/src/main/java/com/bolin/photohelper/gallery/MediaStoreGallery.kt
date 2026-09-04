@@ -311,8 +311,8 @@ class MediaStoreGallery(context: Context) {
     private companion object {
         const val PAGE_SIZE = 120
         const val THUMBNAIL_CACHE_BYTES = 24 * 1024 * 1024
-        const val MAX_EDIT_EDGE = 2048
-        const val MAX_EDIT_PIXELS = 2048L * 2048L
+        const val MAX_EDIT_EDGE = 1024
+        const val MAX_EDIT_PIXELS = 1024L * 1024L
         const val MAX_EDIT_IMAGE_BYTES = 2_500_000
         const val MAX_EDIT_RESULT_BYTES = 25 * 1024 * 1024
         const val CONTACT_CELL = 320

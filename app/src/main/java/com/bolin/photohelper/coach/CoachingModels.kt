@@ -71,12 +71,28 @@ enum class VisualClarificationReason {
 
 sealed interface VisualHint {
     data class Intent(val value: VisualIntent) : VisualHint
-    data class FocusPoint(val xFraction: Float, val yFraction: Float) : VisualHint {
+    data class FocusPoint(
+        val xFraction: Float,
+        val yFraction: Float,
+        val bounds: SubjectBounds? = null,
+    ) : VisualHint {
         init {
             require(xFraction in 0f..1f && yFraction in 0f..1f)
+            require(bounds == null || bounds.contains(xFraction, yFraction))
         }
     }
     data class Clarify(val reason: VisualClarificationReason) : VisualHint
+}
+
+data class SubjectBounds(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+    init {
+        require(left in 0f..1f && top in 0f..1f && right in 0f..1f && bottom in 0f..1f)
+        require(left < right && top < bottom)
+    }
+
+    val width: Float get() = right - left
+    val height: Float get() = bottom - top
+    fun contains(x: Float, y: Float): Boolean = x in left..right && y in top..bottom
 }
 
 data class CoachingInput(

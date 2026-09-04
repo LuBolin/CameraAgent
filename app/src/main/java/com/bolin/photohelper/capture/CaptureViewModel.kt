@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.bolin.photohelper.coach.CoachEngine
 import com.bolin.photohelper.coach.CoachingInput
 import com.bolin.photohelper.coach.ControlIntent
+import com.bolin.photohelper.coach.IntentClassification
 import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.ObservationOrigin
 import com.bolin.photohelper.coach.Recommendation
 import com.bolin.photohelper.coach.SettingChange
+import com.bolin.photohelper.coach.SubjectBounds
 import com.bolin.photohelper.coach.RecommendationAction
 import com.bolin.photohelper.coach.VerificationResult
 import com.bolin.photohelper.coach.VerificationTarget
@@ -33,6 +35,7 @@ import com.bolin.photohelper.voice.CameraFacing
 import com.bolin.photohelper.voice.CommandPlan
 import com.bolin.photohelper.voice.CommandPlanStep
 import com.bolin.photohelper.voice.parseCommandPlan
+import com.bolin.photohelper.voice.parseVoiceCommand
 import java.util.UUID
 import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
@@ -69,7 +72,42 @@ private const val MAX_SETTING_ATTEMPTS = 2
 private const val SETTING_SETTLE_MS = 400L
 private const val SETTING_VERIFY_TIMEOUT_MS = 3_000L
 private val OBJECT_FOCUS_REQUEST = Regex("\\b(focus|sharp|sharpen|clear)\\b", RegexOption.IGNORE_CASE)
+private val TARGET_FOCUS_REQUEST = Regex("\\bfocus\\s+on\\b", RegexOption.IGNORE_CASE)
+private val PERSON_FOCUS_REQUEST = Regex(
+    "\\bfocus\\s+on\\s+(?:grandma|grandmother|grandpa|grandfather|mom|mother|dad|father|woman|man|person|her|him)\\b",
+    RegexOption.IGNORE_CASE,
+)
+private val SMALL_ADJUSTMENT_REQUEST = Regex(
+    "\\b(?:slightly|a little|little bit|a bit|a touch|gently)\\b",
+    RegexOption.IGNORE_CASE,
+)
+private val COMMAND_CLAUSE_SEPARATOR = Regex(
+    "\\s*(?:,|;|\\b(?:and|then|plus|also)\\b)\\s*",
+    RegexOption.IGNORE_CASE,
+)
+private val IMMEDIATE_SETTING_INTENTS = setOf(
+    ControlIntent.EXPOSURE_BRIGHTER,
+    ControlIntent.EXPOSURE_DARKER,
+    ControlIntent.ZOOM_IN,
+    ControlIntent.ZOOM_OUT,
+    ControlIntent.WHITE_BALANCE_WARMER,
+    ControlIntent.WHITE_BALANCE_COOLER,
+    ControlIntent.WHITE_BALANCE_AUTO,
+)
 private fun countdownMessage(seconds: Int) = "Photo in $seconds ${if (seconds == 1) "second" else "seconds"}…"
+
+private data class SettingAndFocus(
+    val intents: List<ControlIntent>,
+    val focusText: String,
+    val small: Boolean,
+)
+
+private data class PendingSubjectZoom(val sourceText: String, val small: Boolean)
+private data class PendingFocusAfterZoom(
+    val sourceText: String,
+    val point: VisualHint.FocusPoint,
+    val sourceZoomRatio: Float,
+)
 
 class CaptureViewModel(
     internal val camera: CaptureHardware,
@@ -158,6 +196,9 @@ class CaptureViewModel(
     private val comparisonSamples = ArrayDeque<FrameObservation>(3)
     private val pendingCommandSteps = ArrayDeque<CommandPlanStep>()
     private val approvedPlanAdjustments = mutableListOf<CameraAdjustment>()
+    private var pendingVisualFocusText: String? = null
+    private var pendingSubjectZoom: PendingSubjectZoom? = null
+    private var pendingFocusAfterZoom: PendingFocusAfterZoom? = null
     private val recentCameraChanges = ArrayDeque<CameraChangeSnapshot>(3)
     private var activeCommandText = ""
     private var stableFace: FaceObservation? = null
@@ -309,10 +350,93 @@ class CaptureViewModel(
             return
         }
         if (canUseVisualAi()) {
+            val parsedPlan = parseCommandPlan(comment)
+            if (parsedPlan.steps.none { it is CommandPlanStep.Coach }) {
+                startCommandPlan(parsedPlan, comment)
+                return
+            }
+            if (parsedPlan.steps.size != 1 || parsedPlan.steps.single() !is CommandPlanStep.Coach) {
+                requestCommandPlan(comment)
+                return
+            }
+            if (parseVoiceCommand(comment) != null) {
+                requestCommandPlan(comment)
+                return
+            }
+            splitSettingAndFocus(comment)?.let { request ->
+                if (request.intents == listOf(ControlIntent.ZOOM_IN)) {
+                    cancelCoaching()
+                    pendingSubjectZoom = PendingSubjectZoom(comment, request.small)
+                    resolveVisualFocus(request.focusText)
+                    return
+                }
+                startCommandPlan(
+                    CommandPlan(listOf(CommandPlanStep.Adjust(request.intents, small = request.small))),
+                    comment,
+                    visualFocusAfterSettings = request.focusText,
+                )
+                return
+            }
+            immediateSettingIntents(comment)?.let { intents ->
+                startCommandPlan(
+                    CommandPlan(listOf(CommandPlanStep.Adjust(intents, small = SMALL_ADJUSTMENT_REQUEST.containsMatchIn(comment)))),
+                    comment,
+                )
+                return
+            }
+            if (TARGET_FOCUS_REQUEST.containsMatchIn(comment)) {
+                resolveVisualFocus(comment)
+                return
+            }
             requestCommandPlan(comment)
             return
         }
         submitLocalCommand(comment)
+    }
+
+    private fun immediateSettingIntents(text: String): List<ControlIntent>? =
+        (coach.classifyComplaint(text) as? IntentClassification.Intent)
+            ?.values
+            ?.takeIf { intents -> intents.isNotEmpty() && intents.all(IMMEDIATE_SETTING_INTENTS::contains) }
+
+    private fun splitSettingAndFocus(text: String): SettingAndFocus? {
+        val clauses = text.split(COMMAND_CLAUSE_SEPARATOR).filter(String::isNotBlank)
+        if (clauses.size != 2) return null
+        val focus = clauses.singleOrNull(TARGET_FOCUS_REQUEST::containsMatchIn) ?: return null
+        val setting = clauses.singleOrNull { it != focus } ?: return null
+        return SettingAndFocus(
+            immediateSettingIntents(setting) ?: return null,
+            focus,
+            SMALL_ADJUSTMENT_REQUEST.containsMatchIn(setting),
+        )
+    }
+
+    private fun resolveVisualFocus(comment: String) {
+        val face = latestLiveObservation
+            ?.takeIf { nowMs() - it.timestampMs <= LIVE_OBSERVATION_FRESH_MS }
+            ?.faces
+            ?.singleOrNull()
+        if (face != null && PERSON_FOCUS_REQUEST.containsMatchIn(comment)) {
+            val bounds = runCatching {
+                SubjectBounds(
+                    face.left.coerceIn(0f, 1f),
+                    face.top.coerceIn(0f, 1f),
+                    face.right.coerceIn(0f, 1f),
+                    face.bottom.coerceIn(0f, 1f),
+                )
+            }.getOrNull()
+            val hint = VisualHint.FocusPoint(
+                face.centerX.coerceIn(0f, 1f),
+                face.centerY.coerceIn(0f, 1f),
+                bounds,
+            )
+            if (pendingSubjectZoom != null) planSubjectZoom(hint) else startCommandPlan(
+                CommandPlan(listOf(CommandPlanStep.FocusPoint(hint.xFraction, hint.yFraction))),
+                comment,
+            )
+        } else {
+            submitCoaching(comment, allowRemote = true)
+        }
     }
 
     fun makeItNicer() {
@@ -330,6 +454,14 @@ class CaptureViewModel(
     }
 
     private fun submitLocalCommand(comment: String, fallbackMessage: String? = null) {
+        immediateSettingIntents(comment)?.let { intents ->
+            startCommandPlan(
+                CommandPlan(listOf(CommandPlanStep.Adjust(intents, small = SMALL_ADJUSTMENT_REQUEST.containsMatchIn(comment)))),
+                comment,
+            )
+            fallbackMessage?.let { message -> _uiState.update { it.copy(transientMessage = message) } }
+            return
+        }
         val plan = parseCommandPlan(comment)
         if (plan.steps.size > 1 || plan.steps.single() !is CommandPlanStep.Coach) {
             startCommandPlan(plan, comment)
@@ -473,6 +605,8 @@ class CaptureViewModel(
                                 transientMessage = recommendation.actionText,
                             )
                         }
+                        continueFocusAfterZoomIfPending()
+                        continueVisualFocusIfPending()
                     }
                     is ApplyResult.Failed -> failWork(result.message)
                 }
@@ -535,6 +669,9 @@ class CaptureViewModel(
             pendingCommandSteps.clear()
             approvedPlanAdjustments.clear()
             activeCommandText = ""
+            pendingVisualFocusText = null
+            pendingSubjectZoom = null
+            pendingFocusAfterZoom = null
         }
         cancelJobsOnly()
         voiceFinishRequested = false
@@ -681,9 +818,14 @@ class CaptureViewModel(
         }
     }
 
-    private fun startCommandPlan(plan: CommandPlan, sourceText: String) {
+    private fun startCommandPlan(
+        plan: CommandPlan,
+        sourceText: String,
+        visualFocusAfterSettings: String? = null,
+    ) {
         cancelCoaching()
         activeCommandText = sourceText
+        pendingVisualFocusText = visualFocusAfterSettings
         pendingCommandSteps.addAll(plan.steps.sortedBy { step ->
             when (step) {
                 is CommandPlanStep.FocusPoint -> 1
@@ -718,6 +860,7 @@ class CaptureViewModel(
                 if (decision !is LocalDecision.Recommend) {
                     pendingCommandSteps.clear()
                     approvedPlanAdjustments.clear()
+                    pendingVisualFocusText = null
                 }
                 publishLocalDecision(decision)
             }
@@ -746,6 +889,7 @@ class CaptureViewModel(
                 if (decision !is LocalDecision.Recommend) {
                     pendingCommandSteps.clear()
                     approvedPlanAdjustments.clear()
+                    pendingVisualFocusText = null
                 }
                 publishLocalDecision(decision)
             }
@@ -1217,13 +1361,20 @@ class CaptureViewModel(
                 when (result) {
                     is VisualResult.Available -> {
                         val freshInput = coachingInput(originalInput.complaintId, originalInput.complaint)
+                        if (result.hint is VisualHint.FocusPoint && pendingSubjectZoom != null) {
+                            planSubjectZoom(freshInput, result.hint)
+                            return@launch
+                        }
                         val decision = coach.continueWithVisualHint(freshInput, eligibility.family, result.hint)
                             .withProvenance(freshInput, eligibility.family, result.hint)
                         publishLocalDecision(decision)
                     }
                     VisualResult.CredentialsRejected ->
                         keepVisualFallback(fallback, "AI interpretation disabled—the saved key was rejected.")
-                    is VisualResult.Failed -> showToast(result.message)
+                    is VisualResult.Failed -> {
+                        pendingSubjectZoom = null
+                        showToast(result.message)
+                    }
                     VisualResult.Unavailable -> keepVisualFallback(fallback)
                 }
             } catch (cancelled: CancellationException) {
@@ -1355,8 +1506,41 @@ class CaptureViewModel(
         fallback: LocalDecision,
         message: String = "AI interpretation unavailable—using local coaching.",
     ) {
+        pendingSubjectZoom = null
         _uiState.update { it.copy(transientMessage = message) }
         publishLocalDecision(fallback)
+    }
+
+    private fun planSubjectZoom(hint: VisualHint.FocusPoint) {
+        val complaintId = activeComplaintId ?: UUID.randomUUID().toString()
+        planSubjectZoom(coachingInput(complaintId, pendingSubjectZoom?.sourceText.orEmpty()), hint)
+    }
+
+    private fun planSubjectZoom(input: CoachingInput, hint: VisualHint.FocusPoint) {
+        val pending = pendingSubjectZoom ?: return
+        pendingSubjectZoom = null
+        activeCommandText = pending.sourceText
+        activeComplaintId = input.complaintId
+        val decision = coach.planSubjectZoom(input, hint.bounds, pending.small).withProvenance(input)
+        val zoom = (decision as? LocalDecision.Recommend)
+            ?.recommendation
+            ?.action
+            ?.let { it as? RecommendationAction.ApplySettings }
+            ?.adjustment as? CameraAdjustment.ZoomRatio
+        if (zoom == null) {
+            startCommandPlan(
+                CommandPlan(listOf(CommandPlanStep.FocusPoint(hint.xFraction, hint.yFraction))),
+                pending.sourceText,
+            )
+            return
+        }
+        pendingFocusAfterZoom = PendingFocusAfterZoom(
+            pending.sourceText,
+            hint,
+            input.telemetry.zoomRatio,
+        )
+        _uiState.update { it.copy(comment = pending.sourceText) }
+        publishLocalDecision(decision)
     }
 
     private fun publishLocalDecision(decision: LocalDecision) {
@@ -1553,6 +1737,10 @@ class CaptureViewModel(
         pendingSettingVerification = null
 
         val reason = exhaustedReason(change.adjustment)
+        if (pendingVisualFocusText != null || pendingFocusAfterZoom != null) {
+            finishSettingWork(reason ?: "That setting did not visibly change; continuing with focus.")
+            return
+        }
         // Retrying only makes sense when the planner can reach a different answer. The
         // local engine is deterministic - a second run returns the same plan - so on the
         // local path a miss concedes immediately rather than burning a visible attempt.
@@ -1624,6 +1812,24 @@ class CaptureViewModel(
                 transientMessage = message ?: it.transientMessage,
             )
         }
+        continueFocusAfterZoomIfPending()
+        continueVisualFocusIfPending()
+    }
+
+    private fun continueFocusAfterZoomIfPending() {
+        val pending = pendingFocusAfterZoom ?: return
+        pendingFocusAfterZoom = null
+        val currentZoom = latestLiveObservation?.zoomRatio ?: camera.telemetry.value.zoomRatio
+        val scale = (currentZoom / pending.sourceZoomRatio).takeIf(Float::isFinite) ?: 1f
+        val x = (0.5f + (pending.point.xFraction - 0.5f) * scale).coerceIn(0f, 1f)
+        val y = (0.5f + (pending.point.yFraction - 0.5f) * scale).coerceIn(0f, 1f)
+        startCommandPlan(CommandPlan(listOf(CommandPlanStep.FocusPoint(x, y))), pending.sourceText)
+    }
+
+    private fun continueVisualFocusIfPending() {
+        val focusText = pendingVisualFocusText ?: return
+        pendingVisualFocusText = null
+        resolveVisualFocus(focusText)
     }
 
     private fun verifyActiveWork(observation: FrameObservation) {
@@ -1740,6 +1946,9 @@ class CaptureViewModel(
     private fun failWork(message: String) {
         pendingCommandSteps.clear()
         approvedPlanAdjustments.clear()
+        pendingVisualFocusText = null
+        pendingSubjectZoom = null
+        pendingFocusAfterZoom = null
         voice.stop()
         if (_uiState.value.settings.haptics) feedback(Feedback.ERROR)
         _uiState.update {
@@ -1916,6 +2125,9 @@ class CaptureViewModel(
         verificationStartedAtMs = null
         verificationSatisfiedSamples = 0
         verificationIncomparableMessage = null
+        pendingVisualFocusText = null
+        pendingSubjectZoom = null
+        pendingFocusAfterZoom = null
         settingApplyInFlight = false
         resetInFlight = false
         restoreSettingAfterApply = false

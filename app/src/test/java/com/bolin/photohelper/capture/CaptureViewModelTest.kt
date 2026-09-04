@@ -76,13 +76,13 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `model focus point focuses immediately`() = runTest(dispatcher) {
+    fun `visual focus point focuses immediately`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(), supportsFocusMetering = true)
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
             autoApplyRecommendations = true,
-            commandResult = { planned(CommandPlanStep.FocusPoint(.625f, .375f)) },
+            visualResult = { VisualResult.Available(VisualHint.FocusPoint(.625f, .375f)) },
         )
 
         viewModel.updateComment("focus on the red cup")
@@ -213,17 +213,14 @@ class CaptureViewModelTest {
             camera,
             visualEnabled = true,
             autoApplyRecommendations = true,
-            commandResult = {
-                planned(
-                    CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_BRIGHTER)),
-                    CommandPlanStep.FocusPoint(.625f, .375f),
-                )
-            },
+            visualResult = { VisualResult.Available(VisualHint.FocusPoint(.625f, .375f)) },
         )
         viewModel.setCameraPermission(true)
 
         viewModel.updateComment("Make it brighter then focus on the coffee cup")
         viewModel.submitComment()
+        runCurrent()
+        camera.observation.value = observation(id = 2, timestamp = 1_500)
         runCurrent()
 
         assertEquals(1, camera.applyCalls)
@@ -247,17 +244,14 @@ class CaptureViewModelTest {
             camera,
             visualEnabled = true,
             autoApplyRecommendations = true,
-            commandResult = {
-                planned(
-                    CommandPlanStep.FocusPoint(.625f, .375f),
-                    CommandPlanStep.Adjust(listOf(ControlIntent.ZOOM_IN)),
-                )
-            },
+            visualResult = { VisualResult.Available(VisualHint.FocusPoint(.625f, .375f)) },
         )
         viewModel.setCameraPermission(true)
 
         viewModel.updateComment("Focus on the coffee cup and zoom in")
         viewModel.submitComment()
+        runCurrent()
+        camera.observation.value = observation(id = 2, timestamp = 1_500, zoomRatio = 1.25f)
         runCurrent()
 
         assertEquals(1, camera.applyCalls)
@@ -496,7 +490,7 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `configured model interprets known wording before local rules`() = runTest(dispatcher) {
+    fun `known wording uses local rules before the configured model`() = runTest(dispatcher) {
         var modelCalls = 0
         val camera = FakeCamera(observation(zoomRatio = 1f)).apply {
             capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
@@ -515,9 +509,9 @@ class CaptureViewModelTest {
         viewModel.submitComment()
         runCurrent()
 
-        assertEquals(1, modelCalls)
+        assertEquals(0, modelCalls)
         assertEquals(
-            CameraAdjustment.ZoomRatio(1.25f),
+            CameraAdjustment.ExposureCompensation(2),
             viewModel.uiState.value.recommendation?.action
                 ?.let { it as com.bolin.photohelper.coach.RecommendationAction.ApplySettings }
                 ?.adjustment,
@@ -525,7 +519,100 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `configured model failure preserves the known local recommendation`() = runTest(dispatcher) {
+    fun `known camera setting does not wait for remote planning`() = runTest(dispatcher) {
+        var modelCalls = 0
+        val remote = CompletableDeferred<CommandResult>()
+        val camera = FakeCamera(observation(zoomRatio = 1f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 1f)
+        }
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            autoApplyRecommendations = true,
+            commandResult = {
+                modelCalls++
+                remote.await()
+            },
+        )
+
+        viewModel.updateComment("zoom in")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(0, modelCalls)
+        assertEquals(1, camera.applyCalls)
+    }
+
+    @Test
+    fun `slight local zoom keeps the smaller adjustment`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(zoomRatio = 1f)).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 1f)
+        }
+        val viewModel = viewModel(camera, visualEnabled = true, autoApplyRecommendations = true)
+
+        viewModel.submitComment("zoom in a little")
+        runCurrent()
+
+        assertEquals(CameraAdjustment.ZoomRatio(1.12f), camera.lastAdjustment)
+    }
+
+    @Test
+    fun `mixed zoom and focus sizes the target before zooming then corrects its focus point`() = runTest(dispatcher) {
+        var commandCalls = 0
+        var visualCalls = 0
+        val target = CompletableDeferred<VisualResult>()
+        val camera = FakeCamera(observation(id = 1, timestamp = 1_000, zoomRatio = 1f), supportsFocusMetering = true).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 1f)
+        }
+        val viewModel = viewModel(
+            camera,
+            visualEnabled = true,
+            autoApplyRecommendations = true,
+            commandResult = {
+                commandCalls++
+                CommandResult.Unavailable
+            },
+            visualResult = {
+                visualCalls++
+                target.await()
+            },
+        )
+
+        viewModel.updateComment("zoom in and focus on grandma")
+        viewModel.submitComment()
+        runCurrent()
+
+        assertEquals(0, camera.applyCalls)
+        assertEquals(0, commandCalls)
+        assertEquals(1, visualCalls)
+
+        target.complete(
+            VisualResult.Available(
+                VisualHint.FocusPoint(
+                    .6f,
+                    .4f,
+                    com.bolin.photohelper.coach.SubjectBounds(.4f, .2f, .8f, .6f),
+                ),
+            ),
+        )
+        runCurrent()
+
+        assertEquals(1, camera.applyCalls)
+        assertEquals(CameraAdjustment.ZoomRatio(1.25f), camera.lastAdjustment)
+        assertEquals(0, camera.focusCalls)
+
+        camera.observation.value = observation(id = 2, timestamp = 1_500, zoomRatio = 1.25f)
+        runCurrent()
+
+        assertEquals(1, camera.focusCalls)
+        assertEquals(.625f to .375f, camera.focusPoint)
+    }
+
+    @Test
+    fun `known local recommendation does not depend on the configured model`() = runTest(dispatcher) {
         var modelCalls = 0
         val viewModel = viewModel(
             FakeCamera(observation()),
@@ -540,10 +627,10 @@ class CaptureViewModelTest {
         viewModel.submitComment()
         runCurrent()
 
-        assertEquals(1, modelCalls)
+        assertEquals(0, modelCalls)
         assertTrue(viewModel.uiState.value.decision is LocalDecision.Recommend)
         assertEquals(CoachingPhase.RECOMMENDATION, viewModel.uiState.value.coachingPhase)
-        assertEquals("AI interpretation unavailable—using local coaching.", viewModel.uiState.value.transientMessage)
+        assertEquals(null, viewModel.uiState.value.transientMessage)
     }
 
     @Test
@@ -1201,11 +1288,8 @@ class CaptureViewModelTest {
             camera,
             visualEnabled = true,
             commandResult = {
-                if (modelCalls++ == 0) {
-                    planned(CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_DARKER)))
-                } else {
-                    result.await()
-                }
+                modelCalls++
+                result.await()
             },
         )
         viewModel.updateComment("too bright")
@@ -1796,12 +1880,10 @@ class CaptureViewModelTest {
         val viewModel = viewModel(
             camera,
             visualEnabled = true,
-            commandRequest = {
+            visualRequest = {
                 observationJpeg = it.observationJpeg.copyOf()
             },
-            commandResult = {
-                planned(CommandPlanStep.FocusPoint(.3125f, .75f))
-            },
+            visualResult = { VisualResult.Available(VisualHint.FocusPoint(.3125f, .75f)) },
         )
         viewModel.setCameraPermission(true)
         viewModel.updateComment("focus on the red watch")

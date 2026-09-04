@@ -6,6 +6,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.runBlocking
 
 class VisualContractsTest {
@@ -17,6 +19,34 @@ class VisualContractsTest {
         assertEquals(386 / 999f, point.yFraction)
         assertTrue(runCatching { VisualHint.FocusPoint(1.001f, .5f) }.isFailure)
         assertTrue(runCatching { VisualHint.FocusPoint(Float.NaN, .5f) }.isFailure)
+    }
+
+    @Test
+    fun `object focus response includes normalized subject bounds`() {
+        val content = JSONObject()
+            .put("schemaVersion", 3)
+            .put("outcome", "TARGET")
+            .put("point_2d", JSONArray(listOf(600, 400)))
+            .put("box_2d", JSONArray(listOf(400, 200, 800, 600)))
+            .toString()
+        val response = JSONObject()
+            .put("id", "completion-1")
+            .put("object", "chat.completion")
+            .put("model", QWEN_MODEL)
+            .put(
+                "choices",
+                JSONArray().put(
+                    JSONObject()
+                        .put("finish_reason", "stop")
+                        .put("message", JSONObject().put("role", "assistant").put("content", content)),
+                ),
+            )
+            .toString()
+
+        val hint = parseVisualResponse(response, VisualFamily.OBJECT_FOCUS) as VisualHint.FocusPoint
+
+        assertEquals(400 / 999f, hint.bounds?.left)
+        assertEquals(800 / 999f, hint.bounds?.right)
     }
 
     @Test

@@ -10,6 +10,8 @@ import kotlin.math.roundToInt
 
 private val COMPLAINT_CLAUSE_SEPARATOR =
     Regex("\\s*(?:,|;|[.!?]+(?=\\s+\\S)|\\b(?:and|plus|also|while|but|then)\\b)\\s*")
+private const val TARGET_SUBJECT_FRAME_SPAN = 0.5f
+private const val MAX_SUBJECT_ZOOM_FACTOR = 2f
 
 class DefaultCoachEngine(
     private val thresholds: CoachThresholds = CoachThresholds(),
@@ -169,6 +171,21 @@ class DefaultCoachEngine(
                 },
             ),
         )
+    }
+
+    override fun planSubjectZoom(input: CoachingInput, bounds: SubjectBounds?, small: Boolean): LocalDecision {
+        val minimumFactor = if (small) 1.12f else 1.25f
+        if (bounds == null) return zoom(input, inward = true, requestedFactor = minimumFactor)
+        val desiredFactor = (TARGET_SUBJECT_FRAME_SPAN / maxOf(bounds.width, bounds.height))
+            .coerceIn(minimumFactor, MAX_SUBJECT_ZOOM_FACTOR)
+        val edgeDistance = maxOf(
+            0.5f - bounds.left,
+            bounds.right - 0.5f,
+            0.5f - bounds.top,
+            bounds.bottom - 0.5f,
+        )
+        val safeFactor = if (edgeDistance > 0f) 0.5f / edgeDistance else MAX_SUBJECT_ZOOM_FACTOR
+        return zoom(input, inward = true, requestedFactor = minOf(desiredFactor, safeFactor).coerceAtLeast(1f))
     }
 
     private fun compoundChangeText(recommendation: Recommendation): String {
@@ -361,7 +378,7 @@ class DefaultCoachEngine(
         )
     }
 
-    private fun zoom(input: CoachingInput, inward: Boolean): LocalDecision {
+    private fun zoom(input: CoachingInput, inward: Boolean, requestedFactor: Float? = null): LocalDecision {
         if (input.origin == ObservationOrigin.CAPTURE_REVIEW && !input.telemetryKnown) {
             return LocalDecision.Advisory(
                 "Capture settings are unavailable",
@@ -380,7 +397,7 @@ class DefaultCoachEngine(
         val prior = input.relativeBaseline?.zoomRatio?.takeIf {
             it.isFinite() && it in range && (it - current) * direction > 0.01f
         }
-        val zoomFactor = if (input.relativeBaseline != null) 1.12f else 1.25f
+        val zoomFactor = requestedFactor ?: if (input.relativeBaseline != null) 1.12f else 1.25f
         val target = (prior?.let { (current + it) / 2f }
             ?: if (inward) current * zoomFactor else current / zoomFactor).coerceIn(range)
         if (abs(target - current) < 0.01f) {

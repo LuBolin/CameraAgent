@@ -51,6 +51,23 @@ class DefaultCoachEngineTest {
     }
 
     @Test
+    fun `subject bounds choose a bounded zoom target`() {
+        val decision = engine.planSubjectZoom(
+            input(
+                "zoom in on grandma",
+                observation(),
+                capabilities.copy(zoomRatioRange = 1f..10f),
+                CameraTelemetry(zoomRatio = 1f),
+            ),
+            SubjectBounds(.4f, .35f, .6f, .55f),
+            small = false,
+        )
+        val action = ((decision as LocalDecision.Recommend).recommendation.action as RecommendationAction.ApplySettings)
+
+        assertEquals(CameraAdjustment.ZoomRatio(2f), action.adjustment)
+    }
+
+    @Test
     fun `core complaints classify to allowlisted control intents`() {
         mapOf(
             "so dim" to ControlIntent.EXPOSURE_BRIGHTER,

@@ -7,6 +7,7 @@ interface CoachEngine {
     fun evaluateLocal(input: CoachingInput): LocalDecision
     fun planIntent(input: CoachingInput, intent: ControlIntent): LocalDecision
     fun planIntents(input: CoachingInput, intents: List<ControlIntent>): LocalDecision
+    fun planSubjectZoom(input: CoachingInput, bounds: SubjectBounds?, small: Boolean): LocalDecision
     fun continueWithVisualHint(input: CoachingInput, family: VisualFamily, hint: VisualHint): LocalDecision
     fun verify(target: VerificationTarget, current: FrameObservation): VerificationResult
 }
