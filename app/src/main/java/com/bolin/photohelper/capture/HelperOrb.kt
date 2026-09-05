@@ -104,7 +104,7 @@ fun HelperOrb(
     // strip in landscape - so its idle ring follows the overlay palette rather than the
     // app background. Charcoal-on-photo, which the light theme would otherwise give,
     // is close to invisible.
-    val idleRing = overlays.onOverlay
+    val idleRing = Mango
 
     val targetRing = when (state) {
         OrbState.IDLE -> idleRing
@@ -237,7 +237,7 @@ fun HelperOrb(
             val glyphSize = size / 2
             when (state) {
                 OrbState.IDLE -> Canvas(Modifier.size(size / 2.5f)) {
-                    drawCircle(color = ringColor.copy(alpha = if (enabled) 1f else 0.4f))
+                    drawCircle(color = overlays.onOverlay.copy(alpha = if (enabled) 1f else 0.4f))
                 }
                 OrbState.LISTENING -> Icon(
                     imageVector = Icons.Rounded.Mic,

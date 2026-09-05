@@ -1,18 +1,19 @@
 package com.bolin.photohelper.capture
 
-import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -20,10 +21,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,8 +40,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
@@ -168,6 +174,7 @@ fun CaptureScreen(
                             onDone = actions::onDoneReview,
                         )
                     }
+                    ShutterFlash(visible = review != null)
                 }
             }
         }
@@ -250,8 +257,7 @@ private fun CaptureContent(
     actions: CaptureScreenActions,
     onHelpOpen: () -> Unit,
 ) {
-    val config = LocalConfiguration.current
-    val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val iconRotation = rememberDeviceIconRotation()
     val orbState = orbStateFor(state.coachingPhase)
     val baseInstruction = mirrorBarText(state)
     val chromeVisible = state.review == null
@@ -278,134 +284,80 @@ private fun CaptureContent(
             OrbState.ERROR -> actions.onDismissTransientMessage()
         }
     }
-    if (isLandscape) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxHeight().weight(1f)) {
-                PreviewPane(
-                    state = state,
-                    liveObservation = liveObservation,
-                    preview = preview,
-                    isFrontCamera = isFrontCamera,
-                    canFlipCamera = canFlipCamera,
-                    onFlipCamera = actions::onFlipCamera,
-                    onFocusTarget = actions::onFocusTarget,
-                    onSettingsOpen = actions::onSettingsOpen,
-                    onHelpOpen = onHelpOpen,
-                    modifier = Modifier.fillMaxSize(),
-                    showTopChrome = false,
-                )
-                if (chromeVisible) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .safeDrawingPadding()
-                        .padding(16.dp)
-                        .semantics { isTraversalGroup = true },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    DecisionSurface(state, actions)
-                    MirrorBar(instruction)
+    Box(modifier = Modifier.fillMaxSize()) {
+        PreviewPane(
+            state = state,
+            liveObservation = liveObservation,
+            preview = preview,
+            isFrontCamera = isFrontCamera,
+            canFlipCamera = canFlipCamera,
+            onFlipCamera = actions::onFlipCamera,
+            onFocusTarget = actions::onFocusTarget,
+            onSettingsOpen = actions::onSettingsOpen,
+            onHelpOpen = onHelpOpen,
+            modifier = Modifier.fillMaxSize(),
+            showTopChrome = chromeVisible,
+            iconRotation = iconRotation,
+        )
+        if (chromeVisible) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+                .semantics { isTraversalGroup = true },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            DecisionSurface(state, actions)
+            MirrorBar(instruction)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Left: Gallery
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    OverlayIconAction(
+                        icon = Icons.Rounded.PhotoLibrary,
+                        image = galleryThumbnail,
+                        contentDescription = "Open gallery",
+                        onClick = actions::onOpenGallery,
+                        modifier = Modifier
+                            .graphicsLayer { rotationZ = iconRotation }
+                            .testTag(CaptureTestTags.GALLERY),
+                    )
                 }
+                // Center: Orb
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    HelperOrb(
+                        state = orbState,
+                        confidence = confidence,
+                        enabled = orbEnabled(state),
+                        onTap = onOrbTap,
+                        autoCaptureFlashKey = state.autoCaptureFlashKey,
+                    )
                 }
-            }
-            if (chromeVisible) {
-            ControlStrip(
-                state = state,
-                isFrontCamera = isFrontCamera,
-                canFlipCamera = canFlipCamera,
-                confidence = confidence,
-                onFlipCamera = actions::onFlipCamera,
-                onSettingsOpen = actions::onSettingsOpen,
-                onHelpOpen = onHelpOpen,
-                onOrbTap = onOrbTap,
-                onAutoEnhance = actions::onAutoEnhance,
-                onMicrophone = actions::onMicrophone,
-                onOpenGallery = actions::onOpenGallery,
-                galleryThumbnail = galleryThumbnail,
-                modifier = Modifier.width(CONTROL_STRIP_WIDTH),
-            )
+                // Right: AI button (starts voice)
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    OverlayIconAction(
+                        icon = if (state.coachingPhase == CoachingPhase.LISTENING) Icons.Rounded.Stop else Icons.Rounded.AutoAwesome,
+                        contentDescription = if (state.coachingPhase == CoachingPhase.LISTENING) "Finish voice comment" else "Describe what to improve",
+                        onClick = actions::onMicrophone,
+                        modifier = Modifier.graphicsLayer { rotationZ = iconRotation },
+                        tier = OverlayTier.PRIMARY,
+                        enabled = state.coachingPhase !in setOf(CoachingPhase.APPLYING, CoachingPhase.INTERPRETING),
+                        traversalIndex = 4.2f,
+                    )
+                }
             }
         }
-    } else {
-        Box(modifier = Modifier.fillMaxSize()) {
-            PreviewPane(
-                state = state,
-                liveObservation = liveObservation,
-                preview = preview,
-                isFrontCamera = isFrontCamera,
-                canFlipCamera = canFlipCamera,
-                onFlipCamera = actions::onFlipCamera,
-                onFocusTarget = actions::onFocusTarget,
-                onSettingsOpen = actions::onSettingsOpen,
-                onHelpOpen = onHelpOpen,
-                modifier = Modifier.fillMaxSize(),
-                showTopChrome = chromeVisible,
-            )
-            if (chromeVisible) {
-            OverlayIconAction(
-                icon = Icons.Rounded.PhotoLibrary,
-                image = galleryThumbnail,
-                contentDescription = "Open gallery",
-                onClick = actions::onOpenGallery,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, bottom = 24.dp)
-                    .testTag(CaptureTestTags.GALLERY),
-            )
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 24.dp)
-                    .semantics { isTraversalGroup = true },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                DecisionSurface(state, actions)
-                MirrorBar(instruction)
-                // Three equal-weight cells rather than a Box with hardcoded offsets:
-                // the middle cell's centre is the screen axis whatever the side
-                // buttons measure, so the Orb stays centred when the system font
-                // scale grows the labels.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        MicrophoneButton(
-                            phase = state.coachingPhase,
-                            onMicrophone = actions::onMicrophone,
-                        )
-                    }
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        HelperOrb(
-                            state = orbState,
-                            confidence = confidence,
-                            enabled = orbEnabled(state),
-                            onTap = onOrbTap,
-                            autoCaptureFlashKey = state.autoCaptureFlashKey,
-                        )
-                    }
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        AutoEnhanceButton(
-                            onClick = actions::onAutoEnhance,
-                            enabled = orbState == OrbState.IDLE && state.shutterEnabled,
-                        )
-                    }
-                }
-            }
-            }
         }
     }
 }
 
 private enum class Screen { LANDING, PERMISSION, BLOCKED, CAMERA }
-
-private val CONTROL_STRIP_WIDTH = 72.dp
 
 /**
  * What a tap on a decided Orb means. The Orb is the confirm button for whatever the
@@ -459,6 +411,25 @@ private fun CameraPermission(onRequest: () -> Unit, onSettings: () -> Unit) {
 }
 
 @Composable
+private fun ShutterFlash(visible: Boolean) {
+    val reducedMotion = com.bolin.photohelper.ui.LocalReducedMotion.current
+    val flashAlpha = remember { Animatable(0f) }
+    LaunchedEffect(visible) {
+        if (!visible || reducedMotion) return@LaunchedEffect
+        flashAlpha.snapTo(0.85f)
+        flashAlpha.animateTo(0f, tween(durationMillis = 200))
+    }
+    if (flashAlpha.value > 0f) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .alpha(flashAlpha.value)
+                .background(Color.White),
+        )
+    }
+}
+
+@Composable
 private fun RecoverySurface(onRetry: () -> Unit, onSettings: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -488,4 +459,48 @@ private fun RecoverySurface(onRetry: () -> Unit, onSettings: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun rememberDeviceIconRotation(): Float {
+    val context = LocalContext.current
+    var targetRotation by remember { mutableStateOf(0f) }
+    val animatedRotation by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = targetRotation,
+        animationSpec = androidx.compose.animation.core.tween(300),
+        label = "iconRotation",
+    )
+
+    androidx.compose.runtime.DisposableEffect(context) {
+        val listener = object : android.view.OrientationEventListener(context) {
+            private var lastSnapped = 0
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                // OrientationEventListener reports how far the DEVICE has turned
+                // clockwise from natural (90 = left edge up). The activity is locked to
+                // portrait, so the icon has to turn the same amount counter-clockwise to
+                // stay upright in the world. Feeding the device angle straight through
+                // was 180 degrees out at both landscape positions and cancelled at
+                // 0/180, which is why only landscape looked upside down.
+                val snapped = when {
+                    orientation in 45..134 -> 270
+                    orientation in 135..224 -> 180
+                    orientation in 225..314 -> 90
+                    else -> 0
+                }
+                if (snapped != lastSnapped) {
+                    lastSnapped = snapped
+                    val current = targetRotation % 360f
+                    var delta = snapped - current
+                    if (delta > 180f) delta -= 360f
+                    if (delta < -180f) delta += 360f
+                    targetRotation += delta
+                }
+            }
+        }
+        listener.enable()
+        onDispose { listener.disable() }
+    }
+
+    return animatedRotation
 }

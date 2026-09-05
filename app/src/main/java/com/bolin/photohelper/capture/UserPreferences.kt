@@ -70,8 +70,8 @@ class UserPreferences(context: Context) : PreferenceStore {
     }
 
     private fun readThemeMode(): ThemeMode {
-        val stored = values.getString(THEME_MODE, null) ?: return ThemeMode.SYSTEM
-        return ThemeMode.entries.firstOrNull { it.name == stored } ?: ThemeMode.SYSTEM
+        val stored = values.getString(THEME_MODE, null) ?: return ThemeMode.LIGHT
+        return ThemeMode.entries.firstOrNull { it.name == stored } ?: ThemeMode.LIGHT
     }
 
     private fun put(key: String, value: Boolean) = values.edit().putBoolean(key, value).apply()

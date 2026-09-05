@@ -3,49 +3,62 @@ package com.bolin.photohelper.capture
 import android.graphics.ImageDecoder
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.traversalIndex
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.bolin.photohelper.coach.ClarificationChip
 import com.bolin.photohelper.ui.LocalOverlayColors
+import com.bolin.photohelper.ui.LocalReducedMotion
+import com.bolin.photohelper.ui.SoftCream
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -65,118 +78,214 @@ fun CaptureReview(
     onRetake: () -> Unit,
     onDone: () -> Unit,
 ) {
-    // The capture is passed in rather than re-read from state: AnimatedContent keeps the
-    // outgoing slot composing after the caller's null-check, so re-deriving it here could
-    // see a state the guard never approved.
     val applying = state.coachingPhase == CoachingPhase.APPLYING
+    val overlays = LocalOverlayColors.current
+    val reducedMotion = LocalReducedMotion.current
+
+    val photoScale = remember { Animatable(1.02f) }
+    LaunchedEffect(Unit) {
+        if (reducedMotion) {
+            photoScale.snapTo(1f)
+        } else {
+            photoScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessLow,
+                ),
+            )
+        }
+    }
+
+    var controlsVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { controlsVisible = true }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(LocalOverlayColors.current.scrimOpaque)
+            .background(Color.Black)
             .testTag(CaptureTestTags.REVIEW),
     ) {
-        SavedCaptureImage(capture, Modifier.fillMaxSize())
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .safeDrawingPadding()
-                .padding(12.dp)
-                .semantics {
-                    isTraversalGroup = true
-                    traversalIndex = 5f
+        // Photo: full bleed, fills the whole screen
+        SavedCaptureImage(
+            capture,
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = photoScale.value
+                    scaleY = photoScale.value
                 },
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ScrimLabel("CAPTURED")
-            OverlayAction("Done", onDone, enabled = !applying)
-        }
+        )
 
+        // Top scrim gradient
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 120.dp)
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.30f),
+                        1f to Color.Transparent,
+                    ),
+                ),
+        )
+
+        // Bottom scrim gradient
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .heightIn(min = 120.dp)
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.30f),
+                    ),
+                ),
+        )
+
+        // Top: "Captured" pill
+        AnimatedVisibility(
+            visible = controlsVisible,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 16.dp),
+            enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)),
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 390.dp)
-                    .testTag(CaptureTestTags.REVIEW_CONTROLS)
-                    .semantics { isTraversalGroup = false },
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp).safeDrawingPadding(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+            ReviewPill(
+                text = "Captured",
+                modifier = Modifier.semantics {
+                    traversalIndex = 1f
+                    contentDescription = "Photo captured"
+                },
+            )
+        }
+
+        // Bottom: coaching + "Camera" pill
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // Coaching controls (if active)
+            val hasCoaching = state.decision != null ||
+                state.transientMessage != null ||
+                state.activeGuidance != null ||
+                state.coachingPhase != CoachingPhase.IDLE
+
+            if (hasCoaching) {
+                AnimatedVisibility(
+                    visible = controlsVisible,
+                    enter = slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                        initialOffsetY = { it },
+                    ) + fadeIn(),
                 ) {
-                    Text("Original remains saved", fontWeight = FontWeight.SemiBold)
-                    Column(
-                        Modifier
-                            .heightIn(max = 260.dp)
-                            .verticalScroll(rememberScrollState())
+                    Surface(
+                        color = overlays.scrimHeavy,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .fillMaxWidth()
+                            .testTag(CaptureTestTags.REVIEW_CONTROLS)
                             .semantics { isTraversalGroup = false },
                     ) {
-                        CoachingControls(
-                            state = state,
-                            reviewMode = true,
-                            onApplyRecommendation = onApplyRecommendation,
-                            onStartGuidance = onStartGuidance,
-                            onFocusTarget = onFocusTarget,
-                            onDismissDecision = onDismissDecision,
-                            onDismissTransientMessage = onDismissTransientMessage,
-                            onClarificationSelected = onClarificationSelected,
-
-                            onReset = onReset,
-                        )
-                    }
-                    TranscriptOverlay(state.comment, state.coachingPhase)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics {
-                                isTraversalGroup = true
-                                traversalIndex = 4f
-                            },
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                    ) {
-                        MicrophoneButton(state.coachingPhase, onMicrophone)
-                        OutlinedButton(
-                            onClick = onRetake,
-                            enabled = !applying,
-                            modifier = Modifier.heightIn(min = 48.dp),
+                        Column(
+                            modifier = Modifier
+                                .padding(12.dp)
+                                .heightIn(max = 200.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text("Retake")
-                        }
-                        TextButton(
-                            onClick = onDone,
-                            enabled = !applying,
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) {
-                            Text("Done")
+                            CoachingControls(
+                                state = state,
+                                reviewMode = true,
+                                onApplyRecommendation = onApplyRecommendation,
+                                onStartGuidance = onStartGuidance,
+                                onFocusTarget = onFocusTarget,
+                                onDismissDecision = onDismissDecision,
+                                onDismissTransientMessage = onDismissTransientMessage,
+                                onClarificationSelected = onClarificationSelected,
+                                onReset = onReset,
+                            )
+                            TranscriptOverlay(state.comment, state.coachingPhase)
                         }
                     }
                 }
             }
+
+            // Mic button when coaching is active
+            if (hasCoaching) {
+                MicrophoneButton(state.coachingPhase, onMicrophone)
+            }
+
+            // "Camera" pill → return to camera
             AnimatedVisibility(
-                visible = state.resetAvailable && state.decision == null && !applying,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 16.dp)
-                    .offset(y = (-28).dp),
-                enter = fadeIn(),
-                exit = fadeOut(),
+                visible = controlsVisible,
+                enter = slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                    initialOffsetY = { it / 2 },
+                ) + fadeIn(),
             ) {
-                ExtendedFloatingActionButton(
-                    onClick = onReset,
-                    modifier = Modifier
-                        .testTag(CaptureTestTags.RESET)
-                        .semantics { traversalIndex = 3f },
-                    icon = { Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = null) },
-                    text = { Text("Reset") },
+                ReviewPill(
+                    text = "Camera",
+                    onClick = onRetake,
+                    enabled = !applying,
+                    modifier = Modifier.semantics {
+                        traversalIndex = 5f
+                        role = Role.Button
+                        contentDescription = "Return to camera"
+                    },
                 )
             }
         }
+    }
+}
+
+/**
+ * A frosted pill in the MirrorBar visual language, reused on the review screen
+ * for "Captured" (status) and "Camera" (action).
+ */
+@Composable
+private fun ReviewPill(
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
+) {
+    val overlays = LocalOverlayColors.current
+    Surface(
+        color = overlays.mirrorBar,
+        shape = RoundedCornerShape(50),
+        modifier = modifier
+            .widthIn(min = 120.dp)
+            .border(1.dp, overlays.mirrorBarBorder, RoundedCornerShape(50))
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(enabled = enabled, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            color = if (enabled) overlays.onOverlay else overlays.onOverlayDisabled,
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -220,7 +329,7 @@ fun SavedCaptureImage(capture: SavedCapture, modifier: Modifier = Modifier) {
             bitmap = bitmap,
             contentDescription = "Captured photo",
             modifier = modifier.semantics { traversalIndex = 6f },
-            contentScale = ContentScale.Fit,
+            contentScale = ContentScale.Crop,
         )
     } else {
         val loading = bitmapResult == null
@@ -231,7 +340,7 @@ fun SavedCaptureImage(capture: SavedCapture, modifier: Modifier = Modifier) {
             },
             contentAlignment = Alignment.Center,
         ) {
-            if (loading) CircularProgressIndicator() else Text("Captured photo unavailable", color = LocalOverlayColors.current.onOverlay)
+            if (loading) CircularProgressIndicator(color = SoftCream) else Text("Captured photo unavailable", color = SoftCream)
         }
     }
 }

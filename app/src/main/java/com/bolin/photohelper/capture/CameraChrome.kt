@@ -9,6 +9,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
 import com.bolin.photohelper.coach.RecommendationAction
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -57,6 +62,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -73,6 +79,16 @@ import com.bolin.photohelper.ui.LocalOverlayColors
 import com.bolin.photohelper.ui.Mango
 import com.bolin.photohelper.ui.SoftCream
 import com.bolin.photohelper.ui.Charcoal
+import com.bolin.photohelper.ui.LocalReducedMotion
+import com.bolin.photohelper.ui.QuicksandFontFamily
+import com.bolin.photohelper.ui.jarvisColor
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import kotlinx.coroutines.flow.StateFlow
 
@@ -88,8 +104,8 @@ fun PreviewPane(
     onSettingsOpen: () -> Unit,
     onHelpOpen: () -> Unit,
     modifier: Modifier = Modifier,
-    /** False in landscape, where the same controls live in the right-hand strip. */
     showTopChrome: Boolean = true,
+    iconRotation: Float = 0f,
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -127,7 +143,9 @@ fun PreviewPane(
                     icon = Icons.Rounded.Cameraswitch,
                     contentDescription = if (isFrontCamera) "Switch to rear camera" else "Switch to selfie camera",
                     onClick = onFlipCamera,
-                    modifier = Modifier.testTag(CaptureTestTags.CAMERA_FLIP),
+                    modifier = Modifier
+                        .graphicsLayer { rotationZ = iconRotation }
+                        .testTag(CaptureTestTags.CAMERA_FLIP),
                 )
                 else Spacer(Modifier.size(56.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -135,11 +153,13 @@ fun PreviewPane(
                         icon = Icons.AutoMirrored.Rounded.HelpOutline,
                         contentDescription = "Open the guide",
                         onClick = onHelpOpen,
+                        modifier = Modifier.graphicsLayer { rotationZ = iconRotation },
                     )
                     OverlayIconAction(
                         icon = Icons.Rounded.Settings,
                         contentDescription = "Open settings menu",
                         onClick = onSettingsOpen,
+                        modifier = Modifier.graphicsLayer { rotationZ = iconRotation },
                     )
                 }
             }
@@ -317,22 +337,77 @@ fun FocusTarget(xFraction: Float, yFraction: Float, onTap: (() -> Unit)? = null)
 
 private val reticleShadow = Charcoal.copy(alpha = 0.55f)
 
+/**
+ * Branded splash shown while CameraX is binding. A large Orb ring sweeps through
+ * the Jarvis gradient weighted toward Mango, with "Photo Helper" below it. Replaces
+ * the generic spinner so the user sees the app's identity, not a void.
+ */
 @Composable
 private fun CameraPhaseStatus() {
     val overlays = LocalOverlayColors.current
+    val reducedMotion = LocalReducedMotion.current
+    val orbSize = 160.dp
+    val glowBlur = 20.dp
+
+    val sweep = if (reducedMotion) {
+        0.5f
+    } else {
+        val transition = rememberInfiniteTransition(label = "splash_sweep")
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 2400, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "splash_confidence",
+        ).value
+    }
+    val ringColor = jarvisColor(sweep)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(overlays.scrim),
+            .background(Charcoal),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.size(12.dp))
+            Box(
+                modifier = Modifier.size(orbSize + 24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                // Glow aura
+                Box(
+                    modifier = Modifier
+                        .size(orbSize)
+                        .blur(glowBlur, BlurredEdgeTreatment.Unbounded)
+                        .alpha(0.45f)
+                        .background(ringColor, CircleShape),
+                )
+                // Ring
+                Canvas(Modifier.size(orbSize)) {
+                    drawCircle(
+                        color = ringColor,
+                        radius = (size.minDimension - 6.dp.toPx()) / 2f,
+                        style = Stroke(width = 6.dp.toPx()),
+                    )
+                }
+                // Center dot
+                Canvas(Modifier.size(orbSize / 2.5f)) {
+                    drawCircle(color = SoftCream)
+                }
+            }
+            Spacer(Modifier.size(24.dp))
             Text(
-                "Starting camera…",
-                color = overlays.onOverlay,
-                style = MaterialTheme.typography.bodyMedium,
+                "Photo Helper",
+                color = SoftCream,
+                style = TextStyle(
+                    fontFamily = QuicksandFontFamily,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 26.sp,
+                    lineHeight = 32.sp,
+                ),
+                textAlign = TextAlign.Center,
             )
         }
     }

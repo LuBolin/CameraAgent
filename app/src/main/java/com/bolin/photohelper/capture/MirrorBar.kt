@@ -110,8 +110,8 @@ fun mirrorBarText(state: CaptureUiState): String? {
 const val FIRST_USE_HINT = "Tap the circle to take a photo"
 
 val VOICE_HINTS = listOf(
-    "Try saying: \"make it brighter\"",
-    "Try: \"focus on the person\"",
+    "Try: \"make it brighter\"",
+    "Try: \"focus on her\"",
     "Try: \"too dark\"",
-    "Tap Help for a quick tour",
+    "Tap Help for a tour",
 )

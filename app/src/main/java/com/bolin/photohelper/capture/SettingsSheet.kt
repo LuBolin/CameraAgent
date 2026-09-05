@@ -113,8 +113,14 @@ fun SettingsSheet(
             SettingsGroup("Smart Features")
             ToggleRow("Auto-capture when steady", state.settings.autoCaptureEnabled, onAutoCaptureEnabledChanged)
 
-            SettingsGroup("Theme")
-            ThemeModeChooser(state.settings.themeMode, onThemeModeChanged)
+            SettingsGroup("Appearance")
+            ToggleRow(
+                "Dark mode",
+                state.settings.themeMode == ThemeMode.DARK,
+                onCheckedChange = { dark ->
+                    onThemeModeChanged(if (dark) ThemeMode.DARK else ThemeMode.LIGHT)
+                },
+            )
 
             Spacer(Modifier.size(16.dp))
             HorizontalDivider()
@@ -214,34 +220,6 @@ private fun VisualProviderChooser(selected: VisualProvider, onSelect: (VisualPro
     )
 }
 
-@Composable
-private fun ThemeModeChooser(selected: ThemeMode, onSelect: (ThemeMode) -> Unit) {
-    val options = listOf(
-        ThemeMode.SYSTEM to "Match my phone",
-        ThemeMode.LIGHT to "Light",
-        ThemeMode.DARK to "Dark",
-    )
-    Column {
-        options.forEach { (mode, label) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .selectable(
-                        selected = mode == selected,
-                        role = Role.RadioButton,
-                        onClick = { onSelect(mode) },
-                    )
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(selected = mode == selected, onClick = null)
-                Spacer(Modifier.size(12.dp))
-                Text(label)
-            }
-        }
-    }
-}
 
 /**
  * Free text describing the look the user is after. Optional, and never a technical
