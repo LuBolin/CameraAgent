@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -257,7 +258,9 @@ private fun CaptureContent(
     actions: CaptureScreenActions,
     onHelpOpen: () -> Unit,
 ) {
-    val iconRotation = rememberDeviceIconRotation()
+    val deviceOrientation = rememberDeviceOrientation()
+    val iconRotation = deviceOrientation.iconRotation
+    val isLandscape = deviceOrientation.devicePosture == 90 || deviceOrientation.devicePosture == 270
     val orbState = orbStateFor(state.coachingPhase)
     val baseInstruction = mirrorBarText(state)
     val chromeVisible = state.review == null
@@ -300,6 +303,36 @@ private fun CaptureContent(
             iconRotation = iconRotation,
         )
         if (chromeVisible) {
+        if (isLandscape) {
+            val mirrorAlign = if (deviceOrientation.devicePosture == 90) {
+                Alignment.CenterStart
+            } else {
+                Alignment.CenterEnd
+            }
+            MirrorBar(
+                instruction,
+                modifier = Modifier
+                    .align(mirrorAlign)
+                    .padding(24.dp)
+                    .layout { measurable, constraints ->
+                        val placeable = measurable.measure(
+                            constraints.copy(
+                                minWidth = 0,
+                                maxWidth = constraints.maxHeight,
+                                minHeight = 0,
+                                maxHeight = constraints.maxWidth,
+                            ),
+                        )
+                        layout(placeable.height, placeable.width) {
+                            placeable.place(
+                                x = -(placeable.width - placeable.height) / 2,
+                                y = -(placeable.height - placeable.width) / 2,
+                            )
+                        }
+                    }
+                    .graphicsLayer { rotationZ = iconRotation },
+            )
+        }
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -312,7 +345,9 @@ private fun CaptureContent(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             DecisionSurface(state, actions)
-            MirrorBar(instruction)
+            if (!isLandscape) {
+                MirrorBar(instruction)
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -461,10 +496,13 @@ private fun RecoverySurface(onRetry: () -> Unit, onSettings: () -> Unit) {
     }
 }
 
+class DeviceOrientation(val iconRotation: Float, val devicePosture: Int)
+
 @Composable
-private fun rememberDeviceIconRotation(): Float {
+private fun rememberDeviceOrientation(): DeviceOrientation {
     val context = LocalContext.current
     var targetRotation by remember { mutableStateOf(0f) }
+    var devicePosture by remember { mutableIntStateOf(0) }
     val animatedRotation by androidx.compose.animation.core.animateFloatAsState(
         targetValue = targetRotation,
         animationSpec = androidx.compose.animation.core.tween(300),
@@ -476,22 +514,22 @@ private fun rememberDeviceIconRotation(): Float {
             private var lastSnapped = 0
             override fun onOrientationChanged(orientation: Int) {
                 if (orientation == ORIENTATION_UNKNOWN) return
-                // OrientationEventListener reports how far the DEVICE has turned
-                // clockwise from natural (90 = left edge up). The activity is locked to
-                // portrait, so the icon has to turn the same amount counter-clockwise to
-                // stay upright in the world. Feeding the device angle straight through
-                // was 180 degrees out at both landscape positions and cancelled at
-                // 0/180, which is why only landscape looked upside down.
-                val snapped = when {
-                    orientation in 45..134 -> 270
+                val deviceSnap = when {
+                    orientation in 45..134 -> 90
                     orientation in 135..224 -> 180
-                    orientation in 225..314 -> 90
+                    orientation in 225..314 -> 270
                     else -> 0
                 }
-                if (snapped != lastSnapped) {
-                    lastSnapped = snapped
+                val iconSnap = when (deviceSnap) {
+                    90 -> 270
+                    270 -> 90
+                    else -> deviceSnap
+                }
+                if (iconSnap != lastSnapped) {
+                    lastSnapped = iconSnap
+                    devicePosture = deviceSnap
                     val current = targetRotation % 360f
-                    var delta = snapped - current
+                    var delta = iconSnap - current
                     if (delta > 180f) delta -= 360f
                     if (delta < -180f) delta += 360f
                     targetRotation += delta
@@ -502,5 +540,5 @@ private fun rememberDeviceIconRotation(): Float {
         onDispose { listener.disable() }
     }
 
-    return animatedRotation
+    return DeviceOrientation(animatedRotation, devicePosture)
 }
