@@ -172,6 +172,7 @@ fun CaptureScreen(
                             onClarificationSelected = actions::onClarificationSelected,
                             onReset = actions::onReset,
                             onRetake = actions::onRetake,
+                            onOpenGallery = actions::onOpenGallery,
                             onDone = actions::onDoneReview,
                         )
                     }

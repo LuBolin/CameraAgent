@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +28,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Camera
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -76,6 +80,7 @@ fun CaptureReview(
     onClarificationSelected: (ClarificationChip) -> Unit,
     onReset: () -> Unit,
     onRetake: () -> Unit,
+    onOpenGallery: () -> Unit,
     onDone: () -> Unit,
 ) {
     val applying = state.coachingPhase == CoachingPhase.APPLYING
@@ -227,7 +232,7 @@ fun CaptureReview(
                 MicrophoneButton(state.coachingPhase, onMicrophone)
             }
 
-            // "Camera" pill → return to camera
+            // Gallery + Camera icon buttons
             AnimatedVisibility(
                 visible = controlsVisible,
                 enter = slideInVertically(
@@ -238,16 +243,27 @@ fun CaptureReview(
                     initialOffsetY = { it / 2 },
                 ) + fadeIn(),
             ) {
-                ReviewPill(
-                    text = "Camera",
-                    onClick = onRetake,
-                    enabled = !applying,
-                    modifier = Modifier.semantics {
-                        traversalIndex = 5f
-                        role = Role.Button
-                        contentDescription = "Return to camera"
-                    },
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    OverlayIconAction(
+                        icon = Icons.Rounded.PhotoLibrary,
+                        contentDescription = "Open gallery",
+                        onClick = onOpenGallery,
+                        enabled = !applying,
+                        traversalIndex = 4f,
+                    )
+                    OverlayIconAction(
+                        icon = Icons.Rounded.Camera,
+                        contentDescription = "Return to camera",
+                        onClick = onRetake,
+                        enabled = !applying,
+                        traversalIndex = 5f,
+                    )
+                }
             }
         }
     }
