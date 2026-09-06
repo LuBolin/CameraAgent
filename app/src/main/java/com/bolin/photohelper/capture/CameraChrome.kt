@@ -89,7 +89,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.automirrored.rounded.HelpOutline
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import kotlinx.coroutines.flow.StateFlow
 
 @Composable
@@ -150,7 +150,7 @@ fun PreviewPane(
                 else Spacer(Modifier.size(56.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OverlayIconAction(
-                        icon = Icons.AutoMirrored.Rounded.HelpOutline,
+                        icon = Icons.AutoMirrored.Rounded.MenuBook,
                         contentDescription = "Open the guide",
                         onClick = onHelpOpen,
                         modifier = Modifier.graphicsLayer { rotationZ = iconRotation },
@@ -643,7 +643,7 @@ fun ControlStrip(
             enabled = orbEnabled(state) && orbStateFor(state.coachingPhase) == OrbState.IDLE,
         )
         OverlayIconAction(
-            icon = Icons.AutoMirrored.Rounded.HelpOutline,
+            icon = Icons.AutoMirrored.Rounded.MenuBook,
             contentDescription = "Open the guide",
             onClick = onHelpOpen,
         )
