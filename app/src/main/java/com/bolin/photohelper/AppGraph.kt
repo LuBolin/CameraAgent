@@ -26,6 +26,31 @@ import java.io.ByteArrayOutputStream
 class AppGraph(context: Context) {
     private val appContext = context.applicationContext
 
+    init {
+        seedApiKeyFromBuildConfig()
+    }
+
+    private fun seedApiKeyFromBuildConfig() {
+        val keyStore = DemoApiKeyStore(appContext)
+        val preferences = UserPreferences(appContext)
+        val anthropicKey = BuildConfig.ANTHROPIC_API_KEY
+        if (anthropicKey.isNotEmpty() && !keyStore.hasKey()) {
+            runCatching {
+                keyStore.save(anthropicKey.toCharArray())
+                preferences.setVisualProvider(VisualProvider.CLAUDE)
+                preferences.setVisualAiEnabled(true)
+            }
+        }
+        val dashscopeKey = BuildConfig.DASHSCOPE_API_KEY
+        if (dashscopeKey.isNotEmpty() && !keyStore.hasKey()) {
+            runCatching {
+                keyStore.save(dashscopeKey.toCharArray())
+                preferences.setVisualProvider(VisualProvider.QWEN)
+                preferences.setVisualAiEnabled(true)
+            }
+        }
+    }
+
     fun viewModelFactory(): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {

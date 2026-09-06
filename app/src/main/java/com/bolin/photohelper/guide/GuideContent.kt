@@ -404,67 +404,72 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
             ),
         ),
     ),
-    // ── Module 7: Editing & Enhancing (Coming Soon) ────────────────
+    // ── Module 7: Editing & Enhancing ───────────────────────────────
     GuideModule(
         id = "editing",
         title = "Editing and enhancing",
         icon = Icons.Rounded.PhotoLibrary,
-        comingSoon = true,
         lessons = listOf(
             GuideLesson(
                 id = "7.1",
-                title = "Key adjustments",
+                title = "AI-powered editing",
                 tag = LessonTag.ACTIVE,
-                description = "Brightness, shadows, warmth, and saturation. These four sliders make the biggest difference.",
+                description = "Describe what you want changed in plain words. The AI edits the photo and keeps the original safe.",
                 tips = listOf(
-                    Tip("Coming soon", "Voice-driven post-processing presets will let you say \"make it warmer\" or \"bring out the shadows\" after the shot."),
+                    Tip("Open a photo", "Tap the gallery icon on the camera screen, then tap any photo to view it full-size."),
+                    Tip("Describe the edit", "Tap the edit button and type or speak what you want: \"make the sky bluer\", \"remove the trash can\", \"brighten faces\"."),
+                    Tip("Iterate freely", "Each edit creates a new version. You can keep refining — say \"warmer\" or \"undo that\" — without losing previous versions.", isAppAssist = true),
                 ),
             ),
             GuideLesson(
                 id = "7.2",
-                title = "AI-powered editing",
+                title = "Voice-driven editing",
                 tag = LessonTag.ACTIVE,
-                description = "Describe what you want changed. The AI modifies the photo without overwriting the original.",
+                description = "Use the microphone to describe edits with your voice instead of typing.",
                 tips = listOf(
-                    Tip("Coming soon", "Select a photo, describe the change, confirm, and iterate. Multi-round editing with version history."),
+                    Tip("Tap the mic", "In the edit screen, tap the microphone icon and speak naturally: \"make it warmer\" or \"crop tighter on the faces\"."),
+                    Tip("Be specific", "The more detail you give, the better the result. \"Brighten the person on the left\" beats \"make it brighter\"."),
+                    Tip("Your app can help", "The AI interprets your intent and applies the edit. Review it, then confirm or ask for another change.", isAppAssist = true),
                 ),
             ),
             GuideLesson(
                 id = "7.3",
-                title = "Object removal",
+                title = "Version history",
                 tag = LessonTag.PASSIVE,
-                description = "Modern phones include built-in erasers for removing background distractions.",
+                description = "Every edit you make is saved as a separate version. You never lose your original photo.",
                 tips = listOf(
-                    Tip("Pixel: Magic Eraser", "Tap or circle a distraction and it disappears."),
-                    Tip("Samsung: Object Eraser", "Found in the gallery's edit tools."),
-                    Tip("iPhone: Clean Up", "Available in the Photos app editor."),
+                    Tip("Non-destructive", "The original photo is always preserved. Each AI edit creates a new variant alongside it."),
+                    Tip("Go back anytime", "Scroll through your edit versions to compare. Pick the one you like best."),
                 ),
             ),
         ),
     ),
-    // ── Module 8: Sharing & Preserving (Coming Soon) ───────────────
+    // ── Module 8: Sharing & Preserving ────────────────────────────
     GuideModule(
         id = "sharing",
         title = "Sharing and preserving",
         icon = Icons.AutoMirrored.Rounded.Send,
-        comingSoon = true,
         lessons = listOf(
             GuideLesson(
                 id = "8.1",
-                title = "Sending to family",
+                title = "Sharing photos",
                 tag = LessonTag.ACTIVE,
-                description = "Select photos and send them directly to WhatsApp, WeChat, or email.",
+                description = "Select up to 9 photos and share them to any app on your phone — WhatsApp, email, messages, or more.",
                 tips = listOf(
-                    Tip("Coming soon", "Voice command \"Send this to my daughter on WhatsApp\" will open the share flow with photos pre-attached."),
+                    Tip("Multi-select", "Long-press a photo in the gallery to start selecting. Tap more photos to add them — up to 9 at once."),
+                    Tip("Reorder before sharing", "Drag selected photos to rearrange them in the order you want them shared."),
+                    Tip("Your app can help", "Tap the share button and pick your destination. The photos are sent in the order you arranged them.", isAppAssist = true),
                 ),
             ),
             GuideLesson(
                 id = "8.2",
-                title = "Captions that tell the story",
+                title = "AI captions",
                 tag = LessonTag.ACTIVE,
-                description = "A good caption gives your photos a story when you share them.",
+                description = "Let the AI write a caption for your photo. Choose short or long, then refine it with your own words.",
                 tips = listOf(
-                    Tip("Coming soon", "AI caption generation from your photo. Say \"Write a caption\" and choose short or long."),
+                    Tip("Generate a caption", "In the viewer, tap the caption button. Choose short (a quick line) or long (a full description)."),
+                    Tip("Refine with feedback", "Not quite right? Type or speak feedback — \"make it funnier\" or \"mention the sunset\" — and the AI rewrites it."),
+                    Tip("Copy and share", "Once you like the caption, copy it and paste it into your message or social post."),
                 ),
             ),
             GuideLesson(

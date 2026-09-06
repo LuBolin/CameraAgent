@@ -140,24 +140,11 @@ fun SettingsSheet(
                 )
             }
             if (advancedExpanded) {
-                StyleProfileField(state.settings.styleProfile, onStyleProfileChanged)
-                Spacer(Modifier.size(8.dp))
-                ToggleRow("Show camera measurements", state.settings.technicalDetail, onTechnicalDetailChanged)
                 ToggleRow(
                     label = "AI interpretation",
                     checked = state.settings.visualAiEnabled,
                     onCheckedChange = onVisualAiEnabledChanged,
                     enabled = state.settings.keyConfigured && !state.settings.testingKey,
-                )
-                SettingsGroup("Model")
-                VisualProviderChooser(state.settings.visualProvider, onVisualProviderChanged)
-                QwenKeySetup(
-                    settings = state.settings,
-                    apiKeyInput = apiKeyInput,
-                    onApiKeyChanged = onApiKeyChanged,
-                    onTestKey = onTestKey,
-                    onClearKey = onClearKey,
-                    onOpenVisualAiPolicy = onOpenVisualAiPolicy,
                 )
                 TextButton(onClick = onOpenMlKitPolicy, modifier = Modifier.heightIn(min = 56.dp)) {
                     Text("ML Kit data disclosure")
