@@ -14,6 +14,20 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val envFile = rootProject.file(".env")
+        val envKeys = mutableMapOf<String, String>()
+        if (envFile.exists()) {
+            envFile.readLines().forEach { line ->
+                val trimmed = line.trim()
+                if (trimmed.isNotEmpty() && !trimmed.startsWith("#") && '=' in trimmed) {
+                    val (k, v) = trimmed.split("=", limit = 2)
+                    envKeys[k.trim()] = v.trim()
+                }
+            }
+        }
+        buildConfigField("String", "ANTHROPIC_API_KEY", "\"${envKeys["ANTHROPIC_API_KEY"].orEmpty()}\"")
+        buildConfigField("String", "DASHSCOPE_API_KEY", "\"${envKeys["DASHSCOPE_API_KEY"].orEmpty()}\"")
     }
 
     signingConfigs {
@@ -40,6 +54,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
