@@ -56,8 +56,17 @@ class CompositionQwenTest {
                 if (phase == "export" || phase == "refresh") {
                     val snapshot = JSONObject(File(directory, "$name-observation.json").readText())
                     val jpeg = File(directory, "$name-submitted.jpg").readBytes()
+                    val members = (0 until snapshot.getJSONArray("faces").length()).map { index ->
+                        val face = snapshot.getJSONArray("faces").getJSONObject(index)
+                        FaceObservation(if (face.has("id")) face.getInt("id") else null,
+                            face.getDouble("left").toFloat(), face.getDouble("top").toFloat(),
+                            face.getDouble("right").toFloat(), face.getDouble("bottom").toFloat(),
+                            face.getDouble("visibleFraction").toFloat())
+                    }
+                    val selectedWidth = faceUnion(members)?.widthFraction
                     val request = VisualRequest(VisualFamily.COMPOSITION,
                         "Suggest a composition for ${snapshot.getJSONArray("faces").length()} selected people, or scene advice if none. " +
+                            (selectedWidth?.let { "Selected people width is ${(it * 100).toInt()}% of the image. " } ?: "") +
                             "All detected people are selected. Do not suggest selecting other people.", jpeg)
                     File(directory, "$name-request.json").writeBytes(buildVisualRequestBody(request))
                     jpeg.fill(0)

@@ -8,7 +8,7 @@ enum class CompositionStrategy { PORTRAIT, SYMMETRY, LEADING_LINES, LOOK_SPACE }
 enum class CompositionFraming { CLOSE, BALANCED, WIDE }
 enum class CompositionPlacement { CENTRE, LEFT_THIRD, RIGHT_THIRD }
 enum class GuidanceMode { CLOSED_LOOP, ADVICE_ONLY }
-enum class CompositionProblem { NONE, LOOK_ROOM, HEADROOM, PLACEMENT, SUBJECT_SIZE, BACKGROUND }
+enum class CompositionProblem { NONE, LOOK_ROOM, HEADROOM, PLACEMENT, SUBJECT_SIZE, PERSPECTIVE, BACKGROUND }
 enum class HorizontalPlacement { KEEP, LEFT_THIRD, CENTRE, RIGHT_THIRD }
 enum class VerticalPlacement { KEEP, UPPER, MIDDLE, LOWER }
 enum class CompositionSize { KEEP, LARGER, SMALLER }
@@ -30,6 +30,8 @@ data class CompositionAdjustment(
             CompositionProblem.HEADROOM -> vertical != VerticalPlacement.KEEP
             CompositionProblem.PLACEMENT -> horizontal != HorizontalPlacement.KEEP || vertical != VerticalPlacement.KEEP
             CompositionProblem.SUBJECT_SIZE -> size != CompositionSize.KEEP
+            CompositionProblem.PERSPECTIVE -> horizontal == HorizontalPlacement.KEEP && vertical == VerticalPlacement.KEEP &&
+                size == CompositionSize.SMALLER && movement == CompositionMovement.WALK
         })
     }
 }
@@ -111,7 +113,7 @@ fun compileComposition(intent: CompositionIntent, members: List<FaceObservation>
 private fun compileAdjustment(intent: CompositionIntent, choice: CompositionAdjustment, members: List<FaceObservation>): CompositionPlan {
     fun advice(text: String) = CompositionPlan(intent, emptyList(), members, text)
     if (choice.problem == CompositionProblem.NONE) return advice("Keep this framing.")
-    if (choice.problem == CompositionProblem.BACKGROUND) return advice("Try a different viewpoint to separate the subject from the background.")
+    if (choice.problem == CompositionProblem.BACKGROUND) return advice("Move sideways to separate the subject from the background.")
     val face = faceUnion(members) ?: return advice("Keep the selected faces visible, then try again.")
     val x = when (choice.horizontal) {
         HorizontalPlacement.KEEP -> face.centerX

@@ -12,7 +12,8 @@ import kotlinx.coroutines.runBlocking
 
 class VisualContractsTest {
     @Test fun `independent composition rejects contradictory decisions and extra geometry`() {
-        val content = JSONObject().put("schemaVersion", 2).put("outcome", "COMPOSITION")
+        val content = JSONObject().put("schemaVersion", 3).put("outcome", "COMPOSITION")
+            .put("backgroundCollision", false).put("subjectTooSmall", false)
             .put("problem", "HEADROOM").put("horizontal", "KEEP").put("vertical", "UPPER")
             .put("size", "KEEP").put("movement", "NONE").put("reason", "Reduce the empty space above the face.")
         fun parse() = parseVisualResponse(JSONObject().put("id", "test").put("object", "chat.completion")
@@ -30,6 +31,15 @@ class VisualContractsTest {
         content.remove("x")
         content.put("size", "HUGE")
         assertEquals(null, parse())
+        content.put("size", "KEEP").put("problem", "PERSPECTIVE").put("movement", "NONE")
+        val perspective = parse() as VisualHint.CompositionPlan
+        assertEquals(com.bolin.photohelper.coach.CompositionSize.SMALLER, perspective.intent.adjustment!!.size)
+        content.put("backgroundCollision", true)
+        val background = parse() as VisualHint.CompositionPlan
+        assertEquals(com.bolin.photohelper.coach.CompositionProblem.BACKGROUND, background.intent.adjustment!!.problem)
+        content.put("backgroundCollision", false).put("subjectTooSmall", true).put("problem", "SUBJECT_SIZE")
+        val distant = parse() as VisualHint.CompositionPlan
+        assertEquals(com.bolin.photohelper.coach.CompositionSize.LARGER, distant.intent.adjustment!!.size)
     }
 
     @Test

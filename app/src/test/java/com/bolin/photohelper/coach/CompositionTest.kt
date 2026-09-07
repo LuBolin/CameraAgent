@@ -24,6 +24,10 @@ class CompositionTest {
         assertTrue(walk.distanceMovement)
         assertEquals(Correction.STEP_BACK, measureGuidance(walk.targets, frame(subject), distanceMovement = walk.distanceMovement)!!.correction)
         assertFalse(measureGuidance(walk.targets, frame(subject), setOf(Correction.STEP_BACK), true)!!.satisfied)
+        val perspective = walk.intent.adjustment!!.copy(problem = CompositionProblem.PERSPECTIVE)
+        assertEquals(Correction.STEP_BACK, measureGuidance(
+            compileComposition(CompositionIntent(adjustment = perspective), listOf(subject)).targets,
+            frame(subject), distanceMovement = true)!!.correction)
     }
 
     @Test fun `vertical correction preserves size and impossible group targets become advice`() {

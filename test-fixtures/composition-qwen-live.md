@@ -73,3 +73,17 @@ Two revisions produced twelve real HTTP 200 responses, all within five seconds. 
 No final response chose WALK. Deterministic compiler and ViewModel tests verify its route, not the quality of an AI walking decision. Background parallax, physical camera-height changes, and compound movement remain unsupported. These known examples are a development set, not held-out validation or physical before/after testing.
 
 Evidence: ignored `outputs/qa/composition-v2/report.html`, exact requests/responses, snapshots, timings, image hashes, and provider request IDs. First-revision evidence is preserved under `first-run/`. APK builds, lint, the unit suite, and Android production-parser/compiler replay passed.
+
+## Schema v3 movement check, 2026-09-08
+
+Schema v3 asks Qwen for two narrow visual facts in addition to its normal composition choice: a head/background collision and a too-small selected subject. The app compiles those facts locally, so it does not rely on the model to supply mechanically consistent movement fields.
+
+Three new live Qwen calls returned HTTP 200 within the five-second host timeout and passed the production parser and Android replay:
+
+| Published teaching image | Actual Qwen finding | Replayed app instruction |
+| --- | --- | --- |
+| [Extreme wide-angle portrait](https://www.iphotography.com/blog/what-is-lens-barrel-distortion/) | `PERSPECTIVE`; enlarged nose and central face | Move the phone farther away |
+| [Pole behind head](https://www.nikonusa.com/learn-and-explore/c/tips-and-techniques/take-better-portraits) | `backgroundCollision: true` | Move sideways to separate the subject from the background. |
+| [Distant subject](https://www.pcc.edu/web-services/wp-content/uploads/sites/6/2017/05/bad-focus-1-500x373.jpg) | `subjectTooSmall: true`; detector context measured an 8% face width | Zoom in slightly |
+
+The wide-angle response itself supplied `KEEP` and `NONE` for the dependent movement fields; the parser deliberately canonicalized the valid `PERSPECTIVE` finding to `SMALLER` plus `WALK`. The pole remains advice-only because a face box cannot verify that a sideways move clears the background. Raw requests, responses, detector observations, timings, and Android replay output are local under ignored `outputs/qa/composition-next/` and `outputs/qa/composition-next-distant/`. These are development examples, not a physical before/after validation.

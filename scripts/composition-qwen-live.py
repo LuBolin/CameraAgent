@@ -45,6 +45,7 @@ def main():
                 row["status"] = response.status
         except urllib.error.HTTPError as error:
             row["status"] = error.code
+            row["detail"] = error.read(1024).decode("utf-8", "replace").replace(key, "<redacted>")
         except Exception as error:
             row["failure"] = type(error).__name__
             row["detail"] = str(error).replace(key, "<redacted>")[:300]

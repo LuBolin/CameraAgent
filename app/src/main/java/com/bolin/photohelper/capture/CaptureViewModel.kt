@@ -11,6 +11,7 @@ import com.bolin.photohelper.coach.GuidanceMetrics
 import com.bolin.photohelper.coach.GuidanceMode
 import com.bolin.photohelper.coach.automaticCompositionMembers
 import com.bolin.photohelper.coach.compileComposition
+import com.bolin.photohelper.coach.faceUnion
 import com.bolin.photohelper.coach.matchMembers
 import com.bolin.photohelper.coach.measureGuidance
 import com.bolin.photohelper.coach.CoachingInput
@@ -788,9 +789,11 @@ class CaptureViewModel(
                     }
                     val image = jpeg
                     val credential = key
+                    val selectedWidth = faceUnion(members)?.widthFraction
                     if (image == null || credential == null) null else interpretVisual(
                         VisualRequest(VisualFamily.COMPOSITION,
                             "Suggest a composition for ${members.size} selected people, or scene advice if none. " +
+                                (selectedWidth?.let { "Selected people width is ${(it * 100).toInt()}% of the image. " } ?: "") +
                                 (if (selectedSubset) "Only people outlined in yellow are selected. " else "All detected people are selected. ") +
                                 "Do not suggest selecting other people.", image), credential)
                 }
