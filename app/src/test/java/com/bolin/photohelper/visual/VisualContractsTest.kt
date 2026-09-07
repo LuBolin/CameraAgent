@@ -11,6 +11,48 @@ import org.json.JSONObject
 import kotlinx.coroutines.runBlocking
 
 class VisualContractsTest {
+    @Test fun `independent composition rejects contradictory decisions and extra geometry`() {
+        val content = JSONObject().put("schemaVersion", 2).put("outcome", "COMPOSITION")
+            .put("problem", "HEADROOM").put("horizontal", "KEEP").put("vertical", "UPPER")
+            .put("size", "KEEP").put("movement", "NONE").put("reason", "Reduce the empty space above the face.")
+        fun parse() = parseVisualResponse(JSONObject().put("id", "test").put("object", "chat.completion")
+            .put("model", QWEN_MODEL).put("choices", JSONArray().put(JSONObject().put("finish_reason", "stop")
+                .put("message", JSONObject().put("role", "assistant").put("content", content.toString())))).toString(), VisualFamily.COMPOSITION)
+        assertTrue(parse() is VisualHint.CompositionPlan)
+        content.put("movement", "WALK")
+        assertEquals(null, parse())
+        content.put("movement", "NONE").put("vertical", "KEEP")
+        assertEquals(null, parse())
+        content.put("problem", "NONE")
+        assertTrue(parse() is VisualHint.CompositionPlan)
+        content.put("x", .3)
+        assertEquals(null, parse())
+        content.remove("x")
+        content.put("size", "HUGE")
+        assertEquals(null, parse())
+    }
+
+    @Test
+    fun `composition accepts semantics and rejects claimed capabilities`() {
+        fun response(content: JSONObject) = JSONObject().put("id", "composition-test")
+            .put("object", "chat.completion").put("model", QWEN_MODEL)
+            .put("choices", JSONArray().put(JSONObject().put("finish_reason", "stop")
+                .put("message", JSONObject().put("role", "assistant").put("content", content.toString())))).toString()
+        val content = JSONObject().put("schemaVersion", 1).put("outcome", "COMPOSITION")
+            .put("strategy", "SYMMETRY").put("framing", "WIDE").put("placement", "CENTRE")
+            .put("reason", "Try the symmetry of the building.")
+        assertTrue(parseVisualResponse(response(content), VisualFamily.COMPOSITION) is VisualHint.CompositionPlan)
+        for (key in listOf("guidanceMode", "targets", "coordinates", "tolerance")) {
+            content.put(key, "CLOSED_LOOP")
+            assertEquals(null, parseVisualResponse(response(content), VisualFamily.COMPOSITION))
+            content.remove(key)
+        }
+        content.put("strategy", "INVENTED")
+        assertEquals(null, parseVisualResponse(response(content), VisualFamily.COMPOSITION))
+        content.put("strategy", "PORTRAIT").put("reason", "x".repeat(241))
+        assertEquals(null, parseVisualResponse(response(content), VisualFamily.COMPOSITION))
+    }
+
     @Test
     fun `focus point rejects coordinates outside the preview`() {
         val point = VisualHint.FocusPoint(726 / 999f, 386 / 999f)

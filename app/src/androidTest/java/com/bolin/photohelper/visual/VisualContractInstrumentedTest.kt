@@ -11,6 +11,7 @@ import com.bolin.photohelper.capture.CameraTelemetry
 import com.bolin.photohelper.capture.FrameObservation
 import com.bolin.photohelper.capture.WhiteBalancePreset
 import com.bolin.photohelper.coach.IntentClassification
+import com.bolin.photohelper.coach.SubjectBounds
 import com.bolin.photohelper.coach.VisualFamily
 import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.VisualIntent
@@ -56,6 +57,7 @@ class VisualContractInstrumentedTest {
         )
         val prompt = content.getJSONObject(1).getString("text")
         assertTrue(prompt.contains("point_2d"))
+        assertTrue(prompt.contains("box_2d"))
         assertTrue(prompt.contains("normalized to 0..999"))
         assertTrue(prompt.contains("solid, visible, high-contrast or textured"))
         assertTrue(prompt.contains("never the empty geometric center"))
@@ -395,10 +397,17 @@ class VisualContractInstrumentedTest {
 
     @Test
     fun objectFocusParserUsesNormalizedQwenCoordinates() {
-        val target = response("""{"schemaVersion":2,"outcome":"TARGET","point_2d":[726,386]}""")
-        val outsideFrame = response("""{"schemaVersion":2,"outcome":"TARGET","point_2d":[1000,386]}""")
+        val target = response("""{"schemaVersion":3,"outcome":"TARGET","point_2d":[726,386],"box_2d":[600,250,850,600]}""")
+        val outsideFrame = response("""{"schemaVersion":3,"outcome":"TARGET","point_2d":[1000,386],"box_2d":[600,250,850,600]}""")
 
-        assertEquals(VisualHint.FocusPoint(726 / 999f, 386 / 999f), parseVisualResponse(target, VisualFamily.OBJECT_FOCUS))
+        assertEquals(
+            VisualHint.FocusPoint(
+                726 / 999f,
+                386 / 999f,
+                SubjectBounds(600 / 999f, 250 / 999f, 850 / 999f, 600 / 999f),
+            ),
+            parseVisualResponse(target, VisualFamily.OBJECT_FOCUS),
+        )
         assertNull(parseVisualResponse(outsideFrame, VisualFamily.OBJECT_FOCUS))
         assertNull(parseVisualResponse(target, VisualFamily.COLOR_CAST))
         assertNull(

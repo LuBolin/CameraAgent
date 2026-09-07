@@ -8,7 +8,7 @@ import com.bolin.photohelper.capture.FrameObservation
 
 enum class ObservationOrigin { LIVE, CAPTURE_REVIEW }
 enum class RecommendationBasis { MEASURED_DIAGNOSIS, USER_PREFERENCE }
-enum class VisualFamily { COLOR_CAST, FACE_SIZE_AMBIGUOUS, OBJECT_FOCUS }
+enum class VisualFamily { COLOR_CAST, FACE_SIZE_AMBIGUOUS, OBJECT_FOCUS, COMPOSITION }
 
 enum class ControlIntent {
     EXPOSURE_BRIGHTER,
@@ -70,6 +70,7 @@ enum class VisualClarificationReason {
 }
 
 sealed interface VisualHint {
+    data class CompositionPlan(val intent: CompositionIntent) : VisualHint
     data class Intent(val value: VisualIntent) : VisualHint
     data class FocusPoint(
         val xFraction: Float,
@@ -107,6 +108,7 @@ data class CoachingInput(
     val telemetryKnown: Boolean = true,
     val comparisonBaseline: FrameObservation? = null,
     val relativeBaseline: CameraTelemetry? = null,
+    val compositionMembers: List<FaceObservation>? = null,
 )
 
 data class ClarificationChip(val label: String, val replacementComplaint: String)
@@ -124,6 +126,9 @@ sealed interface VerificationTarget {
     data class FaceOccupancy(val min: Float, val max: Float) : VerificationTarget
     data class FacePosition(val xRange: ClosedFloatingPointRange<Float>, val yRange: ClosedFloatingPointRange<Float>) : VerificationTarget
     data class StepBack(val maxFaceWidthFraction: Float) : VerificationTarget
+    data class GroupPosition(val xRange: ClosedFloatingPointRange<Float>, val yRange: ClosedFloatingPointRange<Float>) : VerificationTarget
+    data class GroupOccupancy(val min: Float, val max: Float) : VerificationTarget
+    data class Composition(val plan: CompositionPlan) : VerificationTarget
     data class Level(val maxAbsoluteRollDegrees: Float = 1.5f) : VerificationTarget
     data class ColorBalance(
         val direction: Int,

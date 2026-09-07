@@ -106,6 +106,7 @@ fun PreviewPane(
     modifier: Modifier = Modifier,
     showTopChrome: Boolean = true,
     iconRotation: Float = 0f,
+    onToggleCompositionFace: (Int) -> Unit = {},
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -123,10 +124,15 @@ fun PreviewPane(
 
         val guidance = state.activeGuidance
         if (guidance != null) {
-            GuidanceTarget(guidance, Modifier.fillMaxSize())
+            val observation by liveObservation.collectAsState()
+            GuidanceTarget(guidance, Modifier.fillMaxSize(), observation, isFrontCamera)
         }
 
         ObservationLayers(state, isFrontCamera, onFocusTarget)
+        state.compositionSelection?.let { faces ->
+            val observation by liveObservation.collectAsState()
+            CompositionFaceSelection(faces, state.compositionSelectedIndices, observation, isFrontCamera, onToggleCompositionFace)
+        }
 
         if (showTopChrome) {
             Row(

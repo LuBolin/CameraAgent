@@ -209,6 +209,18 @@ class DefaultCoachEngine(
         family: VisualFamily,
         hint: VisualHint,
     ): LocalDecision = when (hint) {
+        is VisualHint.CompositionPlan -> if (family == VisualFamily.COMPOSITION) {
+            val plan = compileComposition(hint.intent, input.compositionMembers.orEmpty())
+            if (plan.guidanceMode == GuidanceMode.ADVICE_ONLY) {
+                LocalDecision.Advisory("Composition idea", plan.advice, fromVisualHint = true)
+            } else LocalDecision.Recommend(Recommendation(
+                complaintId = input.complaintId, cameraSessionId = input.cameraSessionId,
+                headline = "Frame the selected people", actionText = "Follow the framing instructions.",
+                consequence = "Checks face placement and size only.", primaryLabel = "Guide framing",
+                action = RecommendationAction.GuidePosition("Hold the camera while I check the framing", VerificationTarget.Composition(plan)),
+                basis = RecommendationBasis.USER_PREFERENCE, fromVisualHint = true,
+            ))
+        } else evaluateLocal(input)
         is VisualHint.Clarify -> evaluateLocal(input)
         is VisualHint.FocusPoint -> if (family == VisualFamily.OBJECT_FOCUS) {
             objectFocus(input, hint)
@@ -254,6 +266,13 @@ class DefaultCoachEngine(
 
     override fun verify(target: VerificationTarget, current: com.bolin.photohelper.capture.FrameObservation): VerificationResult =
         when (target) {
+            is VerificationTarget.Composition -> measureGuidance(target.plan.targets, current)?.let {
+                if (it.satisfied) VerificationResult.Satisfied else VerificationResult.Progress
+            } ?: VerificationResult.Incomparable("The selected faces are unavailable")
+            is VerificationTarget.GroupPosition, is VerificationTarget.GroupOccupancy ->
+                measureGuidance(listOf(target), current)?.let {
+                    if (it.satisfied) VerificationResult.Satisfied else VerificationResult.Progress
+                } ?: VerificationResult.Incomparable("The selected group is unavailable")
             is VerificationTarget.Exposure -> {
                 if (target.baselineObservation == null) {
                     VerificationResult.Incomparable("Changed, but I can’t check the result.")

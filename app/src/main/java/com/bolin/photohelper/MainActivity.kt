@@ -251,6 +251,10 @@ private fun MainActivity.PhotoHelperApp(
     }
 
     val activity = this
+    LaunchedEffect(isFrontCamera) {
+        viewModel.setCompositionPreview(isFrontCamera,
+            activity.getSystemService(android.view.accessibility.AccessibilityManager::class.java)?.isTouchExplorationEnabled == true)
+    }
     val actions = remember(viewModel, state, isFrontCamera) {
         object : CaptureScreenActions {
             override fun onFlipCamera() = switchCamera(!isFrontCamera, false)
@@ -298,6 +302,12 @@ private fun MainActivity.PhotoHelperApp(
             }
             override fun onApplyRecommendation() = viewModel.applyRecommendation()
             override fun onStartGuidance() = viewModel.startGuidance()
+            override fun onComposition() = viewModel.requestComposition()
+            override fun onCannotMoveFurther() = viewModel.cannotMoveFurther()
+            override fun onChangeCompositionSelection() = viewModel.changeCompositionSelection()
+            override fun onToggleCompositionFace(index: Int) = viewModel.toggleCompositionFace(index)
+            override fun onSelectAllCompositionFaces() = viewModel.selectAllCompositionFaces()
+            override fun onConfirmCompositionSelection() = viewModel.confirmCompositionSelection()
             override fun onFocusTarget(x: Float, y: Float) = viewModel.focusAt(x, y)
             override fun onDismissDecision() = viewModel.dismissDecision()
             override fun onDismissTransientMessage() = viewModel.dismissTransientMessage()

@@ -195,10 +195,28 @@ class FrameMetricsTest {
 
         gate.setEnabled(false)
         gate.setEnabled(true)
-        gate.publish(staleTicket, staleJpeg)
+        gate.publish(staleTicket, staleJpeg, 1)
 
         assertArrayEquals(byteArrayOf(0, 0, 0), staleJpeg)
         assertNull(gate.copyLatest(gate.ticket()!!))
+    }
+
+    @Test
+    fun observationImagesRejectMismatchedFramesAndKeepCopiesIndependent() {
+        val gate = ObservationImageGate()
+        gate.setEnabled(true)
+        val ticket = gate.ticket()!!
+        val first = byteArrayOf(1, 2, 3)
+        gate.publish(ticket, first, 10)
+        val copy = gate.copyLatest(ticket, 10)!!
+        assertNull(gate.copyLatest(ticket, 11))
+        gate.publish(ticket, byteArrayOf(4, 5, 6), 11)
+        assertArrayEquals(byteArrayOf(0, 0, 0), first)
+        assertArrayEquals(byteArrayOf(1, 2, 3), copy)
+        assertNull(gate.copyLatest(ticket, 10))
+        assertArrayEquals(byteArrayOf(4, 5, 6), gate.copyLatest(ticket, 11))
+        gate.invalidate()
+        assertNull(gate.copyLatest(ticket, 11))
     }
 
     @Test

@@ -301,6 +301,7 @@ private fun CaptureContent(
             onHelpOpen = onHelpOpen,
             modifier = Modifier.fillMaxSize(),
             showTopChrome = chromeVisible,
+            onToggleCompositionFace = actions::onToggleCompositionFace,
             iconRotation = iconRotation,
         )
         if (chromeVisible) {
@@ -345,6 +346,7 @@ private fun CaptureContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            CompositionControls(state, actions)
             DecisionSurface(state, actions)
             if (!isLandscape) {
                 MirrorBar(instruction)

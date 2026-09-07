@@ -172,7 +172,8 @@ interface CaptureHardware : AutoCloseable {
         ApplyResult.Failed("Flash is unavailable on this camera")
     suspend fun reset(): ApplyResult
     suspend fun capture(): CaptureResult
-    suspend fun observationImage(capture: SavedCapture? = null): ByteArray?
+    /** With an observation ID, return only that live frame; null if it has been replaced. */
+    suspend fun observationImage(capture: SavedCapture? = null, expectedObservationId: Long? = null): ByteArray?
     fun setAnalysisPaused(paused: Boolean)
     fun setObservationImageEnabled(enabled: Boolean) = Unit
 }

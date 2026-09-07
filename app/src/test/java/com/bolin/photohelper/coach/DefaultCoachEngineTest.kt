@@ -15,6 +15,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DefaultCoachEngineTest {
+    @Test fun `composition reason is not exposed in recommendation copy`() {
+        val reason = "Secret photographic explanation"
+        val decision = engine.continueWithVisualHint(input("composition", observation()).copy(
+            compositionMembers = listOf(FaceObservation(1, .3f, .2f, .6f, .5f))),
+            VisualFamily.COMPOSITION, VisualHint.CompositionPlan(CompositionIntent(reason = reason)))
+        val recommendation = (decision as LocalDecision.Recommend).recommendation
+        assertFalse(recommendation.actionText.contains(reason))
+        assertFalse(recommendation.headline.contains(reason))
+        assertFalse(recommendation.consequence.contains(reason))
+        assertFalse((recommendation.action as RecommendationAction.GuidePosition).instruction.contains(reason))
+    }
+
     private val engine = DefaultCoachEngine()
     private val capabilities = CameraCapabilities(
         exposureCompensationRange = -6..6,

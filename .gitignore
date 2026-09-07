@@ -3,6 +3,7 @@
 .idea/
 .env
 .env.*
+qwen_key.env
 !.env.example
 build/
 app/build/

@@ -4,6 +4,15 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bolin.photohelper.coach.CoachEngine
+import com.bolin.photohelper.coach.CompositionIntent
+import com.bolin.photohelper.coach.CompositionPlan
+import com.bolin.photohelper.coach.GuidanceGovernor
+import com.bolin.photohelper.coach.GuidanceMetrics
+import com.bolin.photohelper.coach.GuidanceMode
+import com.bolin.photohelper.coach.automaticCompositionMembers
+import com.bolin.photohelper.coach.compileComposition
+import com.bolin.photohelper.coach.matchMembers
+import com.bolin.photohelper.coach.measureGuidance
 import com.bolin.photohelper.coach.CoachingInput
 import com.bolin.photohelper.coach.ControlIntent
 import com.bolin.photohelper.coach.IntentClassification
@@ -22,6 +31,7 @@ import com.bolin.photohelper.coach.observationsComparable
 import com.bolin.photohelper.visual.VisualRequest
 import com.bolin.photohelper.visual.VisualProvider
 import com.bolin.photohelper.visual.VisualResult
+import com.bolin.photohelper.visual.markCompositionMembers
 import com.bolin.photohelper.visual.CommandRequest
 import com.bolin.photohelper.visual.CommandResult
 import com.bolin.photohelper.visual.CameraChangeSnapshot
@@ -56,6 +66,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlin.math.abs
 
 enum class Feedback { TICK, SUCCESS, ERROR }
@@ -126,6 +138,9 @@ class CaptureViewModel(
     private val autoApplyRecommendations: Boolean = true,
     internal val arSession: ArSessionManager? = null,
     private val audioCue: AudioCuePlayer? = null,
+    private val recordGuidance: (GuidanceMetrics) -> Unit = {
+        java.util.logging.Logger.getLogger("CompositionGuidance").info(it.toString())
+    },
 ) : ViewModel() {
     private val initialSettings = preferences.settings(hasApiKey())
     private val _uiState = MutableStateFlow(
@@ -175,14 +190,11 @@ class CaptureViewModel(
     private var focusIndicatorJob: Job? = null
     private var verificationStartObservationId: Long? = null
     private var verificationStartedAtMs: Long? = null
-    private var verificationSatisfiedSamples = 0
     /** The settings change awaiting verification, and how many attempts it has had. */
     private var pendingSettingVerification: SettingChange? = null
     private var settingAttempt = 0
     private var settingAttemptComplaint = ""
 
-    private var verificationIncomparableMessage: String? = null
-    private var guidanceSatisfiedSinceMs: Long? = null
     private var observedSessionId = camera.state.value.sessionId
     private var captureInFlight = false
     private var voiceFinishRequested = false
@@ -205,6 +217,23 @@ class CaptureViewModel(
     private var stableFace: FaceObservation? = null
     private var flashChangeInFlight = false
     private var focusInFlight = false
+    private var compositionWatching: Boolean
+        get() = _uiState.value.compositionEnabled
+        set(value) { _uiState.update { it.copy(compositionEnabled = value) } }
+    private var compositionScene: FrameObservation? = null
+    private var previewMirrored = false
+    private var stationaryComposition = false
+    private var guidanceSceneAnchor: FrameObservation? = null
+
+    private fun logComposition(event: String) {
+        java.util.logging.Logger.getLogger("CompositionGuidance").info("composition event=$event timeMs=${nowMs()}")
+    }
+
+    fun setCompositionPreview(mirrored: Boolean, stationaryOnly: Boolean) {
+        previewMirrored = mirrored
+        stationaryComposition = stationaryOnly
+        _uiState.update { it.copy(previewMirrored = mirrored) }
+    }
 
     init {
         camera.setObservationImageEnabled(initialSettings.visualAiEnabled && initialSettings.keyConfigured)
@@ -236,14 +265,21 @@ class CaptureViewModel(
                 latestLiveObservation = observation
                 if (observation == null) {
                     comparisonSamples.clear()
+                    verifyActiveWork(null)
                 } else {
                     comparisonSamples.addLast(observation)
                     while (comparisonSamples.size > 3) comparisonSamples.removeFirst()
                 }
                 stableFace = stableFaceTracker.update(observation, camera.state.value.sessionId)
+                _uiState.value.compositionSelection?.let { previous ->
+                    val matched = observation?.takeIf { previous.isNotEmpty() }?.let { matchMembers(previous, it.faces) }
+                    _uiState.update { it.copy(compositionSelection = matched ?: observation?.faces.orEmpty(),
+                        compositionSelectedIndices = if (matched == null) emptySet() else it.compositionSelectedIndices) }
+                }
                 if (observation != null) {
                     verifyActiveWork(observation)
                     verifySettingChange(observation)
+                    maybeRefreshComposition(observation)
                 }
             }
         }
@@ -345,6 +381,10 @@ class CaptureViewModel(
     fun submitComment(replacement: String? = null) {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
         val comment = (replacement ?: _uiState.value.comment).trim()
+        if (comment.lowercase() in setOf("help me frame", "help me frame this", "composition", "help with composition", "frame the group", "frame us")) {
+            requestComposition()
+            return
+        }
         if (comment.isBlank()) {
             _uiState.update { it.copy(transientMessage = "Describe the current shot first.") }
             return
@@ -628,6 +668,12 @@ class CaptureViewModel(
         if (_uiState.value.activeGuidance != null || _uiState.value.coachingPhase == CoachingPhase.APPLYING) return
         val recommendation = currentRecommendation() ?: return
         val action = recommendation.action as? RecommendationAction.GuidePosition ?: return
+        (action.target as? VerificationTarget.Composition)?.let { composition ->
+            val observation = latestLiveObservation ?: return
+            val members = matchMembers(composition.plan.members, observation.faces) ?: return
+            beginComposition(compileComposition(composition.plan.intent, members))
+            return
+        }
         cancelJobsOnly()
         val tracksFace = action.target is VerificationTarget.FaceOccupancy ||
             action.target is VerificationTarget.FacePosition ||
@@ -640,8 +686,8 @@ class CaptureViewModel(
         }
         val wasReview = _uiState.value.review != null
         if (wasReview) camera.setAnalysisPaused(false)
-        guidanceSatisfiedSinceMs = null
-        val guidance = ActiveGuidance(action.instruction, action.target, nowMs(), subjectTrackingId, subjectFace)
+        val guidance = ActiveGuidance("Hold while I check the framing", action.target, nowMs(), subjectTrackingId, subjectFace,
+            distanceMovement = action.requiresWalkingWarning)
         _uiState.update {
             it.copy(
                 review = if (wasReview) null else it.review,
@@ -653,23 +699,218 @@ class CaptureViewModel(
                 } else null,
             )
         }
-        if (_uiState.value.settings.spokenGuidance) voice.speak(action.instruction, "guidance")
-        guidanceTimeoutJob = viewModelScope.launch {
-            delay(10_000)
-            if (_uiState.value.activeGuidance === guidance) {
-                voice.stop()
-                _uiState.update {
-                    it.copy(
-                        coachingPhase = CoachingPhase.TRANSIENT_ERROR,
-                        activeGuidance = null,
-                        transientMessage = "I couldn’t confirm progress. Try again or stop.",
-                    )
+        if (_uiState.value.settings.spokenGuidance) voice.speak(guidance.instruction, "guidance")
+        watchGuidance(guidance)
+    }
+
+    fun requestComposition() {
+        if (!_uiState.value.shutterEnabled || isBackgrounded) return
+        cancelCoaching()
+        compositionWatching = true
+        val observation = latestLiveObservation
+        if (observation == null || nowMs() - observation.timestampMs !in 0..LIVE_OBSERVATION_FRESH_MS) {
+            showToast("Hold the camera steady, then try framing again.")
+            return
+        }
+        val members = automaticCompositionMembers(comparisonSamples.toList())
+        logComposition(if (members == null) "selection_prompt" else "automatic_selection_count_${members.size}")
+        if (members == null && observation.faces.isNotEmpty()) {
+            changeCompositionSelection()
+            return
+        }
+        chooseComposition(members.orEmpty())
+    }
+
+    fun changeCompositionSelection() {
+        logComposition("selection_opened")
+        cancelCoaching()
+        compositionWatching = true
+        val observation = latestLiveObservation ?: return
+        if (nowMs() - observation.timestampMs !in 0..LIVE_OBSERVATION_FRESH_MS) return
+        _uiState.update { it.copy(compositionSelection = observation.faces, compositionSelectedIndices = emptySet()) }
+    }
+
+    fun toggleCompositionFace(index: Int) {
+        _uiState.update {
+            if (index !in it.compositionSelection.orEmpty().indices) it else it.copy(
+                compositionSelectedIndices = if (index in it.compositionSelectedIndices)
+                    it.compositionSelectedIndices - index else it.compositionSelectedIndices + index,
+            )
+        }
+    }
+
+    fun selectAllCompositionFaces() {
+        _uiState.update { it.copy(compositionSelectedIndices = it.compositionSelection.orEmpty().indices.toSet()) }
+    }
+
+    fun confirmCompositionSelection() {
+        val state = _uiState.value
+        val chosen = state.compositionSelection?.filterIndexed { index, _ -> index in state.compositionSelectedIndices } ?: return
+        if (chosen.isEmpty()) return
+        val observation = latestLiveObservation ?: return
+        val members = if (nowMs() - observation.timestampMs in 0..LIVE_OBSERVATION_FRESH_MS)
+            matchMembers(chosen, observation.faces) else null
+        if (members == null) {
+            changeCompositionSelection()
+            _uiState.update { it.copy(transientMessage = "The faces moved. Choose them again.") }
+            return
+        }
+        _uiState.update { it.copy(compositionSelection = null, compositionSelectedIndices = emptySet()) }
+        logComposition("manual_selection_count_${members.size}")
+        chooseComposition(members)
+    }
+
+    private fun chooseComposition(members: List<FaceObservation>) {
+        compositionScene = latestLiveObservation?.copy(faces = members)
+        if (!canUseVisualAi()) {
+            logComposition("generic_strategy")
+            beginComposition(compileComposition(CompositionIntent(), members))
+            return
+        }
+        val original = latestLiveObservation ?: return
+        val session = camera.state.value.sessionId
+        val requestId = UUID.randomUUID().toString()
+        activeComplaintId = requestId
+        _uiState.update { it.copy(coachingPhase = CoachingPhase.REQUESTING_VISUAL_INTERPRETATION, decision = null) }
+        visualJob = viewModelScope.launch {
+            var key: CharArray? = null
+            var jpeg: ByteArray? = null
+            try {
+                jpeg = camera.observationImage(expectedObservationId = original.id)
+                key = loadApiKey()
+                val result = withTimeoutOrNull(6_000) {
+                    val selectedSubset = members.isNotEmpty() && members.size < original.faces.size
+                    if (selectedSubset) {
+                        val originalJpeg = jpeg
+                        jpeg = if (originalJpeg == null) null else withContext(Dispatchers.Default) {
+                            try { markCompositionMembers(originalJpeg, members) } finally { originalJpeg.fill(0) }
+                        }
+                    }
+                    val image = jpeg
+                    val credential = key
+                    if (image == null || credential == null) null else interpretVisual(
+                        VisualRequest(VisualFamily.COMPOSITION,
+                            "Suggest a composition for ${members.size} selected people, or scene advice if none. " +
+                                (if (selectedSubset) "Only people outlined in yellow are selected. " else "All detected people are selected. ") +
+                                "Do not suggest selecting other people.", image), credential)
                 }
+                if (activeComplaintId != requestId || session != camera.state.value.sessionId || isBackgrounded) return@launch
+                val current = latestLiveObservation
+                val matched = current?.let { matchMembers(members, it.faces) }
+                if (current == null || matched == null || nowMs() - current.timestampMs !in 0..LIVE_OBSERVATION_FRESH_MS ||
+                    !lensMatches(original.lensId, original.focalLengthMm, current.lensId, current.focalLengthMm) ||
+                    exposureInvariantSceneDifference(original.sceneLumaSignature, current.sceneLumaSignature) > .08f) {
+                    showToast("The scene changed. Tap Help me frame to check it again.")
+                    return@launch
+                }
+                if (result == VisualResult.CredentialsRejected) markSavedKeyRejected()
+                val intent = ((result as? VisualResult.Available)?.hint as? VisualHint.CompositionPlan)?.intent
+                logComposition(if (intent == null) "ai_generic_fallback" else "ai_strategy_${intent.strategy}")
+                visualJob = null
+                val chosen = intent ?: CompositionIntent()
+                val decision = coach.continueWithVisualHint(
+                    coachingInput(requestId, "composition").copy(compositionMembers = matched),
+                    VisualFamily.COMPOSITION, VisualHint.CompositionPlan(chosen),
+                )
+                val target = ((decision as? LocalDecision.Recommend)?.recommendation?.action as? RecommendationAction.GuidePosition)
+                    ?.target as? VerificationTarget.Composition
+                if (target != null) beginComposition(target.plan)
+                else publishLocalDecision(decision)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                logComposition("ai_exception_fallback")
+                if (activeComplaintId == requestId && session == camera.state.value.sessionId && !isBackgrounded) {
+                    val current = latestLiveObservation
+                    val matched = current?.let { matchMembers(members, it.faces) }
+                    visualJob = null
+                    if (matched != null && nowMs() - current.timestampMs in 0..LIVE_OBSERVATION_FRESH_MS &&
+                        lensMatches(original.lensId, original.focalLengthMm, current.lensId, current.focalLengthMm) &&
+                        exposureInvariantSceneDifference(original.sceneLumaSignature, current.sceneLumaSignature) <= .08f)
+                        beginComposition(compileComposition(CompositionIntent(), matched))
+                    else showToast("The scene changed. Tap Help me frame to check it again.")
+                }
+            } finally {
+                key?.fill('\u0000')
+                jpeg?.fill(0)
             }
         }
     }
 
+    private fun beginComposition(plan: CompositionPlan) {
+        guidanceSceneAnchor = latestLiveObservation
+        if (stationaryComposition && plan.guidanceMode == GuidanceMode.CLOSED_LOOP) {
+            publishLocalDecision(LocalDecision.Advisory("Composition idea",
+                "Keep the phone stationary. Adjust zoom or ask someone to help frame the selected people."))
+            return
+        }
+        if (plan.guidanceMode == GuidanceMode.ADVICE_ONLY) {
+            logComposition("advice_only_${plan.intent.strategy}")
+            publishLocalDecision(LocalDecision.Advisory("Composition idea", plan.advice))
+            return
+        }
+        cancelJobsOnly()
+        val started = nowMs()
+        val guidance = ActiveGuidance(
+            "Hold the camera while I check the framing", VerificationTarget.Composition(plan), started,
+            members = plan.members, governor = GuidanceGovernor(started, plan.policy),
+            distanceMovement = plan.distanceMovement,
+        )
+        logComposition("closed_loop_${guidance.governor.sessionId}_members_${plan.members.size}")
+        _uiState.update { it.copy(activeGuidance = guidance, coachingPhase = CoachingPhase.GUIDING,
+            decision = null, transientMessage = null, compositionSelection = null) }
+        watchGuidance(guidance)
+    }
+
+    fun cannotMoveFurther() {
+        val active = _uiState.value.activeGuidance ?: return
+        if (_uiState.value.coachingPhase != CoachingPhase.GUIDING || active.paused || !active.correction.isMovement) return
+        active.governor.suppressMovement()
+        _uiState.update { it.copy(activeGuidance = active.copy(
+            blockedDirections = active.blockedDirections + active.correction,
+            correction = com.bolin.photohelper.coach.Correction.HOLD,
+            instruction = "Hold while I check another adjustment", nearTarget = false)) }
+        verifyActiveWork(latestLiveObservation)
+    }
+
+    private fun watchGuidance(guidance: ActiveGuidance) {
+        guidanceTimeoutJob = viewModelScope.launch {
+            var waited = 0L
+            while (waited < guidance.governor.policy.timeoutMs) {
+                delay(250)
+                waited += 250
+                if (_uiState.value.activeGuidance?.governor !== guidance.governor) return@launch
+                val current = latestLiveObservation
+                if (current == null || nowMs() - current.timestampMs > LIVE_OBSERVATION_FRESH_MS) verifyActiveWork(null)
+            }
+            if (_uiState.value.activeGuidance?.governor === guidance.governor) {
+                finishGuidance("timeout")
+                failWork("I couldn’t confirm the framing. Try again or change the selection.")
+            }
+        }
+    }
+
+    private fun maybeRefreshComposition(observation: FrameObservation) {
+        val state = _uiState.value
+        if (!compositionWatching || state.coachingPhase != CoachingPhase.IDLE || state.review != null ||
+            state.compositionSelection != null || !state.shutterEnabled) return
+        val previous = compositionScene ?: return
+        val samples = comparisonSamples.toList()
+        if (samples.size < 3 || samples.last().timestampMs - samples.first().timestampMs < 500 ||
+            samples.any { it.motionScore > .02f } ||
+            samples.any { exposureInvariantSceneDifference(it.sceneLumaSignature, observation.sceneLumaSignature) > .02f }) return
+        val changed = exposureInvariantSceneDifference(previous.sceneLumaSignature, observation.sceneLumaSignature) > .08f ||
+            (previous.faces.isEmpty() && observation.faces.isNotEmpty()) ||
+            matchMembers(previous.faces, observation.faces) == null
+        if (!changed) return
+        compositionScene = observation
+        val members = automaticCompositionMembers(samples)
+        if (members == null && observation.faces.isNotEmpty()) changeCompositionSelection()
+        else chooseComposition(members.orEmpty())
+    }
+
     fun cancelCoaching(clearDecision: Boolean = true, preserveCommandPlan: Boolean = false) {
+        compositionWatching = false
         if (settingApplyInFlight || resetInFlight) return
         if (!preserveCommandPlan) {
             pendingCommandSteps.clear()
@@ -684,11 +925,8 @@ class CaptureViewModel(
         readyForAutoCapture = false
         activeComplaintId = null
         voice.stop()
-        guidanceSatisfiedSinceMs = null
         verificationStartObservationId = null
         verificationStartedAtMs = null
-        verificationSatisfiedSamples = 0
-        verificationIncomparableMessage = null
         _uiState.update {
             it.copy(
                 coachingPhase = CoachingPhase.IDLE,
@@ -1617,7 +1855,7 @@ class CaptureViewModel(
                 val latest = stableFace ?: return false
                 sameSubject(first, latest)
             }
-            VisualFamily.OBJECT_FOCUS -> lensMatches(
+            VisualFamily.OBJECT_FOCUS, VisualFamily.COMPOSITION -> lensMatches(
                 initial.lensId,
                 initial.focalLengthMm,
                 current.lensId,
@@ -1842,102 +2080,72 @@ class CaptureViewModel(
         resolveVisualFocus(focusText)
     }
 
-    private fun verifyActiveWork(observation: FrameObservation) {
+    private fun verifyActiveWork(observation: FrameObservation?) {
         val active = _uiState.value.activeGuidance ?: return
-        if (_uiState.value.coachingPhase == CoachingPhase.VERIFYING &&
-            (observation.id == verificationStartObservationId ||
-                observation.timestampMs < (verificationStartedAtMs ?: Long.MIN_VALUE) + 500)
-        ) return
-        val tracksFace = active.target is VerificationTarget.FaceOccupancy ||
-            active.target is VerificationTarget.FacePosition ||
-            active.target is VerificationTarget.StepBack
-        if (_uiState.value.coachingPhase == CoachingPhase.GUIDING && tracksFace) {
-            val face = observation.faces.singleOrNull()
-            val sameTrackedSubject = face != null && active.subjectFace != null && sameSubject(active.subjectFace, face)
-            if (!sameTrackedSubject) {
+        if (_uiState.value.coachingPhase == CoachingPhase.GUIDING) {
+            val anchor = guidanceSceneAnchor
+            val sceneJump = active.target is VerificationTarget.Composition && observation != null && anchor != null &&
+                exposureInvariantSceneDifference(anchor.sceneLumaSignature, observation.sceneLumaSignature) > .20f
+            if (sceneJump) {
+                val samples = comparisonSamples.toList()
+                if (samples.size == 3 && samples.last().timestampMs - samples.first().timestampMs >= 500 &&
+                    samples.all { it.motionScore <= .02f &&
+                        exposureInvariantSceneDifference(anchor?.sceneLumaSignature, it.sceneLumaSignature) > .20f &&
+                        exposureInvariantSceneDifference(observation?.sceneLumaSignature, it.sceneLumaSignature) <= .02f }) {
+                    finishGuidance("scene_changed")
+                    cancelJobsOnly()
+                    _uiState.update { it.copy(activeGuidance = null, coachingPhase = CoachingPhase.IDLE) }
+                    return
+                }
+            } else if (observation != null) guidanceSceneAnchor = observation
+            val members = observation?.let { matchMembers(active.members, it.faces) }
+            val fresh = observation != null && nowMs() - observation.timestampMs in 0..LIVE_OBSERVATION_FRESH_MS
+            val selected = if (members != null && fresh && !sceneJump) observation.copy(faces = members) else null
+            val measurement = selected?.let { measureGuidance(listOf(active.target), it, active.blockedDirections, active.distanceMovement) }
+            val result = active.governor.update(measurement, nowMs())
+            if (result.failure != null) {
+                finishGuidance(result.failure)
                 guidanceTimeoutJob?.cancel()
                 guidanceTimeoutJob = null
-                guidanceSatisfiedSinceMs = null
-                failWork(
-                    when {
-                        observation.faces.isEmpty() -> "I lost the person. Point back at them, then start guidance again."
-                        observation.faces.size > 1 -> "I can’t isolate the same person. Frame one person, then start guidance again."
-                        else -> "The tracked person changed. Start guidance again."
-                    },
-                )
+                failWork(if (result.failure == "movement_blocked") "Keep this position. This framing needs movement you've ruled out."
+                    else "I couldn’t confirm this framing. Reframe freely or change the selection.")
                 return
             }
-            face?.let { trackedFace ->
-                _uiState.update { state ->
-                    state.copy(activeGuidance = state.activeGuidance?.copy(subjectFace = trackedFace, subjectTrackingId = trackedFace.trackingId))
-                }
+            if (result.complete) {
+                if (active.target is VerificationTarget.Composition) compositionScene = observation?.copy(faces = members.orEmpty())
+                finishGuidance("completion")
+                completeWork(if (active.target is VerificationTarget.StepBack)
+                    "The face is smaller. Decide whether the proportions look better."
+                    else "Stop. Hold there.", Feedback.SUCCESS)
+                return
             }
-        }
-        when (val result = coach.verify(active.target, observation)) {
-            VerificationResult.Satisfied -> {
-                verificationIncomparableMessage = null
-                if (_uiState.value.coachingPhase == CoachingPhase.GUIDING) {
-                    val stableSince = guidanceSatisfiedSinceMs
-                    if (stableSince == null) guidanceSatisfiedSinceMs = nowMs()
-                    else if (nowMs() - stableSince >= 500) {
-                        completeWork(
-                            if (active.target is VerificationTarget.StepBack) {
-                                "The face is smaller after the step. Reframe and decide whether the proportions look better."
-                            } else {
-                                "That matches your request."
-                            },
-                            Feedback.SUCCESS,
-                        )
-                    }
-                } else {
-                    verificationSatisfiedSamples++
-                    if (verificationSatisfiedSamples >= 3) {
-                        val recommendation = _uiState.value.recommendation
-                        completeWork(successCopy(recommendation), Feedback.SUCCESS)
-                    }
-                }
+            val near = measurement != null && result.correction == measurement.correction &&
+                measurement.error < if (active.nearTarget) 1f else .5f
+            val instruction = when {
+                result.correction == com.bolin.photohelper.coach.Correction.HOLD ->
+                    if (measurement?.satisfied == true) "Stop. Hold there." else "Hold while I check the framing"
+                near -> "A little more. " + result.correction.phoneInstruction(previewMirrored)
+                else -> result.correction.phoneInstruction(previewMirrored)
             }
-            VerificationResult.Progress -> {
-                verificationIncomparableMessage = null
-                guidanceSatisfiedSinceMs = null
-                verificationSatisfiedSamples = 0
-                if (_uiState.value.settings.haptics && _uiState.value.coachingPhase == CoachingPhase.GUIDING) feedback(Feedback.TICK)
+            _uiState.update { state -> state.copy(activeGuidance = active.copy(
+                instruction = instruction, members = members ?: active.members,
+                subjectFace = members?.singleOrNull() ?: active.subjectFace,
+                subjectTrackingId = members?.singleOrNull()?.trackingId ?: active.subjectTrackingId,
+                paused = selected == null, correction = result.correction, nearTarget = near,
+            )) }
+            if (instruction != active.instruction) {
+                if (_uiState.value.settings.spokenGuidance) voice.speak(instruction, "guidance")
+                if (_uiState.value.settings.haptics) feedback(Feedback.TICK)
             }
-            VerificationResult.Unchanged -> {
-                verificationIncomparableMessage = null
-                verificationSatisfiedSamples = 0
-            }
-            is VerificationResult.Incomparable -> {
-                guidanceSatisfiedSinceMs = null
-                verificationSatisfiedSamples = 0
-                verificationIncomparableMessage = result.reason
-                _uiState.update { it.copy(transientMessage = result.reason) }
-            }
+            return
         }
     }
-
-    private fun successCopy(recommendation: Recommendation?): String =
-        when {
-            (recommendation?.action as? RecommendationAction.GuidePosition)?.target is VerificationTarget.StepBack ->
-                "The face is smaller after the step. Reframe and decide whether the proportions look better."
-            (recommendation?.action as? RecommendationAction.ApplySettings)?.target is VerificationTarget.Zoom -> {
-                val target = (recommendation.action as RecommendationAction.ApplySettings).target as VerificationTarget.Zoom
-                val ratio = String.format(java.util.Locale.US, "%.2f", target.targetRatio).trimEnd('0').trimEnd('.')
-                "Zoom changed to $ratio×. Is the framing closer?"
-            }
-            recommendation?.basis == com.bolin.photohelper.coach.RecommendationBasis.USER_PREFERENCE ->
-                "The requested effect is visible. Is this closer?"
-            else -> "The measured problem is now in range."
-        }
 
     private fun completeWork(message: String, feedbackType: Feedback) {
         cancelJobsOnly()
         activeComplaintId = null
-        guidanceSatisfiedSinceMs = null
         verificationStartObservationId = null
         verificationStartedAtMs = null
-        verificationSatisfiedSamples = 0
-        verificationIncomparableMessage = null
         voice.stop()
         audioCue?.play(AudioCue.CHIME)
         readyForAutoCapture = arSession != null
@@ -1954,6 +2162,7 @@ class CaptureViewModel(
     }
 
     private fun failWork(message: String) {
+        finishGuidance("failure")
         pendingCommandSteps.clear()
         approvedPlanAdjustments.clear()
         pendingVisualFocusText = null
@@ -2125,16 +2334,15 @@ class CaptureViewModel(
     }
 
     private fun invalidateCameraSession() {
+        compositionWatching = false
+        compositionScene = null
         val hadCameraWork = _uiState.value.decision != null || _uiState.value.activeGuidance != null || _uiState.value.resetAvailable
         cancelJobsOnly()
         activeComplaintId = null
         recentCameraChanges.clear()
         voice.stop()
-        guidanceSatisfiedSinceMs = null
         verificationStartObservationId = null
         verificationStartedAtMs = null
-        verificationSatisfiedSamples = 0
-        verificationIncomparableMessage = null
         pendingVisualFocusText = null
         pendingSubjectZoom = null
         pendingFocusAfterZoom = null
@@ -2157,7 +2365,13 @@ class CaptureViewModel(
         }
     }
 
+    private fun finishGuidance(outcome: String) {
+        _uiState.value.activeGuidance?.governor?.finish(nowMs(), outcome)?.let(recordGuidance)
+    }
+
     private fun cancelJobsOnly() {
+        finishGuidance("abandonment")
+        _uiState.update { it.copy(compositionSelection = null, compositionSelectedIndices = emptySet()) }
         operationJob?.cancel()
         countdownJob?.cancel()
         visualJob?.cancel()

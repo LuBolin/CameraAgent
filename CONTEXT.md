@@ -37,11 +37,11 @@ The frame, camera, qualified Coaching Subject, origin, and time context that det
 _Avoid_: Metadata, cache key
 
 **Coaching Subject**:
-The only stable detected person in a single-person coaching interaction, tracked only for that interaction without recognizing identity.
-_Avoid_: Selected face, primary face, recognized person
+The selected person or fixed set of people in one composition guidance attempt, tracked only for that attempt without recognizing identity. Legacy complaint-specific face coaching still acquires a single stable person.
+_Avoid_: Recognized person, first detected face
 
 **Subject Lock**:
-The temporary association between a Coaching Subject and continuing frame observations.
+The temporary association between each selected member of a Coaching Subject and continuing frame observations. Detector IDs and unique plausible geometry support continuity; ambiguous or missing members pause guidance without shrinking the group.
 _Avoid_: Face recognition, first face
 
 **Frame Goal**:

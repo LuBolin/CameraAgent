@@ -25,6 +25,12 @@ interface CaptureScreenActions {
     // Coaching & decisions
     fun onApplyRecommendation()
     fun onStartGuidance()
+    fun onComposition() {}
+    fun onCannotMoveFurther() {}
+    fun onChangeCompositionSelection() {}
+    fun onToggleCompositionFace(index: Int) {}
+    fun onSelectAllCompositionFaces() {}
+    fun onConfirmCompositionSelection() {}
     fun onFocusTarget(x: Float, y: Float)
     fun onDismissDecision()
     fun onDismissTransientMessage()

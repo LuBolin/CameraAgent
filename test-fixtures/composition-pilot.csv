@@ -1,0 +1,1 @@
+attempt_id,build_revision,policy_version,photographer_id,scene_id,scene_type,arm,order,capture_window_ms,selection_ms,ai_wait_ms,guidance_ms,total_ms,automatic_selection_correct,selection_corrected,prompt_shown,service_mode,fallback_used,terminal_outcome,missing_capture,rater_id,left_attempt_id,right_attempt_id,preference,notes

@@ -80,6 +80,13 @@ data class ActiveGuidance(
     val startedAtMs: Long,
     val subjectTrackingId: Int? = null,
     val subjectFace: FaceObservation? = null,
+    val members: List<FaceObservation> = listOfNotNull(subjectFace),
+    val governor: com.bolin.photohelper.coach.GuidanceGovernor = com.bolin.photohelper.coach.GuidanceGovernor(startedAtMs),
+    val paused: Boolean = false,
+    val correction: com.bolin.photohelper.coach.Correction = com.bolin.photohelper.coach.Correction.HOLD,
+    val blockedDirections: Set<com.bolin.photohelper.coach.Correction> = emptySet(),
+    val distanceMovement: Boolean = false,
+    val nearTarget: Boolean = false,
 )
 
 data class FocusPoint(val xFraction: Float, val yFraction: Float) {
@@ -102,6 +109,10 @@ data class CaptureUiState(
     val flashMode: FlashMode = FlashMode.OFF,
     val focusIndicator: FocusPoint? = null,
     val activeGuidance: ActiveGuidance? = null,
+    val compositionSelection: List<FaceObservation>? = null,
+    val compositionSelectedIndices: Set<Int> = emptySet(),
+    val previewMirrored: Boolean = false,
+    val compositionEnabled: Boolean = false,
     val resetAvailable: Boolean = false,
     val retakeSettingsActive: Boolean = false,
     val transientMessage: String? = null,

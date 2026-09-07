@@ -1,6 +1,13 @@
 package com.bolin.photohelper.capture
 
 import com.bolin.photohelper.coach.DefaultCoachEngine
+import com.bolin.photohelper.coach.CompositionAdjustment
+import com.bolin.photohelper.coach.CompositionIntent
+import com.bolin.photohelper.coach.CompositionProblem
+import com.bolin.photohelper.coach.HorizontalPlacement
+import com.bolin.photohelper.coach.VerticalPlacement
+import com.bolin.photohelper.coach.CompositionSize
+import com.bolin.photohelper.coach.CompositionMovement
 import com.bolin.photohelper.coach.ControlIntent
 import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.RecommendationAction
@@ -516,6 +523,209 @@ class CaptureViewModelTest {
                 ?.let { it as com.bolin.photohelper.coach.RecommendationAction.ApplySettings }
                 ?.adjustment,
         )
+    }
+
+    @Test
+    fun `composition tracks a group ignores bystanders and resumes the same membership`() = runTest(dispatcher) {
+        var now = 1500L
+        val people = listOf(face(1, .35f), face(2, .65f))
+        val camera = FakeCamera(observation(timestamp = 1000, faces = people))
+        val vm = viewModel(camera, nowMs = { now })
+        vm.setCameraPermission(true)
+        runCurrent()
+        for (time in listOf(1250L, 1500L)) {
+            camera.observation.value = observation(id = time, timestamp = time, faces = people)
+            runCurrent()
+        }
+        vm.requestComposition()
+        val governor = vm.uiState.value.activeGuidance!!.governor
+        assertEquals(2, vm.uiState.value.activeGuidance!!.members.size)
+        now = 1750
+        camera.observation.value = observation(id = now, timestamp = now, faces = people + face(3, .85f))
+        runCurrent()
+        assertEquals(2, vm.uiState.value.activeGuidance!!.members.size)
+        now = 2000
+        camera.observation.value = observation(id = now, timestamp = now, faces = people.take(1))
+        runCurrent()
+        assertTrue(vm.uiState.value.activeGuidance!!.paused)
+        assertEquals(governor, vm.uiState.value.activeGuidance!!.governor)
+        for (time in listOf(2250L, 2500L, 2750L)) {
+            now = time
+            camera.observation.value = observation(id = now, timestamp = now, faces = people)
+            runCurrent()
+        }
+        assertEquals(null, vm.uiState.value.activeGuidance)
+        assertEquals(CoachingPhase.IDLE, vm.uiState.value.coachingPhase)
+    }
+
+    @Test
+    fun `selection returns after all faces disappear and subset ignores the other face`() = runTest(dispatcher) {
+        var now = 1000L
+        val people = listOf(face(1, .2f), face(2, .8f))
+        val camera = FakeCamera(observation(faces = people))
+        val vm = viewModel(camera, nowMs = { now })
+        vm.setCameraPermission(true)
+        runCurrent()
+        vm.changeCompositionSelection()
+        now = 1250
+        camera.observation.value = observation(id = now, timestamp = now)
+        runCurrent()
+        assertTrue(vm.uiState.value.compositionSelection!!.isEmpty())
+        now = 1500
+        camera.observation.value = observation(id = now, timestamp = now, faces = people)
+        runCurrent()
+        assertEquals(2, vm.uiState.value.compositionSelection!!.size)
+        vm.toggleCompositionFace(0)
+        vm.confirmCompositionSelection()
+        assertEquals(listOf(people.first()), vm.uiState.value.activeGuidance!!.members)
+    }
+
+    @Test
+    fun `front preview flips horizontal instructions but not target measurements`() = runTest(dispatcher) {
+        var now = 1500L
+        val person = face(1, .2f, .25f)
+        val camera = FakeCamera(observation(timestamp = 1000, faces = listOf(person)))
+        val vm = viewModel(camera, nowMs = { now })
+        vm.setCameraPermission(true)
+        vm.setCompositionPreview(mirrored = true, stationaryOnly = false)
+        runCurrent()
+        for (time in listOf(1250L, 1500L)) {
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(person))
+            runCurrent()
+        }
+        vm.requestComposition()
+        for (time in listOf(1750L, 2000L, 2250L)) {
+            now = time
+            camera.observation.value = observation(id = now, timestamp = now, faces = listOf(person))
+            runCurrent()
+        }
+        assertEquals("Aim the phone slightly right", vm.uiState.value.activeGuidance!!.instruction)
+    }
+
+    @Test fun `blocking current direction immediately stops it and keeps the vertical axis`() = runTest(dispatcher) {
+        var now = 1500L
+        val person = face(1, .8f, .25f).copy(top = .5f, bottom = .7f)
+        val camera = FakeCamera(observation(timestamp = 1000, faces = listOf(person)))
+        val vm = viewModel(camera, nowMs = { now })
+        vm.setCameraPermission(true)
+        runCurrent()
+        for (time in listOf(1250L, 1500L)) {
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(person)); runCurrent()
+        }
+        vm.requestComposition()
+        assertEquals(null, vm.uiState.value.transientMessage)
+        for (time in listOf(1750L, 2000L, 2250L)) {
+            now = time
+            camera.observation.value = observation(id = now, timestamp = now, faces = listOf(person)); runCurrent()
+        }
+        assertEquals(com.bolin.photohelper.coach.Correction.LEFT, vm.uiState.value.activeGuidance!!.correction)
+        vm.cannotMoveFurther()
+        assertFalse(vm.uiState.value.activeGuidance!!.instruction.contains("right"))
+        for (time in listOf(2500L, 2750L, 3000L)) {
+            now = time
+            camera.observation.value = observation(id = now, timestamp = now, faces = listOf(person)); runCurrent()
+        }
+        val active = vm.uiState.value.activeGuidance!!
+        assertEquals(setOf(com.bolin.photohelper.coach.Correction.LEFT), active.blockedDirections)
+        assertEquals(com.bolin.photohelper.coach.Correction.UP, active.correction)
+        assertEquals("Tilt the phone slightly down", active.instruction)
+    }
+
+    @Test fun `continuous guidance says a little more then stop before completion`() = runTest(dispatcher) {
+        var now = 1500L
+        val person = face(1, .445f, .25f).copy(top = .3f, bottom = .5f)
+        val camera = FakeCamera(observation(timestamp = 1000, faces = listOf(person)))
+        val vm = viewModel(camera, nowMs = { now })
+        vm.setCameraPermission(true); runCurrent()
+        for (time in listOf(1250L, 1500L)) {
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(person)); runCurrent()
+        }
+        vm.requestComposition()
+        for (time in listOf(1750L, 2000L, 2250L)) {
+            now = time
+            camera.observation.value = observation(id = now, timestamp = now, faces = listOf(person)); runCurrent()
+        }
+        assertTrue(vm.uiState.value.activeGuidance!!.instruction.startsWith("A little more."))
+        val centred = face(1, .5f, .25f).copy(top = .3f, bottom = .5f)
+        now = 2500
+        camera.observation.value = observation(id = now, timestamp = now, faces = listOf(centred)); runCurrent()
+        assertEquals("Stop. Hold there.", vm.uiState.value.activeGuidance!!.instruction)
+        for (time in listOf(2750L, 3000L)) {
+            now = time
+            camera.observation.value = observation(id = now, timestamp = now, faces = listOf(centred)); runCurrent()
+        }
+        assertEquals(null, vm.uiState.value.activeGuidance)
+        assertEquals("Stop. Hold there.", vm.uiState.value.transientMessage)
+    }
+
+    @Test
+    fun `composition AI advice has no tracking and canceled responses cannot restart guidance`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        val pending = CompletableDeferred<VisualResult>()
+        var calls = 0
+        val vm = viewModel(camera, visualEnabled = true,
+            visualRequest = { assertEquals(VisualFamily.COMPOSITION, it.family); calls++ },
+            visualResult = { pending.await() })
+        vm.setCameraPermission(true)
+        runCurrent()
+        vm.requestComposition()
+        runCurrent()
+        assertEquals(1, calls)
+        vm.cancelCoaching()
+        pending.complete(VisualResult.Available(VisualHint.CompositionPlan(
+            com.bolin.photohelper.coach.CompositionIntent(strategy = com.bolin.photohelper.coach.CompositionStrategy.SYMMETRY))))
+        runCurrent()
+        assertEquals(null, vm.uiState.value.activeGuidance)
+        assertEquals(null, vm.uiState.value.decision)
+        vm.requestComposition()
+        runCurrent()
+        assertTrue(vm.uiState.value.decision is LocalDecision.Advisory)
+        assertEquals(null, vm.uiState.value.activeGuidance)
+    }
+
+    @Test
+    fun `composition walking choice reaches active guidance`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(timestamp = 1000, faces = listOf(face(1, .3f, .2f))))
+        val intent = CompositionIntent(adjustment = CompositionAdjustment(CompositionProblem.SUBJECT_SIZE,
+            HorizontalPlacement.KEEP, VerticalPlacement.KEEP, CompositionSize.SMALLER, CompositionMovement.WALK))
+        val vm = viewModel(camera, visualEnabled = true, nowMs = { 1500L },
+            visualResult = { VisualResult.Available(VisualHint.CompositionPlan(intent)) })
+        vm.setCameraPermission(true)
+        runCurrent()
+        for (time in listOf(1250L, 1500L)) {
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(face(1, .3f, .2f)))
+            runCurrent()
+        }
+        vm.requestComposition()
+        runCurrent()
+        assertTrue(vm.uiState.value.activeGuidance!!.distanceMovement)
+        vm.cancelCoaching()
+    }
+
+    @Test
+    fun `guidance timeout survives repeated tracked member copies`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation(timestamp = 1000, faces = listOf(face(1, .12f, .2f))))
+        val vm = viewModel(camera, nowMs = { 1500L + testScheduler.currentTime })
+        vm.setCameraPermission(true)
+        runCurrent()
+        for (time in listOf(1250L, 1500L)) {
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(face(1, .12f, .2f)))
+            runCurrent()
+        }
+        vm.requestComposition()
+        val initial = vm.uiState.value.activeGuidance!!
+        repeat(119) { index ->
+            advanceTimeBy(250)
+            val time = 1500 + testScheduler.currentTime
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(face(1, .12f + index * .0015f, .2f)))
+            runCurrent()
+        }
+        assertTrue(initial !== vm.uiState.value.activeGuidance)
+        assertEquals(initial.governor, vm.uiState.value.activeGuidance!!.governor)
+        advanceTimeBy(250)
+        runCurrent()
+        assertEquals(null, vm.uiState.value.activeGuidance)
+        assertEquals(CoachingPhase.TRANSIENT_ERROR, vm.uiState.value.coachingPhase)
     }
 
     @Test
@@ -1374,9 +1584,10 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `guidance stops instead of switching to another face`() = runTest(dispatcher) {
+    fun `guidance pauses then stops instead of switching to another face`() = runTest(dispatcher) {
+        var now = 1_500L
         val camera = FakeCamera(observation(timestamp = 1_000, faces = listOf(face(trackingId = 7, centerX = .2f))))
-        val viewModel = viewModel(camera)
+        val viewModel = viewModel(camera, nowMs = { now })
         runCurrent()
         camera.observation.value = observation(id = 2, timestamp = 1_250, faces = listOf(face(trackingId = 7, centerX = .2f)))
         runCurrent()
@@ -1389,12 +1600,19 @@ class CaptureViewModelTest {
         viewModel.startGuidance()
         assertEquals(7, viewModel.uiState.value.activeGuidance?.subjectTrackingId)
 
-        camera.observation.value = observation(id = 2, faces = listOf(face(trackingId = 8, centerX = .5f)))
+        now = 1_750L
+        camera.observation.value = observation(id = 4, timestamp = now, faces = listOf(face(trackingId = 8, centerX = .5f)))
+        runCurrent()
+
+        assertTrue(viewModel.uiState.value.activeGuidance!!.paused)
+        assertEquals(7, viewModel.uiState.value.activeGuidance?.subjectTrackingId)
+        now = 4_000L
+        camera.observation.value = observation(id = 5, timestamp = now, faces = listOf(face(trackingId = 8, centerX = .5f)))
         runCurrent()
 
         assertEquals(CoachingPhase.TRANSIENT_ERROR, viewModel.uiState.value.coachingPhase)
         assertEquals(null, viewModel.uiState.value.activeGuidance)
-        assertTrue(viewModel.uiState.value.transientMessage.orEmpty().contains("tracked person changed"))
+        assertTrue(viewModel.uiState.value.transientMessage.orEmpty().contains("change the selection"))
     }
 
     @Test
@@ -1497,7 +1715,7 @@ class CaptureViewModelTest {
         runCurrent()
 
         assertEquals(CoachingPhase.IDLE, viewModel.uiState.value.coachingPhase)
-        assertEquals("That matches your request.", viewModel.uiState.value.transientMessage)
+        assertEquals("Stop. Hold there.", viewModel.uiState.value.transientMessage)
     }
 
     @Test
@@ -2710,7 +2928,9 @@ class CaptureViewModelTest {
             )
         }
 
-        override suspend fun observationImage(capture: SavedCapture?): ByteArray = byteArrayOf(1, 2, 3)
+        override suspend fun observationImage(capture: SavedCapture?, expectedObservationId: Long?): ByteArray? =
+            if (expectedObservationId != null && expectedObservationId != observation.value?.id) null
+            else byteArrayOf(1, 2, 3)
         override fun setAnalysisPaused(paused: Boolean) = Unit
         override fun setObservationImageEnabled(enabled: Boolean) {
             observationImagesEnabled = enabled

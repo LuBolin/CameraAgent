@@ -706,9 +706,10 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         }
     }
 
-    override suspend fun observationImage(capture: SavedCapture?): ByteArray? {
+    override suspend fun observationImage(capture: SavedCapture?, expectedObservationId: Long?): ByteArray? {
         val ticket = observationImages.ticket() ?: return null
-        if (capture == null) return observationImages.copyLatest(ticket)
+        if (capture == null) return observationImages.copyLatest(ticket, expectedObservationId)
+        if (expectedObservationId != null) return null
         return withContext(Dispatchers.IO) {
             try {
                 val bitmap = decodeBitmap(Uri.parse(capture.uri), OBSERVATION_LONG_EDGE)
@@ -885,14 +886,15 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             jpeg?.fill(0)
             return
         }
-        observationImages.publish(observationImageTicket, jpeg)
+        val observationId = observationIds.incrementAndGet()
+        observationImages.publish(observationImageTicket, jpeg, observationId)
         val motionScore = FrameMetrics.motionScore(
             previousLumaSignature.getAndSet(metrics.lumaSignature),
             metrics.lumaSignature,
         )
         val telemetry = _telemetry.value
         _observation.value = FrameObservation(
-            id = observationIds.incrementAndGet(),
+            id = observationId,
             timestampMs = timestampMs,
             meanLuma = metrics.mean,
             highlightClipFraction = metrics.highlightFraction,
@@ -910,7 +912,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         )
     }
 
-    private suspend fun createReviewObservation(
+    internal suspend fun createReviewObservation(
         uri: Uri,
         rollDegrees: Float?,
         captureTelemetry: CameraTelemetry?,
@@ -1300,7 +1302,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         )
     }
 
-    private fun encodeObservationJpeg(source: Bitmap): ByteArray? {
+    internal fun encodeObservationJpeg(source: Bitmap): ByteArray? {
         var bitmap = scaleBitmap(source, OBSERVATION_LONG_EDGE)
         var ownsBitmap = bitmap !== source
         var quality = 70
@@ -1395,6 +1397,7 @@ internal class ObservationImageGate {
     private var enabled = false
     private var generation = 0L
     private var latest: ByteArray? = null
+    private var latestObservationId: Long? = null
 
     @Synchronized
     fun setEnabled(enabled: Boolean) {
@@ -1409,18 +1412,20 @@ internal class ObservationImageGate {
     fun ticket(): Long? = generation.takeIf { enabled }
 
     @Synchronized
-    fun publish(ticket: Long?, jpeg: ByteArray?) {
+    fun publish(ticket: Long?, jpeg: ByteArray?, observationId: Long) {
         if (ticket != null && ticket == generation && enabled) {
             clearLatest()
             latest = jpeg
+            latestObservationId = observationId
         } else {
             jpeg?.fill(0)
         }
     }
 
     @Synchronized
-    fun copyLatest(ticket: Long): ByteArray? =
-        latest?.takeIf { enabled && ticket == generation }?.copyOf()
+    fun copyLatest(ticket: Long, expectedObservationId: Long? = null): ByteArray? =
+        latest?.takeIf { enabled && ticket == generation &&
+            (expectedObservationId == null || expectedObservationId == latestObservationId) }?.copyOf()
 
     @Synchronized
     fun completePrivate(ticket: Long, jpeg: ByteArray): ByteArray? {
@@ -1438,6 +1443,7 @@ internal class ObservationImageGate {
     private fun clearLatest() {
         latest?.fill(0)
         latest = null
+        latestObservationId = null
     }
 }
 
