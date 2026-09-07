@@ -11,6 +11,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -28,7 +32,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import com.bolin.photohelper.ui.MotionTokens
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.BlurredEdgeTreatment
@@ -116,7 +121,7 @@ fun HelperOrb(
     // asked for no motion, in which case colours snap.
     val ringColor by animateColorAsState(
         targetValue = targetRing,
-        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 600),
+        animationSpec = tween(durationMillis = if (reducedMotion) 0 else MotionTokens.SLOW),
         label = "orb_ring",
     )
 
@@ -168,18 +173,27 @@ fun HelperOrb(
         OrbState.ERROR -> "That did not work. Tap to try again."
     }
 
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.92f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "orb_press",
+    )
+
     var focused by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
             .size(size + GLOW_MARGIN * 2)
-            // The Orb is the primary action, so it has to be reachable the same way
-            // every other control is. A bare pointerInput left it focusable=false in
-            // the hierarchy: unreachable by D-pad, keyboard and switch access.
-            // combinedClickable keeps that keyboard support while preserving the
-            // idle long-press shortcut promised by the guide.
+            .graphicsLayer {
+                scaleX = pressScale
+                scaleY = pressScale
+            }
             .onFocusChanged { focused = it.isFocused }
             .combinedClickable(
                 enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
                 onClickLabel = "Take photo",
                 onLongClickLabel = "Auto-enhance",
                 onLongClick = if (state == OrbState.IDLE) onLongPress else null,
@@ -205,7 +219,7 @@ fun HelperOrb(
                 modifier = Modifier
                     .size(size)
                     .blur(GLOW_BLUR, BlurredEdgeTreatment.Unbounded)
-                    .alpha(glowAlpha)
+                    .graphicsLayer { alpha = glowAlpha }
                     .background(ringColor, CircleShape),
             )
         }
@@ -215,7 +229,7 @@ fun HelperOrb(
                 modifier = Modifier
                     .size(size)
                     .blur(GLOW_BLUR * 1.5f, BlurredEdgeTreatment.Unbounded)
-                    .alpha(animatedFlash)
+                    .graphicsLayer { alpha = animatedFlash }
                     .background(Sage, CircleShape),
             )
         }

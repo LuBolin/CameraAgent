@@ -1,11 +1,14 @@
 package com.bolin.photohelper.capture
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -68,17 +71,28 @@ fun MirrorBar(text: String?, modifier: Modifier = Modifier) {
                     traversalIndex = 3f
                 },
         ) {
-            Text(
-                text = shown,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                color = overlays.onOverlay,
-                style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center,
-                // Without an explicit overflow this defaults to Clip, which cut the
-                // longer messages off mid-word with no ellipsis to show it happened.
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            AnimatedContent(
+                targetState = shown,
+                transitionSpec = {
+                    if (reducedMotion) {
+                        fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                    } else {
+                        (fadeIn(tween(200)) + slideInVertically(tween(200)) { -it / 2 }) togetherWith
+                            (fadeOut(tween(150)) + slideOutVertically(tween(150)) { it / 2 })
+                    }
+                },
+                label = "mirror_text",
+            ) { displayText ->
+                Text(
+                    text = displayText,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    color = overlays.onOverlay,
+                    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+                    textAlign = TextAlign.Center,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

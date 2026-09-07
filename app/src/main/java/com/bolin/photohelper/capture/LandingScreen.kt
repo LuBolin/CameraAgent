@@ -25,8 +25,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -39,16 +46,16 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bolin.photohelper.R
 import com.bolin.photohelper.ui.Charcoal
 import com.bolin.photohelper.ui.LocalOverlayColors
+import com.bolin.photohelper.ui.LocalReducedMotion
 import com.bolin.photohelper.ui.Mango
+import com.bolin.photohelper.ui.MotionTokens
 import com.bolin.photohelper.ui.SoftCream
 
 private const val USE_FIXED_BACKGROUND = true
@@ -60,6 +67,22 @@ fun LandingScreen(
     onGuideOpen: () -> Unit,
 ) {
     val overlays = LocalOverlayColors.current
+    val reducedMotion = LocalReducedMotion.current
+
+    val stageCount = 4
+    val stages = remember {
+        List(stageCount) { Animatable(0f) }
+    }
+    LaunchedEffect(reducedMotion) {
+        if (reducedMotion) {
+            stages.forEach { it.snapTo(1f) }
+            return@LaunchedEffect
+        }
+        stages.forEachIndexed { i, anim ->
+            kotlinx.coroutines.delay(i * MotionTokens.FAST.toLong())
+            anim.animateTo(1f, tween(durationMillis = MotionTokens.ENTRANCE))
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -101,21 +124,20 @@ fun LandingScreen(
                 .padding(32.dp)
                 .safeDrawingPadding(),
         ) {
-            // Logo text with sparkle accents
             Text(
-                text = buildAnnotatedString {
-                    append("Photo\nHelper")
-                    withStyle(SpanStyle(color = Mango, fontSize = 20.sp)) {
-                        append("✧")
-                    }
-                },
+                text = "Photo\nHelper",
                 style = MaterialTheme.typography.displayLarge.copy(
                     fontSize = 52.sp,
                     lineHeight = 56.sp,
                 ),
                 color = SoftCream,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.semantics { heading() },
+                modifier = Modifier
+                    .graphicsLayer {
+                        alpha = stages[0].value
+                        translationY = (1f - stages[0].value) * 24f
+                    }
+                    .semantics { heading() },
             )
             Spacer(Modifier.size(16.dp))
             Text(
@@ -123,6 +145,10 @@ fun LandingScreen(
                 style = MaterialTheme.typography.bodyLarge,
                 color = SoftCream.copy(alpha = 0.85f),
                 textAlign = TextAlign.Center,
+                modifier = Modifier.graphicsLayer {
+                    alpha = stages[1].value
+                    translationY = (1f - stages[1].value) * 24f
+                },
             )
             Spacer(Modifier.size(48.dp))
 
@@ -134,6 +160,12 @@ fun LandingScreen(
                 color = Color.Transparent,
                 modifier = Modifier
                     .size(orbSize)
+                    .graphicsLayer {
+                        val v = stages[2].value
+                        alpha = v
+                        scaleX = 0.8f + 0.2f * v
+                        scaleY = 0.8f + 0.2f * v
+                    }
                     .drawBehind {
                         val center = this.center
                         val outerRadius = size.minDimension / 2f
@@ -166,13 +198,20 @@ fun LandingScreen(
                 "Tap to start",
                 style = MaterialTheme.typography.bodyMedium,
                 color = SoftCream.copy(alpha = 0.7f),
+                modifier = Modifier.graphicsLayer {
+                    alpha = stages[2].value
+                },
             )
-            Spacer(Modifier.size(28.dp))
+            Spacer(Modifier.size(32.dp))
             OutlinedButton(
                 onClick = onGuideOpen,
                 modifier = Modifier
                     .fillMaxWidth(0.7f)
-                    .heightIn(min = 56.dp),
+                    .heightIn(min = 56.dp)
+                    .graphicsLayer {
+                        alpha = stages[3].value
+                        translationY = (1f - stages[3].value) * 16f
+                    },
                 shape = RoundedCornerShape(50),
                 border = androidx.compose.foundation.BorderStroke(1.dp, SoftCream.copy(alpha = 0.4f)),
             ) {

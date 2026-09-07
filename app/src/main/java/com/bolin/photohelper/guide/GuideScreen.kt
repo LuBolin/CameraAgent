@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,19 +45,33 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bolin.photohelper.ui.LocalReducedMotion
+import com.bolin.photohelper.ui.MotionTokens
 
 sealed interface GuideNav {
     data object ModuleList : GuideNav
@@ -107,6 +122,8 @@ fun GuideScreen(
         }
     }
 
+    val reducedMotion = LocalReducedMotion.current
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -114,13 +131,17 @@ fun GuideScreen(
         AnimatedContent(
             targetState = nav,
             transitionSpec = {
-                val forward = targetState.depth() >= initialState.depth()
-                if (forward) {
-                    (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
-                        (slideOutHorizontally { -it / 3 } + fadeOut())
+                if (reducedMotion) {
+                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
                 } else {
-                    (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
-                        (slideOutHorizontally { it / 3 } + fadeOut())
+                    val forward = targetState.depth() >= initialState.depth()
+                    if (forward) {
+                        (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
+                            (slideOutHorizontally { -it / 3 } + fadeOut())
+                    } else {
+                        (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
+                            (slideOutHorizontally { it / 3 } + fadeOut())
+                    }
                 }
             },
             label = "guide_nav",
@@ -206,7 +227,7 @@ private fun ModuleListPane(
 
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (overallDone == 0) {
                 item {
@@ -224,14 +245,28 @@ private fun ModuleListPane(
                     Spacer(Modifier.height(8.dp))
                 }
             }
-            items(GUIDE_MODULES) { module ->
+            itemsIndexed(GUIDE_MODULES) { index, module ->
                 val done = moduleDone(module)
-                ModuleRow(
-                    module = module,
-                    done = done,
-                    isModuleComplete = done == module.lessons.size && !module.comingSoon,
-                    onClick = { onModuleTap(module) },
-                )
+                val reducedMotion = LocalReducedMotion.current
+                val itemAlpha = remember { Animatable(0f) }
+                LaunchedEffect(Unit) {
+                    if (reducedMotion) { itemAlpha.snapTo(1f); return@LaunchedEffect }
+                    kotlinx.coroutines.delay(index * MotionTokens.STAGGER.toLong())
+                    itemAlpha.animateTo(1f, tween(durationMillis = MotionTokens.MEDIUM))
+                }
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        alpha = itemAlpha.value
+                        translationY = (1f - itemAlpha.value) * 20f
+                    },
+                ) {
+                    ModuleRow(
+                        module = module,
+                        done = done,
+                        isModuleComplete = done == module.lessons.size && !module.comingSoon,
+                        onClick = { onModuleTap(module) },
+                    )
+                }
             }
             item { Spacer(Modifier.height(16.dp)) }
         }
@@ -244,6 +279,7 @@ private fun OverallProgressCard(done: Int, total: Int) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(12.dp),
+        tonalElevation = 2.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -278,10 +314,31 @@ private fun OverallProgressCard(done: Int, total: Int) {
 
 @Composable
 private fun QuickStartCard(onAction: (QuickStartAction) -> Unit) {
+    val reducedMotion = LocalReducedMotion.current
+    val pulseAlpha = if (reducedMotion) {
+        0.5f
+    } else {
+        val pulseTransition = rememberInfiniteTransition(label = "quick_start_pulse")
+        pulseTransition.animateFloat(
+            initialValue = 0.3f,
+            targetValue = 0.7f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1500, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "quick_start_border",
+        ).value
+    }
     Surface(
         color = MaterialTheme.colorScheme.primaryContainer,
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.5.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha),
+                shape = RoundedCornerShape(12.dp),
+            ),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -303,7 +360,7 @@ private fun QuickStartCard(onAction: (QuickStartAction) -> Unit) {
                         .fillMaxWidth()
                         .heightIn(min = 56.dp)
                         .padding(vertical = 3.dp)
-                        .clickable { onAction(action) },
+                        .clickable(role = Role.Button) { onAction(action) },
                     color = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(10.dp),
                 ) {
@@ -347,11 +404,13 @@ private fun ModuleRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = !module.comingSoon, onClick = onClick),
-        color = MaterialTheme.colorScheme.background,
+            .clickable(enabled = !module.comingSoon, role = Role.Button, onClick = onClick),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 1.dp,
     ) {
         Row(
-            modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
+            modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -392,7 +451,7 @@ private fun ModuleRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
                 )
                 if (!module.comingSoon) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(8.dp))
                     LinearProgressIndicator(
                         progress = { if (module.lessons.isEmpty()) 0f else done.toFloat() / module.lessons.size },
                         modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
@@ -436,7 +495,7 @@ private fun LessonListPane(
 
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             itemsIndexed(module.lessons) { index, lesson ->
                 val done = isComplete(lesson.id)
@@ -465,11 +524,13 @@ private fun LessonRow(
     onClick: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.background,
+        modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 1.dp,
     ) {
         Row(
-            modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
+            modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -560,7 +621,7 @@ private fun LessonDetailPane(
                     style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier.semantics { heading() },
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     lesson.description,
                     style = MaterialTheme.typography.bodyMedium,
@@ -596,10 +657,24 @@ private fun LessonDetailPane(
                         Text("Mark as done")
                     }
                 } else {
+                    val reducedMotion = LocalReducedMotion.current
+                    val doneScale = remember { Animatable(0.6f) }
+                    LaunchedEffect(Unit) {
+                        if (reducedMotion) { doneScale.snapTo(1f); return@LaunchedEffect }
+                        doneScale.animateTo(
+                            1f,
+                            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+                        )
+                    }
                     Surface(
                         color = MaterialTheme.colorScheme.tertiaryContainer,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                scaleX = doneScale.value
+                                scaleY = doneScale.value
+                            },
                     ) {
                         Row(
                             modifier = Modifier.padding(14.dp),
@@ -632,7 +707,7 @@ private fun TipCard(tip: Tip) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(12.dp),
-        tonalElevation = if (tip.isAppAssist) 2.dp else 0.dp,
+        tonalElevation = if (tip.isAppAssist) 3.dp else 1.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -714,6 +789,7 @@ private fun ModuleCompletePane(
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(12.dp),
+                tonalElevation = 2.dp,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
@@ -798,10 +874,17 @@ private fun GuideTopBar(title: String, onBack: () -> Unit) {
 
 @Composable
 private fun ProgressRing(fraction: Float, size: Int) {
+    val reducedMotion = LocalReducedMotion.current
+    val animatedFraction = remember { Animatable(0f) }
+    LaunchedEffect(fraction) {
+        if (reducedMotion) { animatedFraction.snapTo(fraction); return@LaunchedEffect }
+        animatedFraction.animateTo(fraction, tween(durationMillis = MotionTokens.FILL))
+    }
+    val displayFraction = animatedFraction.value
     val color = if (fraction >= 1f) MaterialTheme.colorScheme.tertiary
                 else MaterialTheme.colorScheme.primary
     val trackColor = MaterialTheme.colorScheme.outlineVariant
-    val pct = (fraction * 100).toInt()
+    val pct = (displayFraction * 100).toInt()
 
     Box(
         contentAlignment = Alignment.Center,
@@ -826,7 +909,7 @@ private fun ProgressRing(fraction: Float, size: Int) {
             drawArc(
                 color = color,
                 startAngle = -90f,
-                sweepAngle = 360f * fraction,
+                sweepAngle = 360f * displayFraction,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,

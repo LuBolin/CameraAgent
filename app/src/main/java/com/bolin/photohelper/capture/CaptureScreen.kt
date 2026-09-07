@@ -40,7 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import com.bolin.photohelper.ui.MotionTokens
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
@@ -117,6 +117,7 @@ fun CaptureScreen(
             .testTag(CaptureTestTags.ROOT),
         color = MaterialTheme.colorScheme.background,
     ) {
+        val reducedMotion = com.bolin.photohelper.ui.LocalReducedMotion.current
         AnimatedContent(
             targetState = when {
                 state.onboardingStep == 0 -> Screen.LANDING
@@ -124,7 +125,10 @@ fun CaptureScreen(
                 state.cameraPhase == CameraPhase.BLOCKED -> Screen.BLOCKED
                 else -> Screen.CAMERA
             },
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            transitionSpec = {
+                fadeIn(tween(if (reducedMotion) 0 else MotionTokens.MEDIUM)) togetherWith
+                    fadeOut(tween(if (reducedMotion) 0 else MotionTokens.MEDIUM))
+            },
             label = "capture_state",
         ) { screen ->
             when (screen) {
@@ -455,13 +459,13 @@ private fun ShutterFlash(visible: Boolean) {
     LaunchedEffect(visible) {
         if (!visible || reducedMotion) return@LaunchedEffect
         flashAlpha.snapTo(0.85f)
-        flashAlpha.animateTo(0f, tween(durationMillis = 200))
+        flashAlpha.animateTo(0f, tween(durationMillis = MotionTokens.FAST))
     }
     if (flashAlpha.value > 0f) {
         Box(
             Modifier
                 .fillMaxSize()
-                .alpha(flashAlpha.value)
+                .graphicsLayer { alpha = flashAlpha.value }
                 .background(Color.White),
         )
     }
@@ -506,9 +510,10 @@ private fun rememberDeviceOrientation(): DeviceOrientation {
     val context = LocalContext.current
     var targetRotation by remember { mutableStateOf(0f) }
     var devicePosture by remember { mutableIntStateOf(0) }
+    val reducedMotion = com.bolin.photohelper.ui.LocalReducedMotion.current
     val animatedRotation by androidx.compose.animation.core.animateFloatAsState(
         targetValue = targetRotation,
-        animationSpec = androidx.compose.animation.core.tween(300),
+        animationSpec = androidx.compose.animation.core.tween(if (reducedMotion) 0 else MotionTokens.MEDIUM),
         label = "iconRotation",
     )
 
