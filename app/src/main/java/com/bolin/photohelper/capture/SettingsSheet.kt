@@ -14,10 +14,20 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.RecordVoiceOver
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -27,12 +37,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,8 +64,13 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.bolin.photohelper.ui.ThemeMode
+import com.bolin.photohelper.ui.LocalReducedMotion
+import com.bolin.photohelper.ui.MotionTokens
+import com.bolin.photohelper.visual.VisualProvider
 import com.bolin.photohelper.visual.MAX_API_KEY_CHARACTERS
 
 /**
@@ -97,55 +116,41 @@ fun SettingsSheet(
                 modifier = Modifier.semantics { heading() },
             )
 
-            SettingsGroup("Sound & Vibration")
-            ToggleRow("Read instructions aloud", state.settings.spokenGuidance, onSpokenGuidanceChanged)
-            ToggleRow("Vibration feedback", state.settings.haptics, onHapticsChanged)
-            if (state.microphonePermission == PermissionState.DENIED) {
-                Text("Microphone access is off.", style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = onEnableMicrophone, modifier = Modifier.heightIn(min = 56.dp)) {
-                    Text("Enable microphone")
-                }
-            }
-
-            SettingsGroup("Smart Features")
-            ToggleRow("Auto-capture when steady", state.settings.autoCaptureEnabled, onAutoCaptureEnabledChanged)
-            TextButton(
-                onClick = { activityExpanded = !activityExpanded },
-                modifier = Modifier.heightIn(min = 56.dp),
-            ) {
-                Text("Activity log (${state.agentLog.size})")
-                Spacer(Modifier.size(4.dp))
-                Icon(
-                    imageVector = if (activityExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            if (activityExpanded) {
-                Text(
-                    "This session only",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                state.agentLog.takeLast(12).asReversed().forEach { entry ->
+            SettingsGroup("Sound & Vibration", Icons.AutoMirrored.Rounded.VolumeUp)
+            SettingsCard {
+                ToggleRow("Read instructions aloud", state.settings.spokenGuidance, onSpokenGuidanceChanged, icon = Icons.Rounded.RecordVoiceOver)
+                ToggleRow("Vibration feedback", state.settings.haptics, onHapticsChanged, icon = Icons.Rounded.Vibration)
+                if (state.microphonePermission == PermissionState.DENIED) {
                     Text(
-                        "${entry.kind.name.lowercase().replaceFirstChar(Char::uppercase)} · ${entry.message}",
-                        style = MaterialTheme.typography.bodySmall,
+                        "Microphone access is off.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                     )
+                    TextButton(onClick = onEnableMicrophone, modifier = Modifier.heightIn(min = 56.dp)) {
+                        Text("Enable microphone")
+                    }
                 }
             }
 
-            SettingsGroup("Appearance")
-            ToggleRow(
-                "Dark mode",
-                state.settings.themeMode == ThemeMode.DARK,
-                onCheckedChange = { dark ->
-                    onThemeModeChanged(if (dark) ThemeMode.DARK else ThemeMode.LIGHT)
-                },
-            )
+            SettingsGroup("Smart Features", Icons.Rounded.CenterFocusStrong)
+            SettingsCard {
+                ToggleRow("Auto-capture when steady", state.settings.autoCaptureEnabled, onAutoCaptureEnabledChanged, icon = Icons.Rounded.CenterFocusStrong)
+            }
 
-            Spacer(Modifier.size(16.dp))
-            HorizontalDivider()
+            SettingsGroup("Appearance", Icons.Rounded.Palette)
+            SettingsCard {
+                ToggleRow(
+                    "Dark mode",
+                    state.settings.themeMode == ThemeMode.DARK,
+                    onCheckedChange = { dark ->
+                        onThemeModeChanged(if (dark) ThemeMode.DARK else ThemeMode.LIGHT)
+                    },
+                    icon = Icons.Rounded.DarkMode,
+                )
+            }
+
+            Spacer(Modifier.size(12.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.size(4.dp))
             TextButton(
                 onClick = { advancedExpanded = !advancedExpanded },
@@ -153,6 +158,8 @@ fun SettingsSheet(
                     .heightIn(min = 56.dp)
                     .semantics { stateDescription = if (advancedExpanded) "Expanded" else "Collapsed" },
             ) {
+                Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(6.dp))
                 Text("Advanced options")
                 Spacer(Modifier.size(4.dp))
                 Icon(
@@ -162,12 +169,14 @@ fun SettingsSheet(
                 )
             }
             if (advancedExpanded) {
-                ToggleRow(
-                    label = "AI interpretation",
-                    checked = state.settings.visualAiEnabled,
-                    onCheckedChange = onVisualAiEnabledChanged,
-                    enabled = state.settings.keyConfigured && !state.settings.testingKey,
-                )
+                SettingsCard {
+                    ToggleRow(
+                        label = "AI interpretation",
+                        checked = state.settings.visualAiEnabled,
+                        onCheckedChange = onVisualAiEnabledChanged,
+                        enabled = state.settings.keyConfigured && !state.settings.testingKey,
+                    )
+                }
                 TextButton(onClick = onOpenMlKitPolicy, modifier = Modifier.heightIn(min = 56.dp)) {
                     Text("ML Kit data disclosure")
                 }
@@ -182,14 +191,51 @@ fun SettingsSheet(
 }
 
 @Composable
-private fun SettingsGroup(title: String) {
-    Spacer(Modifier.size(12.dp))
-    Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.semantics { heading() },
-    )
+private fun SettingsGroup(title: String, icon: ImageVector) {
+    Spacer(Modifier.size(16.dp))
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.semantics { heading() },
+        )
+    }
+    Spacer(Modifier.size(8.dp))
+}
+
+@Composable
+private fun SettingsCard(content: @Composable () -> Unit) {
+    val reducedMotion = LocalReducedMotion.current
+    val cardAlpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        if (reducedMotion) { cardAlpha.snapTo(1f); return@LaunchedEffect }
+        cardAlpha.animateTo(1f, tween(durationMillis = MotionTokens.MEDIUM))
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 1.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = cardAlpha.value
+                translationY = (1f - cardAlpha.value) * 12f
+            },
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            content()
+        }
+    }
 }
 
 /**
@@ -300,6 +346,7 @@ fun ToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
+    icon: ImageVector? = null,
 ) {
     Row(
         modifier = Modifier
@@ -314,7 +361,17 @@ fun ToggleRow(
             )
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (icon != null) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
         Text(
             label,
             modifier = Modifier.weight(1f),
