@@ -29,3 +29,18 @@ submission-assets/.demo-day-build/
 .vscode/
 graphify-out/
 skills-lock.json
+
+# Debug capture artefacts from on-device UI checks. Root-level only, so the
+# tracked images (Submission.png, current-ui.png, polished-ui.png) are unaffected.
+/clarify_*.png
+/polish_*.png
+/screen_*.png
+/guide_check*.png
+/settings_check*.png
+/taste_*.png
+/wake_check*.png
+/ui.xml
+/ui_*.xml
+
+# Design-critique snapshots written by the impeccable skill.
+.impeccable/
