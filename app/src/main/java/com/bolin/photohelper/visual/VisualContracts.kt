@@ -189,7 +189,7 @@ internal fun parseCompletionContent(response: String): String? {
     }
 }
 
-private fun parseVisualHint(content: String, family: VisualFamily): VisualHint? {
+internal fun parseVisualHint(content: String, family: VisualFamily): VisualHint? {
     val value = strictObject(content) ?: return null
     val schemaVersion = value.opt("schemaVersion") as? Int ?: return null
     return when (value.opt("outcome")) {

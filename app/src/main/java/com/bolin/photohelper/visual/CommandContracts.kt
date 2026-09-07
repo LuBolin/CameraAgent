@@ -206,9 +206,11 @@ internal fun buildCommandRequestBody(request: CommandRequest): ByteArray {
     return body
 }
 
-internal fun parseCommandResponse(response: String, autoEnhance: Boolean = false): CommandResult? {
+internal fun parseCommandResponse(response: String, autoEnhance: Boolean = false): CommandResult? =
+    parseCompletionContent(response)?.let { parseCommandContent(it, autoEnhance) }
+
+internal fun parseCommandContent(content: String, autoEnhance: Boolean = false): CommandResult? {
     return try {
-        val content = parseCompletionContent(response) ?: return null
         val value = strictObject(content) ?: return null
         if (autoEnhance) return parseAutoEnhance(value)
         if (value.opt("schemaVersion") != 3) return null
