@@ -27,6 +27,9 @@ class CompositionUiTest {
             override fun onCannotMoveFurther() { blocked = true }
         }
         compose.setContent { PhotoHelperTheme { TestCaptureScreen(state.value, actions = actions) } }
+        compose.onNodeWithText("Stop").assertIsDisplayed()
+        compose.onNodeWithText("Cancel").assertDoesNotExist()
+        compose.onNodeWithText("Change people").assertDoesNotExist()
         compose.onNodeWithText("Can't move further").assertIsDisplayed().performClick()
         val screenshot = compose.onRoot().captureToImage().asAndroidBitmap()
         val directory = InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null)!!
@@ -65,5 +68,32 @@ class CompositionUiTest {
         File(directory, "composition-selection.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
         compose.onNodeWithText("Use selection").performClick()
         compose.runOnIdle { assertEquals(true, confirmed) }
+    }
+
+    @Test fun activityLogShowsWhatTheUserAskedAndWhatTheAppDid() {
+        val state = CaptureUiState(
+            onboardingStep = 2,
+            cameraPermission = PermissionState.GRANTED,
+            cameraPhase = CameraPhase.READY,
+            settingsOpen = true,
+            agentLog = listOf(
+                AgentLogEntry(AgentLogKind.USER, "frame grandma", 1),
+                AgentLogEntry(AgentLogKind.ACTION, "Zoom 1.00× → 1.50×", 2),
+                AgentLogEntry(AgentLogKind.RESULT, "Framing done.", 3),
+            ),
+        )
+        compose.setContent { PhotoHelperTheme { TestCaptureScreen(state) } }
+
+        compose.onNodeWithText("Activity log (3)").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Result · Framing done.").assertIsDisplayed()
+        compose.onNodeWithText("Action · Zoom 1.00× → 1.50×").assertExists()
+        compose.onNodeWithText("User · frame grandma").assertExists()
+        compose.onNodeWithTag(CaptureTestTags.SETTINGS).performTouchInput { swipeUp() }
+        compose.waitForIdle()
+        val image = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        val directory = InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null)!!
+        File(directory, "composition-activity-log.png").outputStream().use {
+            image.compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
     }
 }

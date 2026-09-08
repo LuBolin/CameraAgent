@@ -559,7 +559,7 @@ class CaptureViewModelTest {
     }
 
     @Test
-    fun `selection returns after all faces disappear and subset ignores the other face`() = runTest(dispatcher) {
+    fun `selection survives a brief face loss and subset ignores the other face`() = runTest(dispatcher) {
         var now = 1000L
         val people = listOf(face(1, .2f), face(2, .8f))
         val camera = FakeCamera(observation(faces = people))
@@ -567,15 +567,17 @@ class CaptureViewModelTest {
         vm.setCameraPermission(true)
         runCurrent()
         vm.changeCompositionSelection()
+        vm.toggleCompositionFace(0)
         now = 1250
         camera.observation.value = observation(id = now, timestamp = now)
         runCurrent()
-        assertTrue(vm.uiState.value.compositionSelection!!.isEmpty())
+        assertEquals(people, vm.uiState.value.compositionSelection)
+        assertEquals(setOf(0), vm.uiState.value.compositionSelectedIndices)
         now = 1500
         camera.observation.value = observation(id = now, timestamp = now, faces = people)
         runCurrent()
         assertEquals(2, vm.uiState.value.compositionSelection!!.size)
-        vm.toggleCompositionFace(0)
+        assertEquals(setOf(0), vm.uiState.value.compositionSelectedIndices)
         vm.confirmCompositionSelection()
         assertEquals(listOf(people.first()), vm.uiState.value.activeGuidance!!.members)
     }
@@ -637,6 +639,7 @@ class CaptureViewModelTest {
         val camera = FakeCamera(observation(timestamp = 1000, faces = listOf(person)))
         val vm = viewModel(camera, nowMs = { now })
         vm.setCameraPermission(true); runCurrent()
+        vm.setAutoCaptureEnabled(false)
         for (time in listOf(1250L, 1500L)) {
             camera.observation.value = observation(id = time, timestamp = time, faces = listOf(person)); runCurrent()
         }
@@ -655,7 +658,8 @@ class CaptureViewModelTest {
             camera.observation.value = observation(id = now, timestamp = now, faces = listOf(centred)); runCurrent()
         }
         assertEquals(null, vm.uiState.value.activeGuidance)
-        assertEquals("Stop. Hold there.", vm.uiState.value.transientMessage)
+        assertEquals("Framing done.", vm.uiState.value.transientMessage)
+        assertEquals(0, camera.captureCalls)
     }
 
     @Test
@@ -700,6 +704,104 @@ class CaptureViewModelTest {
         runCurrent()
         assertTrue(vm.uiState.value.activeGuidance!!.distanceMovement)
         vm.cancelCoaching()
+    }
+
+    @Test
+    fun `composition zoom is applied automatically instead of shown as an instruction`() = runTest(dispatcher) {
+        var now = 1500L
+        val person = face(1, .5f, .15f)
+        val camera = FakeCamera(observation(timestamp = 1000, faces = listOf(person))).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 1f)
+        }
+        val intent = CompositionIntent(adjustment = CompositionAdjustment(
+            CompositionProblem.SUBJECT_SIZE, HorizontalPlacement.KEEP, VerticalPlacement.KEEP,
+            CompositionSize.LARGER, CompositionMovement.ZOOM,
+        ))
+        val vm = viewModel(camera, visualEnabled = true, nowMs = { now },
+            visualResult = { VisualResult.Available(VisualHint.CompositionPlan(intent)) })
+        vm.setCameraPermission(true)
+        runCurrent()
+        for (time in listOf(1250L, 1500L)) {
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(person))
+            runCurrent()
+        }
+
+        vm.requestComposition()
+        runCurrent()
+        now = 1750
+        camera.observation.value = observation(id = now, timestamp = now, faces = listOf(person))
+        runCurrent()
+
+        assertEquals(1, camera.applyCalls)
+        assertTrue((camera.lastAdjustment as CameraAdjustment.ZoomRatio).ratio > 1f)
+        assertEquals("Adjusting zoom…", vm.uiState.value.activeGuidance?.instruction)
+        assertTrue(vm.uiState.value.agentLog.any { it.kind == AgentLogKind.ACTION && it.message == "Check composition" })
+        assertTrue(vm.uiState.value.agentLog.any { it.kind == AgentLogKind.ACTION && it.message.startsWith("Zoom ") })
+    }
+
+    @Test
+    fun `composition stops after three unconfirmed automatic zooms`() = runTest(dispatcher) {
+        var now = 1500L
+        val person = face(1, .5f, .15f)
+        val camera = FakeCamera(observation(timestamp = 1000, faces = listOf(person))).apply {
+            capabilities.value = capabilities.value.copy(zoomRatioRange = 1f..10f)
+            telemetry.value = CameraTelemetry(zoomRatio = 1f)
+        }
+        val intent = CompositionIntent(adjustment = CompositionAdjustment(
+            CompositionProblem.SUBJECT_SIZE, HorizontalPlacement.KEEP, VerticalPlacement.KEEP,
+            CompositionSize.LARGER, CompositionMovement.ZOOM,
+        ))
+        val vm = viewModel(camera, visualEnabled = true, nowMs = { now },
+            visualResult = { VisualResult.Available(VisualHint.CompositionPlan(intent)) })
+        vm.setCameraPermission(true)
+        runCurrent()
+        for (time in listOf(1250L, 1500L)) {
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(person)); runCurrent()
+        }
+        vm.requestComposition()
+        runCurrent()
+
+        for (time in listOf(1750L, 2000L, 2250L, 2500L)) {
+            now = time
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(person)); runCurrent()
+        }
+
+        assertEquals(3, camera.applyCalls)
+        assertEquals(false, vm.uiState.value.compositionEnabled)
+        assertEquals(null, vm.uiState.value.activeGuidance)
+    }
+
+    @Test
+    fun `completed framing says done captures when allowed and does not restart`() = runTest(dispatcher) {
+        var now = 1500L
+        val person = face(1, .5f, .25f)
+        val camera = FakeCamera(observation(timestamp = 1000, faces = listOf(person)))
+        val voice = FakeVoice()
+        val vm = viewModel(camera, nowMs = { now }, voice = voice)
+        vm.setCameraPermission(true)
+        runCurrent()
+        for (time in listOf(1250L, 1500L)) {
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(person)); runCurrent()
+        }
+        vm.requestComposition()
+        for (time in listOf(1750L, 2000L, 2250L)) {
+            now = time
+            camera.observation.value = observation(id = time, timestamp = time, faces = listOf(person)); runCurrent()
+        }
+
+        assertTrue(voice.spoken.any { it == "Framing done." to "result" })
+        assertEquals(1, camera.captureCalls)
+        assertTrue(vm.uiState.value.agentLog.any { it.kind == AgentLogKind.RESULT && it.message == "Framing done." })
+        assertTrue(vm.uiState.value.agentLog.any { it.kind == AgentLogKind.ACTION && it.message == "Take photo" })
+
+        for (time in listOf(2500L, 2750L, 3000L)) {
+            now = time
+            camera.observation.value = observation(id = time, timestamp = time,
+                faces = listOf(face(9, .8f, .25f))); runCurrent()
+        }
+        assertEquals(null, vm.uiState.value.activeGuidance)
+        assertEquals(null, vm.uiState.value.compositionSelection)
     }
 
     @Test

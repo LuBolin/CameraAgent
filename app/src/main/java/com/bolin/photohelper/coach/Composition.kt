@@ -356,6 +356,14 @@ class GuidanceGovernor(val startedAtMs: Long, val policy: GuidancePolicy = Guida
             candidate = Correction.HOLD
             return GovernedGuidance(Correction.HOLD, complete = nowMs - satisfiedSince!! >= policy.completionDwellMs)
         }
+        // Keep a target that was reached from chattering when detector noise lands just outside its edge.
+        if (satisfiedSince != null && measurement.error < .25f &&
+            lastSatisfiedAt?.let { nowMs - it <= policy.cooldownMs } == true) {
+            withinLastFrame = true
+            displayed = Correction.HOLD
+            candidate = Correction.HOLD
+            return GovernedGuidance(Correction.HOLD, complete = nowMs - satisfiedSince!! >= policy.completionDwellMs)
+        }
         if (withinLastFrame) overshoots++
         withinLastFrame = false
         satisfiedSince = null

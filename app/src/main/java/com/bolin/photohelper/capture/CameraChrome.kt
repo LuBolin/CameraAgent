@@ -690,8 +690,5 @@ fun BoxScope.DefaultPreview() {
         modifier = Modifier
             .fillMaxSize()
             .background(Charcoal),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("Camera preview", color = SoftCream)
-    }
+    )
 }

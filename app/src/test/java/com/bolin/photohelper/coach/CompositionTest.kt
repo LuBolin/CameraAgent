@@ -140,6 +140,16 @@ class CompositionTest {
         assertNull(governor.finish(1000, "abandonment"))
     }
 
+    @Test fun `minor overshoot after reaching target does not restart completion`() {
+        val governor = GuidanceGovernor(0)
+        val arrived = GuidanceMeasurement(Correction.HOLD, 0f, true)
+        val edgeJitter = GuidanceMeasurement(Correction.UP, .2f, false)
+
+        assertFalse(governor.update(arrived, 0).complete)
+        assertEquals(Correction.HOLD, governor.update(edgeJitter, 250).correction)
+        assertTrue(governor.update(arrived, 500).complete)
+    }
+
     @Test fun `governor limits noisy direction changes and stalled attempts`() {
         val governor = GuidanceGovernor(0)
         for (time in 0L..3000L step 250) {

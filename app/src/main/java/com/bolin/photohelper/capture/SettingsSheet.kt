@@ -83,6 +83,7 @@ fun SettingsSheet(
     onAutoCaptureEnabledChanged: (Boolean) -> Unit,
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
+    var activityExpanded by rememberSaveable { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -112,6 +113,31 @@ fun SettingsSheet(
 
             SettingsGroup("Smart Features")
             ToggleRow("Auto-capture when steady", state.settings.autoCaptureEnabled, onAutoCaptureEnabledChanged)
+            TextButton(
+                onClick = { activityExpanded = !activityExpanded },
+                modifier = Modifier.heightIn(min = 56.dp),
+            ) {
+                Text("Activity log (${state.agentLog.size})")
+                Spacer(Modifier.size(4.dp))
+                Icon(
+                    imageVector = if (activityExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            if (activityExpanded) {
+                Text(
+                    "This session only",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                state.agentLog.takeLast(12).asReversed().forEach { entry ->
+                    Text(
+                        "${entry.kind.name.lowercase().replaceFirstChar(Char::uppercase)} · ${entry.message}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
 
             SettingsGroup("Appearance")
             ToggleRow(

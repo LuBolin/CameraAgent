@@ -70,13 +70,13 @@ fun MirrorBar(text: String?, modifier: Modifier = Modifier) {
         ) {
             Text(
                 text = shown,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 color = overlays.onOverlay,
-                style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+                style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 // Without an explicit overflow this defaults to Clip, which cut the
                 // longer messages off mid-word with no ellipsis to show it happened.
-                maxLines = 3,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }

@@ -695,7 +695,7 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun guidancePublishesInstructionAndOneTapCancel() {
+    fun guidancePublishesInstructionAndOneTapStop() {
         var cancelled = false
         compose.setContent {
             PhotoHelperTheme {
@@ -715,7 +715,7 @@ class CaptureScreenTest {
 
         compose.onNodeWithTag(CaptureTestTags.MIRROR_BAR).assertIsDisplayed()
         compose.onNodeWithText("Aim the phone slightly right").assertIsDisplayed()
-        compose.onNodeWithText("Cancel").assert(hasClickAction()).performClick()
+        compose.onNodeWithText("Stop").assert(hasClickAction()).performClick()
         compose.runOnIdle { assertTrue(cancelled) }
     }
 
@@ -1067,7 +1067,7 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun portraitLargeTextKeepsGuidanceCancelVisible() {
+    fun portraitLargeTextKeepsGuidanceStopVisible() {
         val portrait = Configuration().apply { orientation = Configuration.ORIENTATION_PORTRAIT }
         compose.setContent {
             val systemDensity = LocalDensity.current
@@ -1091,8 +1091,8 @@ class CaptureScreenTest {
         }
 
         val root = compose.onNodeWithTag(CaptureTestTags.ROOT).fetchSemanticsNode().boundsInRoot
-        val cancel = compose.onNodeWithText("Cancel").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertTrue("Large text pushed Cancel below the screen", cancel.bottom < root.bottom)
+        val stop = compose.onNodeWithText("Stop").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("Large text pushed Stop below the screen", stop.bottom < root.bottom)
     }
 
     @Test

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.bolin.photohelper.coach.CoachEngine
 import com.bolin.photohelper.coach.CompositionIntent
 import com.bolin.photohelper.coach.CompositionPlan
+import com.bolin.photohelper.coach.CompositionMovement
 import com.bolin.photohelper.coach.GuidanceGovernor
 import com.bolin.photohelper.coach.GuidanceMetrics
 import com.bolin.photohelper.coach.GuidanceMode
@@ -225,9 +226,16 @@ class CaptureViewModel(
     private var previewMirrored = false
     private var stationaryComposition = false
     private var guidanceSceneAnchor: FrameObservation? = null
+    private var compositionZoomInFlight = false
+    private var compositionZoomAttempts = 0
 
     private fun logComposition(event: String) {
         java.util.logging.Logger.getLogger("CompositionGuidance").info("composition event=$event timeMs=${nowMs()}")
+    }
+
+    private fun logAgent(kind: AgentLogKind, message: String) {
+        val entry = AgentLogEntry(kind, message.take(300), nowMs())
+        _uiState.update { it.copy(agentLog = (it.agentLog + entry).takeLast(50)) }
     }
 
     fun setCompositionPreview(mirrored: Boolean, stationaryOnly: Boolean) {
@@ -274,8 +282,7 @@ class CaptureViewModel(
                 stableFace = stableFaceTracker.update(observation, camera.state.value.sessionId)
                 _uiState.value.compositionSelection?.let { previous ->
                     val matched = observation?.takeIf { previous.isNotEmpty() }?.let { matchMembers(previous, it.faces) }
-                    _uiState.update { it.copy(compositionSelection = matched ?: observation?.faces.orEmpty(),
-                        compositionSelectedIndices = if (matched == null) emptySet() else it.compositionSelectedIndices) }
+                    if (matched != null) _uiState.update { it.copy(compositionSelection = matched) }
                 }
                 if (observation != null) {
                     verifyActiveWork(observation)
@@ -382,6 +389,7 @@ class CaptureViewModel(
     fun submitComment(replacement: String? = null) {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
         val comment = (replacement ?: _uiState.value.comment).trim()
+        if (comment.isNotBlank()) logAgent(AgentLogKind.USER, comment)
         if (comment.lowercase() in setOf("help me frame", "help me frame this", "composition", "help with composition", "frame the group", "frame us")) {
             requestComposition()
             return
@@ -589,6 +597,7 @@ class CaptureViewModel(
         val action = recommendation.action as? RecommendationAction.ApplySettings ?: return
         val beforeTelemetry = camera.telemetry.value
         val requestText = activeCommandText.ifBlank { _uiState.value.comment }
+        logAgent(AgentLogKind.ACTION, "Apply ${action.changes.joinToString { it.adjustment.toString() }}")
         cancelJobsOnly()
         _uiState.update {
             it.copy(
@@ -707,12 +716,13 @@ class CaptureViewModel(
     fun requestComposition() {
         if (!_uiState.value.shutterEnabled || isBackgrounded) return
         cancelCoaching()
-        compositionWatching = true
         val observation = latestLiveObservation
         if (observation == null || nowMs() - observation.timestampMs !in 0..LIVE_OBSERVATION_FRESH_MS) {
             showToast("Hold the camera steady, then try framing again.")
             return
         }
+        compositionWatching = true
+        logAgent(AgentLogKind.ACTION, "Check composition")
         val members = automaticCompositionMembers(comparisonSamples.toList())
         logComposition(if (members == null) "selection_prompt" else "automatic_selection_count_${members.size}")
         if (members == null && observation.faces.isNotEmpty()) {
@@ -808,6 +818,7 @@ class CaptureViewModel(
                 }
                 if (result == VisualResult.CredentialsRejected) markSavedKeyRejected()
                 val intent = ((result as? VisualResult.Available)?.hint as? VisualHint.CompositionPlan)?.intent
+                if (intent != null) logAgent(AgentLogKind.AI, "Composition: ${intent.reason}")
                 logComposition(if (intent == null) "ai_generic_fallback" else "ai_strategy_${intent.strategy}")
                 visualJob = null
                 val chosen = intent ?: CompositionIntent()
@@ -942,6 +953,7 @@ class CaptureViewModel(
 
     fun capture() {
         if (captureInFlight || !_uiState.value.shutterEnabled) return
+        logAgent(AgentLogKind.ACTION, "Take photo")
         captureInFlight = true
         readyForAutoCapture = false
         audioCue?.play(AudioCue.SHUTTER)
@@ -1370,6 +1382,7 @@ class CaptureViewModel(
             return
         }
         val focusPoint = FocusPoint(xFraction, yFraction)
+        logAgent(AgentLogKind.ACTION, "Focus at ${"%.2f".format(xFraction)}, ${"%.2f".format(yFraction)}")
         val indicatorDecision = if (keepRecommendation) _uiState.value.decision else null
         focusIndicatorJob?.cancel()
         operationJob?.cancel()
@@ -1728,6 +1741,7 @@ class CaptureViewModel(
                 }
                 when (result) {
                     is CommandResult.Planned -> {
+                        logAgent(AgentLogKind.AI, "Plan: ${result.plan.steps.joinToString()}")
                         startCommandPlan(result.plan, comment)
                     }
                     is CommandResult.Clarified ->
@@ -2105,6 +2119,10 @@ class CaptureViewModel(
             val fresh = observation != null && nowMs() - observation.timestampMs in 0..LIVE_OBSERVATION_FRESH_MS
             val selected = if (members != null && fresh && !sceneJump) observation.copy(faces = members) else null
             val measurement = selected?.let { measureGuidance(listOf(active.target), it, active.blockedDirections, active.distanceMovement) }
+            if (selected != null && measurement?.correction in setOf(
+                    com.bolin.photohelper.coach.Correction.LARGER,
+                    com.bolin.photohelper.coach.Correction.SMALLER,
+                ) && !active.distanceMovement && applyCompositionZoom(active, selected)) return
             val result = active.governor.update(measurement, nowMs())
             if (result.failure != null) {
                 finishGuidance(result.failure)
@@ -2116,10 +2134,14 @@ class CaptureViewModel(
             }
             if (result.complete) {
                 if (active.target is VerificationTarget.Composition) compositionScene = observation?.copy(faces = members.orEmpty())
+                compositionWatching = false
                 finishGuidance("completion")
-                completeWork(if (active.target is VerificationTarget.StepBack)
+                val message = if (active.target is VerificationTarget.Composition) "Framing done." else if (active.target is VerificationTarget.StepBack)
                     "The face is smaller. Decide whether the proportions look better."
-                    else "Stop. Hold there.", Feedback.SUCCESS)
+                    else "Stop. Hold there."
+                completeWork(message, Feedback.SUCCESS)
+                if (active.target is VerificationTarget.Composition &&
+                    _uiState.value.settings.autoCaptureEnabled && observation?.motionScore?.let { it <= .02f } == true) capture()
                 return
             }
             val near = measurement != null && result.correction == measurement.correction &&
@@ -2137,11 +2159,55 @@ class CaptureViewModel(
                 paused = selected == null, correction = result.correction, nearTarget = near,
             )) }
             if (instruction != active.instruction) {
+                logAgent(AgentLogKind.ACTION, instruction)
                 if (_uiState.value.settings.spokenGuidance) voice.speak(instruction, "guidance")
                 if (_uiState.value.settings.haptics) feedback(Feedback.TICK)
             }
             return
         }
+    }
+
+    private fun applyCompositionZoom(active: ActiveGuidance, observation: FrameObservation): Boolean {
+        if (compositionZoomInFlight) return true
+        val plan = (active.target as? VerificationTarget.Composition)?.plan ?: return false
+        if (plan.intent.adjustment?.movement != CompositionMovement.ZOOM) return false
+        if (compositionZoomAttempts >= 3) {
+            failWork("I couldn't confirm the zoom. Move closer or farther, then try framing again.")
+            return true
+        }
+        val occupancy = plan.targets.firstNotNullOfOrNull { target -> when (target) {
+            is VerificationTarget.FaceOccupancy -> target.min..target.max
+            is VerificationTarget.GroupOccupancy -> target.min..target.max
+            else -> null
+        } } ?: return false
+        val width = faceUnion(observation.faces)?.widthFraction?.takeIf { it > 0f } ?: return false
+        val current = camera.telemetry.value.zoomRatio
+        val range = camera.capabilities.value.zoomRatioRange
+        val desired = (occupancy.start + occupancy.endInclusive) / 2f
+        val target = (current * desired / width).coerceIn(range.start, range.endInclusive)
+        if (abs(target - current) < .01f) {
+            failWork("Zoom limit reached. Move closer or farther to finish framing.")
+            return true
+        }
+        compositionZoomInFlight = true
+        compositionZoomAttempts++
+        logAgent(AgentLogKind.ACTION, "Zoom ${"%.2f".format(current)}× → ${"%.2f".format(target)}×")
+        _uiState.update { state -> state.copy(activeGuidance = state.activeGuidance?.copy(
+            instruction = "Adjusting zoom…", correction = com.bolin.photohelper.coach.Correction.HOLD,
+        )) }
+        operationJob = viewModelScope.launch {
+            try {
+                when (val result = camera.apply(CameraAdjustment.ZoomRatio(target))) {
+                    ApplyResult.Applied -> {
+                        markResetAvailable()
+                    }
+                    is ApplyResult.Failed -> failWork(result.message)
+                }
+            } finally {
+                compositionZoomInFlight = false
+            }
+        }
+        return true
     }
 
     private fun completeWork(message: String, feedbackType: Feedback) {
@@ -2150,6 +2216,7 @@ class CaptureViewModel(
         verificationStartObservationId = null
         verificationStartedAtMs = null
         voice.stop()
+        logAgent(AgentLogKind.RESULT, message)
         audioCue?.play(AudioCue.CHIME)
         readyForAutoCapture = arSession != null
         if (_uiState.value.settings.haptics) feedback(feedbackType)
@@ -2165,6 +2232,7 @@ class CaptureViewModel(
     }
 
     private fun failWork(message: String) {
+        if (_uiState.value.activeGuidance?.target is VerificationTarget.Composition) compositionWatching = false
         finishGuidance("failure")
         pendingCommandSteps.clear()
         approvedPlanAdjustments.clear()
@@ -2172,6 +2240,7 @@ class CaptureViewModel(
         pendingSubjectZoom = null
         pendingFocusAfterZoom = null
         voice.stop()
+        logAgent(AgentLogKind.RESULT, message)
         if (_uiState.value.settings.haptics) feedback(Feedback.ERROR)
         _uiState.update {
             it.copy(
@@ -2388,6 +2457,8 @@ class CaptureViewModel(
         verificationTimeoutJob = null
         focusIndicatorJob = null
         focusInFlight = false
+        compositionZoomInFlight = false
+        compositionZoomAttempts = 0
         _uiState.update { it.copy(focusIndicator = null) }
     }
 

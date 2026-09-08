@@ -70,18 +70,6 @@ fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifi
         return
     }
 
-    if (state.activeGuidance != null) {
-        FrostedCard(modifier) {
-            CardActions(
-                primaryLabel = null,
-                onPrimary = {},
-                secondaryLabel = "Cancel",
-                onSecondary = actions::onCancelCoaching,
-            )
-        }
-        return
-    }
-
     when (val decision = state.decision) {
         null -> Unit
         is LocalDecision.Recommend -> {

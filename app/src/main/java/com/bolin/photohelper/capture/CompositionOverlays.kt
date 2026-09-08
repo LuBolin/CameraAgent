@@ -4,8 +4,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -14,11 +12,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import com.bolin.photohelper.coach.VerificationTarget
 import com.bolin.photohelper.ui.Mango
+import com.bolin.photohelper.ui.LocalOverlayColors
 import com.bolin.photohelper.ui.SoftCream
 
 /** Upright analysis coordinates to the centre-cropped, optionally mirrored preview. */
@@ -62,37 +63,82 @@ fun GuidanceTarget(guidance: ActiveGuidance, modifier: Modifier = Modifier,
 @Composable
 fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions) {
     val active = state.activeGuidance
-    if (state.coachingPhase == CoachingPhase.GUIDING && active != null && !active.paused && active.correction.isMovement) {
-        OutlinedButton(onClick = actions::onCannotMoveFurther,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = SoftCream),
-            border = BorderStroke(1.dp, SoftCream)) { Text("Can't move further") }
-    }
+    val overlays = LocalOverlayColors.current
     val selection = state.compositionSelection
     if (selection != null) {
-        Surface(shape = MaterialTheme.shapes.medium) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(12.dp)) {
-                Text("Who are you framing?")
-                selection.forEachIndexed { index, face ->
-                    val x = if (state.previewMirrored) 1f - face.centerX else face.centerX
-                    val location = when { x < .33f -> "left"; x > .67f -> "right"; else -> "centre" }
-                    FilterChip(selected = index in state.compositionSelectedIndices,
-                        onClick = { actions.onToggleCompositionFace(index) },
-                        label = { Text("Person ${index + 1}, $location") })
-                }
-                Row {
-                    TextButton(onClick = actions::onSelectAllCompositionFaces) { Text("Everyone") }
-                    TextButton(onClick = actions::onConfirmCompositionSelection, enabled = state.compositionSelectedIndices.isNotEmpty()) { Text("Use selection") }
-                    TextButton(onClick = actions::onCancelCoaching) { Text("Cancel") }
+        Surface(shape = MaterialTheme.shapes.medium, color = overlays.scrimOpaque) {
+            Column(
+                Modifier.fillMaxWidth().padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Who are you framing?", color = overlays.onOverlay)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = actions::onSelectAllCompositionFaces,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        border = BorderStroke(1.dp, overlays.onOverlay),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = overlays.onOverlay),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                    ) { Text("All") }
+                    Button(
+                        onClick = actions::onConfirmCompositionSelection,
+                        enabled = state.compositionSelectedIndices.isNotEmpty(),
+                        modifier = Modifier.heightIn(min = 48.dp).weight(1f),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                    ) { Text("Use selection") }
+                    OutlinedButton(
+                        onClick = actions::onCancelCoaching,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        border = BorderStroke(1.dp, overlays.onOverlay),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = overlays.onOverlay),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                    ) { Text("Cancel") }
                 }
             }
         }
-    } else if (state.compositionEnabled) {
-        Row {
-            TextButton(onClick = actions::onChangeCompositionSelection) { Text("Change people") }
-            TextButton(onClick = actions::onCancelCoaching) { Text("Stop framing") }
+    } else if (state.compositionEnabled || active != null) {
+        Row(
+            modifier = Modifier
+                .testTag(CaptureTestTags.RESPONSE_CARD)
+                .semantics { isTraversalGroup = true; traversalIndex = 2f },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (state.coachingPhase == CoachingPhase.GUIDING && active != null &&
+                !active.paused && active.correction.isMovement) {
+                Button(
+                    onClick = actions::onCannotMoveFurther,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = overlays.scrimOpaque,
+                        contentColor = overlays.onOverlay,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
+                ) { Text("Can't move further") }
+            }
+            Button(
+                onClick = actions::onCancelCoaching,
+                modifier = Modifier.heightIn(min = 48.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = overlays.scrimOpaque,
+                    contentColor = overlays.onOverlay,
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+            ) { Text("Stop") }
         }
     } else if (state.coachingPhase == CoachingPhase.IDLE && state.review == null) {
-        TextButton(onClick = actions::onComposition, enabled = state.shutterEnabled) { Text("Help me frame") }
+        Button(
+            onClick = actions::onComposition,
+            enabled = state.shutterEnabled,
+            modifier = Modifier.heightIn(min = 48.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = overlays.scrimOpaque,
+                contentColor = overlays.onOverlay,
+            ),
+            contentPadding = PaddingValues(horizontal = 14.dp),
+        ) { Text("Help me frame") }
     }
 }
 

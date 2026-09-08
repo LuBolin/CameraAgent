@@ -57,6 +57,14 @@ fun CoachingPhase.confidence(): Float = when (this) {
 
 enum class PermissionState { NOT_REQUESTED, GRANTED, DENIED }
 
+enum class AgentLogKind { USER, AI, ACTION, RESULT }
+
+data class AgentLogEntry(
+    val kind: AgentLogKind,
+    val message: String,
+    val timeMs: Long,
+)
+
 data class SettingsUiState(
     val spokenGuidance: Boolean = true,
     val haptics: Boolean = true,
@@ -125,6 +133,8 @@ data class CaptureUiState(
     val showVoiceHints: Boolean = false,
     /** Incremented each time auto-capture fires; drives the Orb sage flash animation. */
     val autoCaptureFlashKey: Int = 0,
+    /** In-memory audit trail for the current app session; never persisted or uploaded. */
+    val agentLog: List<AgentLogEntry> = emptyList(),
 ) {
     val visibleCoachingState: VisibleCoachingState
         get() = VisibleCoachingState.from(coachingPhase)
