@@ -202,7 +202,7 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun orbLongPressAutoEnhancesAndMicButtonTalks() {
+    fun orbLongPressAutoEnhancesAndVoiceButtonTalks() {
         var micTaps = 0
         var autoTaps = 0
         compose.setContent {
@@ -217,7 +217,7 @@ class CaptureScreenTest {
         compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).performTouchInput { longClick() }
         compose.runOnIdle { assertEquals(1, autoTaps) }
 
-        compose.onNodeWithTag(CaptureTestTags.MICROPHONE).performClick()
+        compose.onNodeWithContentDescription("Describe what to improve").performClick()
         compose.runOnIdle { assertEquals(1, micTaps) }
     }
 

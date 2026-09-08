@@ -6,11 +6,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -83,17 +83,19 @@ private const val PULSE_MS = 2000
  *
  * A 72dp ring whose colour is the Jarvis gradient sampled at [confidence], with a
  * matching blurred aura behind it. Tap captures (or confirms a decision), long press
- * starts voice input, double tap asks for an automatic enhancement.
+ * asks for an automatic enhancement while idle.
  *
  * The glow pulses three times when a new state arrives and then holds still, so the
  * screen is not animating continuously while the user composes a shot.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HelperOrb(
     state: OrbState,
     confidence: Float,
     enabled: Boolean,
     onTap: () -> Unit,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 72.dp,
     autoCaptureFlashKey: Int = 0,
@@ -159,7 +161,7 @@ fun HelperOrb(
     }
 
     val description = when (state) {
-        OrbState.IDLE -> "Take photo"
+        OrbState.IDLE -> "Take photo. Hold to auto-enhance."
         OrbState.LISTENING -> "Listening. Tap to finish."
         OrbState.PROCESSING -> "Working on it."
         OrbState.DECIDED -> "Ready. Tap to confirm."
@@ -173,14 +175,14 @@ fun HelperOrb(
             // The Orb is the primary action, so it has to be reachable the same way
             // every other control is. A bare pointerInput left it focusable=false in
             // the hierarchy: unreachable by D-pad, keyboard and switch access.
-            // clickable brings focus traversal and DPAD_CENTER/Enter with it;
-            // indication stays null so the ripple never fights the glow.
+            // combinedClickable keeps that keyboard support while preserving the
+            // idle long-press shortcut promised by the guide.
             .onFocusChanged { focused = it.isFocused }
-            .clickable(
+            .combinedClickable(
                 enabled = enabled,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
                 onClickLabel = "Take photo",
+                onLongClickLabel = "Auto-enhance",
+                onLongClick = if (state == OrbState.IDLE) onLongPress else null,
                 role = Role.Button,
                 onClick = onTap,
             )

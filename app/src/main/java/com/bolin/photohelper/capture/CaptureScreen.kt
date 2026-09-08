@@ -374,6 +374,7 @@ private fun CaptureContent(
                         confidence = confidence,
                         enabled = orbEnabled(state),
                         onTap = onOrbTap,
+                        onLongPress = actions::onAutoEnhance,
                         autoCaptureFlashKey = state.autoCaptureFlashKey,
                     )
                 }

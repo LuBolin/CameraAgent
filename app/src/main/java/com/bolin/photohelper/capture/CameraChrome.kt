@@ -641,6 +641,7 @@ fun ControlStrip(
             confidence = confidence,
             enabled = orbEnabled(state),
             onTap = onOrbTap,
+            onLongPress = onAutoEnhance,
             size = 56.dp,
             autoCaptureFlashKey = state.autoCaptureFlashKey,
         )
