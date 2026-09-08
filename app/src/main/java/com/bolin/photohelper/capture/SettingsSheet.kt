@@ -239,6 +239,45 @@ private fun SettingsCard(content: @Composable () -> Unit) {
 }
 
 /**
+ * Which model interprets the scene. Both arms send the same prompts and images, so
+ * this is a like-for-like comparison rather than two different apps.
+ */
+@Composable
+private fun VisualProviderChooser(selected: VisualProvider, onSelect: (VisualProvider) -> Unit) {
+    val options = listOf(
+        VisualProvider.QWEN to "Qwen (Alibaba Cloud)",
+        VisualProvider.CLAUDE to "Claude (Anthropic)",
+        VisualProvider.TENCENT to "Hunyuan (Tencent Cloud)",
+    )
+    Column {
+        options.forEach { (provider, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .selectable(
+                        selected = provider == selected,
+                        role = Role.RadioButton,
+                        onClick = { onSelect(provider) },
+                    )
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = provider == selected, onClick = null)
+                Spacer(Modifier.size(12.dp))
+                Text(label)
+            }
+        }
+    }
+    Text(
+        "Each provider needs its own API key. Paste the key for whichever is selected.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+
+/**
  * Free text describing the look the user is after. Optional, and never a technical
  * parameter - "moody and cinematic" is the kind of answer this wants.
  */

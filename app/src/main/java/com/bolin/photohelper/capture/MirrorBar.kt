@@ -125,7 +125,7 @@ const val FIRST_USE_HINT = "Tap the circle to take a photo"
 
 val VOICE_HINTS = listOf(
     "Try: \"make it brighter\"",
-    "Try: \"focus on her\"",
+    "Try: \"zoom in a little\"",
     "Try: \"too dark\"",
-    "Tap Help for a tour",
+    "Try: \"take a photo\"",
 )

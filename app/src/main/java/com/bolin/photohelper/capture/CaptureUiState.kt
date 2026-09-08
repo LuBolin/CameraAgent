@@ -125,7 +125,7 @@ data class CaptureUiState(
     val countdownSecondsRemaining: Int? = null,
     val settingsOpen: Boolean = false,
     val settings: SettingsUiState = SettingsUiState(),
-    /** Shown in the mirror bar the first time the camera opens, then never again. */
+    /** Shown in the mirror bar each session until the user's first Orb tap. */
     val showFirstUseHint: Boolean = false,
     /** Rotating voice-command examples in the MirrorBar until the user tries voice. */
     val showVoiceHints: Boolean = false,

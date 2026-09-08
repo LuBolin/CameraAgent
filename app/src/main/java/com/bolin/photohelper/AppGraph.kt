@@ -20,6 +20,7 @@ import com.bolin.photohelper.visual.DemoApiKeyStore
 import com.bolin.photohelper.visual.BailianVisualClient
 import com.bolin.photohelper.visual.BailianImageEditClient
 import com.bolin.photohelper.visual.ClaudeVisualClient
+import com.bolin.photohelper.visual.TencentVisualClient
 import com.bolin.photohelper.visual.CommandRequest
 import com.bolin.photohelper.visual.CommandResult
 import com.bolin.photohelper.visual.VisualProvider
@@ -54,6 +55,14 @@ class AppGraph(context: Context) {
                 preferences.setVisualAiEnabled(true)
             }
         }
+        val tencentKey = BuildConfig.TENCENT_API_KEY
+        if (tencentKey.isNotEmpty() && !keyStore.hasKey()) {
+            runCatching {
+                keyStore.save(tencentKey.toCharArray())
+                preferences.setVisualProvider(VisualProvider.TENCENT)
+                preferences.setVisualAiEnabled(true)
+            }
+        }
     }
 
     fun viewModelFactory(): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
@@ -76,14 +85,22 @@ class AppGraph(context: Context) {
             val provider = preferences.settings(keyStore.hasKey()).visualProvider
             val interpretVisual: suspend (VisualRequest, CharArray) -> VisualResult
             val interpretCommand: suspend (CommandRequest, CharArray) -> CommandResult
-            if (provider == VisualProvider.CLAUDE) {
-                val client = ClaudeVisualClient()
-                interpretVisual = client::interpret
-                interpretCommand = client::plan
-            } else {
-                val client = BailianVisualClient()
-                interpretVisual = client::interpret
-                interpretCommand = client::plan
+            when (provider) {
+                VisualProvider.CLAUDE -> {
+                    val client = ClaudeVisualClient()
+                    interpretVisual = client::interpret
+                    interpretCommand = client::plan
+                }
+                VisualProvider.TENCENT -> {
+                    val client = TencentVisualClient()
+                    interpretVisual = client::interpret
+                    interpretCommand = client::plan
+                }
+                else -> {
+                    val client = BailianVisualClient()
+                    interpretVisual = client::interpret
+                    interpretCommand = client::plan
+                }
             }
             val arSession = ArSessionManager(appContext).apply { checkAvailability() }
             val audioCue = SoundPoolCuePlayer(appContext)

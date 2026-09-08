@@ -149,7 +149,7 @@ class CaptureViewModel(
             onboardingStep = if (preferences.onboardingComplete()) 2 else 0,
             settings = initialSettings,
             capabilities = camera.capabilities.value,
-            showFirstUseHint = !preferences.firstUseHintSeen(),
+            showFirstUseHint = true,
             showVoiceHints = preferences.firstUseHintSeen() && !preferences.hasUsedVoice(),
         ),
     )

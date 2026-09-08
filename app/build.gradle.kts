@@ -28,6 +28,7 @@ android {
         }
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"${envKeys["ANTHROPIC_API_KEY"].orEmpty()}\"")
         buildConfigField("String", "DASHSCOPE_API_KEY", "\"${envKeys["DASHSCOPE_API_KEY"].orEmpty()}\"")
+        buildConfigField("String", "TENCENT_API_KEY", "\"${envKeys["TENCENT_API_KEY"].orEmpty()}\"")
     }
 
     signingConfigs {

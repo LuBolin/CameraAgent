@@ -279,6 +279,7 @@ private fun CaptureContent(
     }
     val instruction = baseInstruction ?: if (
         state.showVoiceHints && orbState == OrbState.IDLE && state.review == null
+            && !state.compositionEnabled
     ) VOICE_HINTS[voiceHintIndex] else null
 
     val onOrbTap: () -> Unit = {
