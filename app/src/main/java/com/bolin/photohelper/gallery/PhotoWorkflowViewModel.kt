@@ -4,7 +4,6 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bolin.photohelper.visual.BailianImageEditClient
-import com.bolin.photohelper.visual.BailianVisualClient
 import com.bolin.photohelper.visual.CaptionRequest
 import com.bolin.photohelper.visual.CaptionResult
 import com.bolin.photohelper.visual.ImageEditRequest
@@ -25,8 +24,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 class PhotoWorkflowViewModel(
     val gallery: MediaStoreGallery,
     private val imageEditor: BailianImageEditClient,
-    private val captionClient: BailianVisualClient,
-    private val loadQwenKey: () -> CharArray?,
+    private val captionClient: suspend (CaptionRequest, CharArray) -> CaptionResult,
+    private val loadEditKey: () -> CharArray?,
+    private val loadCaptionKey: () -> CharArray?,
     private val voice: VoiceIo,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(PhotoWorkflowUiState())
@@ -93,10 +93,10 @@ class PhotoWorkflowViewModel(
         val state = _uiState.value
         val session = state.editSession ?: return
         val instruction = state.editInstruction.trim().takeIf(String::isNotEmpty) ?: return
-        val key = loadQwenKey()
+        val key = loadEditKey()
         if (key == null) {
             _uiState.update {
-                it.copy(editConfirmationVisible = false, editStatus = RequestStatus.RETRYABLE, message = "Add a Qwen API key in Settings first.")
+                it.copy(editConfirmationVisible = false, editStatus = RequestStatus.RETRYABLE, message = "Add an API key in Settings first.")
             }
             return
         }
@@ -159,7 +159,7 @@ class PhotoWorkflowViewModel(
                         onFailure = { failEdit(token, "The edited photo could not be saved.") },
                     )
                     is ImageEditResult.Failed -> failEdit(token, result.message)
-                    ImageEditResult.CredentialsRejected -> failEdit(token, "The Qwen API key was rejected.")
+                    ImageEditResult.CredentialsRejected -> failEdit(token, "The API key was rejected.")
                     ImageEditResult.Unavailable -> failEdit(token, "AI editing is unavailable.")
                 }
             } finally {
@@ -290,10 +290,10 @@ class PhotoWorkflowViewModel(
         val state = _uiState.value
         val assets = state.selectedAssets
         if (assets.isEmpty()) return
-        val key = loadQwenKey()
+        val key = loadCaptionKey()
         if (key == null) {
             _uiState.update {
-                it.copy(captionConfirmationVisible = false, captionStatus = RequestStatus.RETRYABLE, message = "Add a Qwen API key in Settings first.")
+                it.copy(captionConfirmationVisible = false, captionStatus = RequestStatus.RETRYABLE, message = "Add an API key in Settings first.")
             }
             return
         }
@@ -308,7 +308,7 @@ class PhotoWorkflowViewModel(
             }
             try {
                 when (
-                    val result = captionClient.caption(
+                    val result = captionClient(
                         CaptionRequest(
                             contactSheetJpeg = sheet,
                             photoCount = assets.size,
@@ -330,7 +330,7 @@ class PhotoWorkflowViewModel(
                         }
                     }
                     is CaptionResult.Failed -> failCaption(token, result.message)
-                    CaptionResult.CredentialsRejected -> failCaption(token, "The Qwen API key was rejected.")
+                    CaptionResult.CredentialsRejected -> failCaption(token, "The API key was rejected.")
                     CaptionResult.Unavailable -> failCaption(token, "AI captioning is unavailable.")
                 }
             } finally {

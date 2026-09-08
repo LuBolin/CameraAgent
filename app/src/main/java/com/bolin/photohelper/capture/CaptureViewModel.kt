@@ -5,8 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bolin.photohelper.coach.CoachEngine
 import com.bolin.photohelper.coach.CompositionIntent
-import com.bolin.photohelper.coach.CompositionPlan
 import com.bolin.photohelper.coach.CompositionMovement
+import com.bolin.photohelper.coach.CompositionPlan
+import com.bolin.photohelper.coach.CompositionSize
 import com.bolin.photohelper.coach.GuidanceGovernor
 import com.bolin.photohelper.coach.GuidanceMetrics
 import com.bolin.photohelper.coach.GuidanceMode
@@ -82,6 +83,7 @@ private const val TOAST_TIMEOUT_MS = 5_000L
 private const val FOCUS_INDICATOR_MS = 5_000L
 /** Two visible attempts: the first plan, then one alternative, then an honest concession. */
 private const val MAX_SETTING_ATTEMPTS = 2
+private const val MAX_REANALYSIS_ROUNDS = 0
 private const val SETTING_SETTLE_MS = 400L
 private const val SETTING_VERIFY_TIMEOUT_MS = 3_000L
 private val OBJECT_FOCUS_REQUEST = Regex("\\b(focus|sharp|sharpen|clear)\\b", RegexOption.IGNORE_CASE)
@@ -143,6 +145,7 @@ class CaptureViewModel(
         java.util.logging.Logger.getLogger("CompositionGuidance").info(it.toString())
     },
 ) : ViewModel() {
+    private val log = java.util.logging.Logger.getLogger("CaptureVM")
     private val initialSettings = preferences.settings(hasApiKey())
     private val _uiState = MutableStateFlow(
         CaptureUiState(
@@ -195,6 +198,7 @@ class CaptureViewModel(
     private var pendingSettingVerification: SettingChange? = null
     private var settingAttempt = 0
     private var settingAttemptComplaint = ""
+    private var reanalysisRound = 0
 
     private var observedSessionId = camera.state.value.sessionId
     private var captureInFlight = false
@@ -387,6 +391,7 @@ class CaptureViewModel(
 
     fun submitComment(replacement: String? = null) {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
+        reanalysisRound = 0
         val comment = (replacement ?: _uiState.value.comment).trim()
         if (comment.isNotBlank()) logAgent(AgentLogKind.USER, comment)
         if (comment.lowercase() in setOf("help me frame", "help me frame this", "composition", "help with composition", "frame the group", "frame us")) {
@@ -495,6 +500,7 @@ class CaptureViewModel(
 
     fun makeItNicer() {
         if (!_uiState.value.shutterEnabled || _uiState.value.coachingPhase != CoachingPhase.IDLE) return
+        reanalysisRound = 0
         if (!canUseVisualAi()) {
             _uiState.update {
                 it.copy(
@@ -650,6 +656,7 @@ class CaptureViewModel(
                             return@launch
                         }
                         activeComplaintId = null
+                        if (maybeStartReanalysis()) return@launch
                         _uiState.update {
                             it.copy(
                                 review = null,
@@ -863,6 +870,25 @@ class CaptureViewModel(
             return
         }
         cancelJobsOnly()
+        val adjustment = plan.intent.adjustment
+        if (adjustment != null && adjustment.movement == CompositionMovement.ZOOM && adjustment.size != CompositionSize.KEEP) {
+            val scale = if (adjustment.size == CompositionSize.LARGER) 1.3f else 0.75f
+            val currentZoom = camera.telemetry.value.zoomRatio
+            val range = _uiState.value.capabilities.zoomRatioRange
+            val targetZoom = (currentZoom * scale).coerceIn(range.start, range.endInclusive)
+            logComposition("auto_zoom_${adjustment.size}_from_${currentZoom}_to_$targetZoom")
+            viewModelScope.launch {
+                camera.applyAtomically(listOf(CameraAdjustment.ZoomRatio(targetZoom)))
+                delay(400)
+                guidanceSceneAnchor = latestLiveObservation
+                startGuidanceLoop(plan)
+            }
+            return
+        }
+        startGuidanceLoop(plan)
+    }
+
+    private fun startGuidanceLoop(plan: CompositionPlan) {
         val started = nowMs()
         val guidance = ActiveGuidance(
             "Hold the camera while I check the framing", VerificationTarget.Composition(plan), started,
@@ -924,6 +950,7 @@ class CaptureViewModel(
 
     fun cancelCoaching(clearDecision: Boolean = true, preserveCommandPlan: Boolean = false) {
         compositionWatching = false
+        reanalysisRound = 0
         if (settingApplyInFlight || resetInFlight) return
         if (!preserveCommandPlan) {
             pendingCommandSteps.clear()
@@ -1733,6 +1760,7 @@ class CaptureViewModel(
                     }
                     return@launch
                 }
+                log.info("command result=$result comment=${comment.take(40)} autoEnhance=$autoEnhance reanalysis=$reanalysisRound")
                 when (result) {
                     is CommandResult.Planned -> {
                         logAgent(AgentLogKind.AI, "Plan: ${result.plan.steps.joinToString()}")
@@ -1740,7 +1768,14 @@ class CaptureViewModel(
                     }
                     is CommandResult.Clarified ->
                         useLocalFallback("AI interpretation needs clarification. Using local coaching.")
-                    CommandResult.NoChange -> showToast("Looks good already.")
+                    CommandResult.NoChange -> {
+                        if (reanalysisRound > 0) {
+                            reanalysisRound = 0
+                            showToast("Looking good!")
+                        } else {
+                            showToast("Looks good already.")
+                        }
+                    }
                     CommandResult.Unsure -> showToast("The model isn’t sure what to do. Please try again.")
                     is CommandResult.Failed -> showToast(result.message)
                     CommandResult.CredentialsRejected ->
@@ -2065,6 +2100,9 @@ class CaptureViewModel(
         activeComplaintId = null
         verificationStartObservationId = null
         verificationStartedAtMs = null
+        if (pendingVisualFocusText == null && pendingFocusAfterZoom == null && maybeStartReanalysis()) {
+            return
+        }
         _uiState.update {
             it.copy(
                 coachingPhase = CoachingPhase.IDLE,
@@ -2073,6 +2111,26 @@ class CaptureViewModel(
         }
         continueFocusAfterZoomIfPending()
         continueVisualFocusIfPending()
+    }
+
+    private fun maybeStartReanalysis(): Boolean {
+        if (reanalysisRound >= MAX_REANALYSIS_ROUNDS || !canUseVisualAi()) return false
+        reanalysisRound++
+        val axes = recentCameraChanges.flatMap { change ->
+            listOfNotNull(
+                "exposure".takeIf { change.before.exposureCompensationIndex != change.after.exposureCompensationIndex },
+                "white balance".takeIf { change.before.whiteBalancePreset != change.after.whiteBalancePreset || change.before.whiteBalanceLevel != change.after.whiteBalanceLevel },
+                "zoom".takeIf { change.before.zoomRatio != change.after.zoomRatio },
+            )
+        }.distinct()
+        val comment = if (axes.isNotEmpty()) {
+            "Make this shot look nicer. Already adjusted: ${axes.joinToString()}. Do not change those axes again."
+        } else {
+            "Make this shot look nicer."
+        }
+        log.info("reanalysis round=$reanalysisRound axes=$axes")
+        requestCommandPlan(comment, autoEnhance = true)
+        return true
     }
 
     private fun continueFocusAfterZoomIfPending() {

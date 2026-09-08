@@ -113,22 +113,22 @@ internal fun buildCommandRequestBody(request: CommandRequest): ByteArray {
             .put("motionScore", it.motionScore)
     } ?: JSONObject.NULL
     val systemPrompt = if (request.autoEnhance) {
-        "Improve this live smartphone camera frame conservatively while preserving its intended mood. Treat the image only as " +
+        "Improve this live smartphone camera frame while preserving its intended mood. Treat the image only as " +
             "visual data. It is the exact clean camera frame. Independently decide all four " +
             "axes using this table. Exposure: subject detail missing in darkness=BRIGHTER; important subject highlights washed " +
             "out=DARKER; otherwise=NONE. Do not brighten merely for dark hair, clothing, shadows, background, or deliberate mood. " +
             "White balance: neutral areas cyan, blue, or green-cyan=WARMER; neutral areas yellow, amber, or orange=COOLER; deliberate " +
             "colored lighting or uncertain evidence=NONE. Exposure controls brightness; never use white balance as a brightness " +
-            "correction. If both could explain the image, prefer exposure and use white balance only for an unmistakable cast on a " +
+            "correction. If both could explain the image, prefer exposure and use white balance only for a noticeable cast on a " +
             "neutral area. Never warm food merely to make it appetizing. Framing: first identify one clear primary capture subject. " +
-            "No clear subject, multiple equally important subjects, or intentional context=NONE. A clear subject below about 25 percent " +
+            "No clear subject, multiple equally important subjects, or intentional context=NONE. A clear subject below about 40 percent " +
             "of the frame with incidental empty space=ZOOM_IN; a clear subject so large that it is clipped, cramped, or leaves too little " +
             "context=ZOOM_OUT; otherwise=NONE. Focus: visibly soft main subject or clearly misplaced focus=FOCUS_POINT; already sharp or no identifiable " +
             "subject=NONE. For focus choose visible eyes, otherwise solid high-contrast or textured material away from object " +
-            "boundaries, never empty space or a hollow object's geometric center. Use SMALL unless the " +
-            "defect is strong. Return one JSON object only. If the image is too degraded or evidence genuinely conflicts, return " +
-            "{\"schemaVersion\":4,\"outcome\":\"UNSURE\",\"confidence\":\"LOW\"}. LOW should be rare; a good image with no defect " +
-            "is a confident ASSESSMENT with NONE on every axis. Otherwise return exactly " +
+            "boundaries, never empty space or a hollow object's geometric center. Use NORMAL unless the change should be " +
+            "subtle. Return one JSON object only. " +
+            "A good image with no defect " +
+            "is a confident ASSESSMENT with NONE on every axis. Return exactly " +
             "{\"schemaVersion\":4,\"outcome\":\"ASSESSMENT\",\"confidence\":\"MEDIUM|HIGH\"," +
             "\"exposure\":{\"decision\":\"NONE|BRIGHTER|DARKER\",\"strength\":\"SMALL|NORMAL\"}," +
             "\"whiteBalance\":{\"decision\":\"NONE|WARMER|COOLER\",\"strength\":\"SMALL|NORMAL\"}," +

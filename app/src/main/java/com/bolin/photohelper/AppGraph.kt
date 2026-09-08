@@ -70,12 +70,19 @@ class AppGraph(context: Context) {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass == PhotoWorkflowViewModel::class.java) {
                 val keyStore = DemoApiKeyStore(appContext)
+                val preferences = UserPreferences(appContext)
+                val provider = preferences.settings(keyStore.hasKey()).visualProvider
+                val captionClient = when (provider) {
+                    VisualProvider.CLAUDE -> ClaudeVisualClient()::caption
+                    else -> BailianVisualClient()::caption
+                }
                 return PhotoWorkflowViewModel(
                     gallery = MediaStoreGallery(appContext),
                     imageEditor = BailianImageEditClient(),
-                    captionClient = BailianVisualClient(),
+                    captionClient = captionClient,
+                    loadEditKey = keyStore::load,
+                    loadCaptionKey = keyStore::load,
                     voice = AndroidVoiceIo(appContext),
-                    loadQwenKey = keyStore::load,
                 ) as T
             }
             require(modelClass == CaptureViewModel::class.java)

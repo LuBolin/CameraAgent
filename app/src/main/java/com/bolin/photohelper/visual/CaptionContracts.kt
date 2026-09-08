@@ -85,9 +85,13 @@ internal fun captionPrompt(request: CaptionRequest): String = buildString {
 
 internal fun parseCaptionResponse(response: String, length: CaptionLength): String? {
     val content = parseCompletionContent(response) ?: return null
+    return parseCaptionContent(content, length)
+}
+
+internal fun parseCaptionContent(content: String, length: CaptionLength): String? {
     val value = strictObject(content) ?: return null
     if (value.keysSet() != setOf("schemaVersion", "caption") || value.opt("schemaVersion") != 1) return null
     val caption = (value.opt("caption") as? String)?.trim()?.takeIf(String::isNotEmpty) ?: return null
     if (caption.codePointCount(0, caption.length) > length.maxCodePoints) return null
-    return caption.takeIf { it.none { character -> character == '\u0000' } }
+    return caption.takeIf { it.none { ch -> ch == '\u0000' } }
 }
