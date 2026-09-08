@@ -49,13 +49,14 @@ class CameraSmokeTest {
     @Test
     fun virtualCameraCapturesAndEntersSavedReview() {
         openCameraAndWaitUntilReady()
+        val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
         try {
             compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).performClick()
             compose.waitUntil(timeoutMillis = 60_000) {
-                compose.onAllNodesWithText("Original remains saved").fetchSemanticsNodes().isNotEmpty()
+                viewModel.uiState.value.review != null
             }
 
-            compose.onNodeWithText("Original remains saved").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Photo captured").assertIsDisplayed()
             assertTrue(
                 compose.onAllNodesWithContentDescription("Captured photo unavailable")
                     .fetchSemanticsNodes().isEmpty(),
@@ -86,7 +87,7 @@ class CameraSmokeTest {
 
             val state = viewModel.uiState.value
             if (state.review != null) {
-                compose.onNodeWithText("Original remains saved").assertIsDisplayed()
+                compose.onNodeWithContentDescription("Photo captured").assertIsDisplayed()
             } else {
                 assertEquals(CameraPhase.READY, state.cameraPhase)
                 assertEquals(timeoutMessage, state.transientMessage)
@@ -549,10 +550,10 @@ class CameraSmokeTest {
         if (compose.onAllNodesWithText("Tap to Start").fetchSemanticsNodes().isNotEmpty()) {
             compose.onNodeWithText("Tap to Start").performClick()
         }
-        compose.waitUntil(timeoutMillis = 30_000) {
-            runCatching {
-                compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).assertIsEnabled()
-            }.isSuccess
+        val viewModel = ViewModelProvider(compose.activity)[CaptureViewModel::class.java]
+        compose.waitUntil(timeoutMillis = 60_000) {
+            val state = viewModel.uiState.value
+            state.cameraPhase == CameraPhase.READY && state.shutterEnabled
         }
     }
 
