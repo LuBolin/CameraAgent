@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -28,7 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,7 +52,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.bolin.photohelper.ui.ThemeMode
-import com.bolin.photohelper.visual.VisualProvider
 import com.bolin.photohelper.visual.MAX_API_KEY_CHARACTERS
 
 /**
@@ -73,7 +70,6 @@ fun SettingsSheet(
     onVisualAiEnabledChanged: (Boolean) -> Unit,
     onThemeModeChanged: (ThemeMode) -> Unit,
     onStyleProfileChanged: (String) -> Unit,
-    onVisualProviderChanged: (VisualProvider) -> Unit,
     onApiKeyChanged: (String) -> Unit,
     onTestKey: () -> Unit,
     onClearKey: () -> Unit,
@@ -176,7 +172,12 @@ fun SettingsSheet(
                     enabled = state.settings.keyConfigured && !state.settings.testingKey,
                 )
                 SettingsGroup("Model")
-                VisualProviderChooser(state.settings.visualProvider, onVisualProviderChanged)
+                Text("Qwen (Alibaba Cloud)")
+                Text(
+                    "This private demo uses one fixed model provider.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 QwenKeySetup(
                     settings = state.settings,
                     apiKeyInput = apiKeyInput,
@@ -208,44 +209,6 @@ private fun SettingsGroup(title: String) {
         modifier = Modifier.semantics { heading() },
     )
 }
-
-/**
- * Which model interprets the scene. Both arms send the same prompts and images, so
- * this is a like-for-like comparison rather than two different apps.
- */
-@Composable
-private fun VisualProviderChooser(selected: VisualProvider, onSelect: (VisualProvider) -> Unit) {
-    val options = listOf(
-        VisualProvider.QWEN to "Qwen (Alibaba Cloud)",
-        VisualProvider.CLAUDE to "Claude (Anthropic)",
-    )
-    Column {
-        options.forEach { (provider, label) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .selectable(
-                        selected = provider == selected,
-                        role = Role.RadioButton,
-                        onClick = { onSelect(provider) },
-                    )
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(selected = provider == selected, onClick = null)
-                Spacer(Modifier.size(12.dp))
-                Text(label)
-            }
-        }
-    }
-    Text(
-        "Each provider needs its own API key. Paste the key for whichever is selected.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
 
 /**
  * Free text describing the look the user is after. Optional, and never a technical

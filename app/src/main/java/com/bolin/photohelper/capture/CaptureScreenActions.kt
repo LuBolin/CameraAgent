@@ -2,7 +2,6 @@ package com.bolin.photohelper.capture
 
 import com.bolin.photohelper.coach.ClarificationChip
 import com.bolin.photohelper.ui.ThemeMode
-import com.bolin.photohelper.visual.VisualProvider
 
 interface CaptureScreenActions {
     // Camera controls
@@ -51,7 +50,6 @@ interface CaptureScreenActions {
     fun onVisualAiEnabledChanged(enabled: Boolean)
     fun onThemeModeChanged(mode: ThemeMode)
     fun onStyleProfileChanged(profile: String)
-    fun onVisualProviderChanged(provider: VisualProvider)
     fun onApiKeyChanged(key: String)
     fun onTestKey()
     fun onClearKey()

@@ -193,7 +193,6 @@ fun CaptureScreen(
             onVisualAiEnabledChanged = actions::onVisualAiEnabledChanged,
             onThemeModeChanged = actions::onThemeModeChanged,
             onStyleProfileChanged = actions::onStyleProfileChanged,
-            onVisualProviderChanged = actions::onVisualProviderChanged,
             onApiKeyChanged = actions::onApiKeyChanged,
             onTestKey = actions::onTestKey,
             onClearKey = actions::onClearKey,

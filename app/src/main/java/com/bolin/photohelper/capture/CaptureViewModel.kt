@@ -31,7 +31,6 @@ import com.bolin.photohelper.coach.VisualFamily
 import com.bolin.photohelper.coach.VisualHint
 import com.bolin.photohelper.coach.observationsComparable
 import com.bolin.photohelper.visual.VisualRequest
-import com.bolin.photohelper.visual.VisualProvider
 import com.bolin.photohelper.visual.VisualResult
 import com.bolin.photohelper.visual.markCompositionMembers
 import com.bolin.photohelper.visual.CommandRequest
@@ -1301,11 +1300,6 @@ class CaptureViewModel(
     fun setThemeMode(mode: ThemeMode) {
         preferences.setThemeMode(mode)
         updateSettings { it.copy(themeMode = mode) }
-    }
-
-    fun setVisualProvider(provider: VisualProvider) {
-        preferences.setVisualProvider(provider)
-        updateSettings { it.copy(visualProvider = provider) }
     }
 
     fun setStyleProfile(profile: String) {

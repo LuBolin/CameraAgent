@@ -46,7 +46,6 @@ class TestActions(
     var autoCaptureEnabledChanged: (Boolean) -> Unit = {},
     var themeModeChanged: (ThemeMode) -> Unit = {},
     var styleProfileChanged: (String) -> Unit = {},
-    var visualProviderChanged: (com.bolin.photohelper.visual.VisualProvider) -> Unit = {},
     var apiKeyChanged: (String) -> Unit = {},
     var testKey: () -> Unit = {},
     var clearKey: () -> Unit = {},
@@ -83,7 +82,6 @@ class TestActions(
     override fun onAutoCaptureEnabledChanged(enabled: Boolean) = autoCaptureEnabledChanged(enabled)
     override fun onThemeModeChanged(mode: ThemeMode) = themeModeChanged(mode)
     override fun onStyleProfileChanged(profile: String) = styleProfileChanged(profile)
-    override fun onVisualProviderChanged(provider: com.bolin.photohelper.visual.VisualProvider) = visualProviderChanged(provider)
     override fun onApiKeyChanged(key: String) = apiKeyChanged(key)
     override fun onTestKey() = testKey()
     override fun onClearKey() = clearKey()

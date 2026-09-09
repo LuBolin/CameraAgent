@@ -77,7 +77,6 @@ import com.bolin.photohelper.share.telegramIntent
 import com.bolin.photohelper.ui.Charcoal
 import com.bolin.photohelper.ui.PhotoHelperTheme
 import com.bolin.photohelper.ui.ThemeMode
-import com.bolin.photohelper.visual.VisualProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -327,7 +326,6 @@ private fun MainActivity.PhotoHelperApp(
             override fun onVisualAiEnabledChanged(enabled: Boolean) = viewModel.setVisualAiEnabled(enabled)
             override fun onThemeModeChanged(mode: ThemeMode) = viewModel.setThemeMode(mode)
             override fun onStyleProfileChanged(profile: String) = viewModel.setStyleProfile(profile)
-            override fun onVisualProviderChanged(provider: VisualProvider) = viewModel.setVisualProvider(provider)
             override fun onApiKeyChanged(key: String) { apiKeyInput = key }
             override fun onTestKey() {
                 val key = apiKeyInput.toCharArray()

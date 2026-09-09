@@ -2,21 +2,19 @@ package com.bolin.photohelper.capture
 
 import android.content.Context
 import com.bolin.photohelper.ui.ThemeMode
-import com.bolin.photohelper.visual.VisualProvider
 
 interface PreferenceStore {
     fun onboardingComplete(): Boolean
     fun setOnboardingComplete()
     fun firstUseHintSeen(): Boolean
     fun setFirstUseHintSeen()
-    fun settings(keyConfigured: Boolean, defaultProvider: VisualProvider = VisualProvider.QWEN): SettingsUiState
+    fun settings(keyConfigured: Boolean): SettingsUiState
     fun setSpokenGuidance(enabled: Boolean)
     fun setHaptics(enabled: Boolean)
     fun setTechnicalDetail(enabled: Boolean)
     fun setVisualAiEnabled(enabled: Boolean)
     fun setThemeMode(mode: ThemeMode)
     fun setStyleProfile(profile: String)
-    fun setVisualProvider(provider: VisualProvider)
     fun autoCaptureEnabled(): Boolean
     fun setAutoCaptureEnabled(enabled: Boolean)
     fun hasUsedVoice(): Boolean
@@ -32,7 +30,7 @@ class UserPreferences(context: Context) : PreferenceStore {
     override fun firstUseHintSeen(): Boolean = values.getBoolean(FIRST_USE_HINT_SEEN, false)
     override fun setFirstUseHintSeen() = put(FIRST_USE_HINT_SEEN, true)
 
-    override fun settings(keyConfigured: Boolean, defaultProvider: VisualProvider): SettingsUiState = SettingsUiState(
+    override fun settings(keyConfigured: Boolean): SettingsUiState = SettingsUiState(
         spokenGuidance = values.getBoolean(SPOKEN_GUIDANCE, true),
         haptics = values.getBoolean(HAPTICS, true),
         technicalDetail = values.getBoolean(TECHNICAL_DETAIL, false),
@@ -41,7 +39,6 @@ class UserPreferences(context: Context) : PreferenceStore {
         keyStatus = if (keyConfigured) "Key tested and saved" else "No key saved",
         themeMode = readThemeMode(),
         styleProfile = values.getString(STYLE_PROFILE, "").orEmpty(),
-        visualProvider = readVisualProvider(defaultProvider),
         autoCaptureEnabled = values.getBoolean(AUTO_CAPTURE_ENABLED, true),
     )
 
@@ -61,14 +58,6 @@ class UserPreferences(context: Context) : PreferenceStore {
     override fun hasUsedVoice(): Boolean = values.getBoolean(HAS_USED_VOICE, false)
     override fun setHasUsedVoice() = put(HAS_USED_VOICE, true)
 
-    override fun setVisualProvider(provider: VisualProvider) =
-        values.edit().putString(VISUAL_PROVIDER, provider.name).apply()
-
-    private fun readVisualProvider(default: VisualProvider): VisualProvider {
-        val stored = values.getString(VISUAL_PROVIDER, null) ?: return default
-        return VisualProvider.entries.firstOrNull { it.name == stored } ?: default
-    }
-
     private fun readThemeMode(): ThemeMode {
         val stored = values.getString(THEME_MODE, null) ?: return ThemeMode.SYSTEM
         return ThemeMode.entries.firstOrNull { it.name == stored } ?: ThemeMode.SYSTEM
@@ -86,7 +75,6 @@ class UserPreferences(context: Context) : PreferenceStore {
         const val VISUAL_AI_ENABLED = "visual_ai_enabled"
         const val THEME_MODE = "theme_mode"
         const val STYLE_PROFILE = "style_profile"
-        const val VISUAL_PROVIDER = "visual_provider"
         const val AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
         const val HAS_USED_VOICE = "has_used_voice"
     }

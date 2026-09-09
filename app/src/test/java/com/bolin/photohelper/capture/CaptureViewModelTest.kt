@@ -3065,7 +3065,6 @@ class CaptureViewModelTest {
     private class FakePreferences(private val visualEnabled: Boolean) : PreferenceStore {
         val visualAiEnabledWrites = mutableListOf<Boolean>()
         var storedStyleProfile = ""
-        var storedProvider = com.bolin.photohelper.visual.VisualProvider.QWEN
         var storedThemeMode = com.bolin.photohelper.ui.ThemeMode.SYSTEM
         var hintSeen = true
         override fun onboardingComplete() = true
@@ -3074,15 +3073,11 @@ class CaptureViewModelTest {
         override fun setFirstUseHintSeen() {
             hintSeen = true
         }
-        override fun settings(
-            keyConfigured: Boolean,
-            defaultProvider: com.bolin.photohelper.visual.VisualProvider,
-        ) = SettingsUiState(
+        override fun settings(keyConfigured: Boolean) = SettingsUiState(
             visualAiEnabled = visualEnabled,
             keyConfigured = keyConfigured,
             themeMode = storedThemeMode,
             styleProfile = storedStyleProfile,
-            visualProvider = storedProvider,
         )
         override fun setSpokenGuidance(enabled: Boolean) = Unit
         override fun setHaptics(enabled: Boolean) = Unit
@@ -3095,9 +3090,6 @@ class CaptureViewModelTest {
         }
         override fun setStyleProfile(profile: String) {
             storedStyleProfile = profile
-        }
-        override fun setVisualProvider(provider: com.bolin.photohelper.visual.VisualProvider) {
-            storedProvider = provider
         }
         override fun autoCaptureEnabled() = true
         override fun setAutoCaptureEnabled(enabled: Boolean) = Unit

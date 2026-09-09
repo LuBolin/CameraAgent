@@ -19,7 +19,6 @@ import com.bolin.photohelper.coach.DefaultCoachEngine
 import com.bolin.photohelper.visual.DemoApiKeyStore
 import com.bolin.photohelper.visual.BailianVisualClient
 import com.bolin.photohelper.visual.BailianImageEditClient
-import com.bolin.photohelper.visual.VisualProvider
 import com.bolin.photohelper.voice.AndroidVoiceIo
 import java.io.ByteArrayOutputStream
 
@@ -31,19 +30,12 @@ class AppGraph(context: Context) {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass == PhotoWorkflowViewModel::class.java) {
                 val keyStore = DemoApiKeyStore(appContext)
-                val preferences = UserPreferences(appContext)
                 return PhotoWorkflowViewModel(
                     gallery = MediaStoreGallery(appContext),
                     imageEditor = BailianImageEditClient(),
                     captionClient = BailianVisualClient(),
                     voice = AndroidVoiceIo(appContext),
-                    loadQwenKey = {
-                        if (preferences.settings(keyStore.hasKey(), VisualProvider.QWEN).visualProvider == VisualProvider.QWEN) {
-                            keyStore.load()
-                        } else {
-                            null
-                        }
-                    },
+                    loadQwenKey = keyStore::load,
                 ) as T
             }
             require(modelClass == CaptureViewModel::class.java)
