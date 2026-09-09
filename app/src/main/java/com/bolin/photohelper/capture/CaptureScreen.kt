@@ -27,10 +27,14 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +55,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.bolin.photohelper.BuildConfig
 import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.RecommendationAction
 import com.bolin.photohelper.guide.ActiveExercise
@@ -304,7 +309,7 @@ private fun CaptureContent(
             onSettingsOpen = actions::onSettingsOpen,
             onHelpOpen = onHelpOpen,
             modifier = Modifier.fillMaxSize(),
-            showTopChrome = chromeVisible,
+            showTopChrome = chromeVisible && state.coachingPhase !in CHROME_HIDDEN_PHASES,
             onToggleCompositionFace = actions::onToggleCompositionFace,
             iconRotation = iconRotation,
         )
@@ -348,28 +353,54 @@ private fun CaptureContent(
                 .padding(bottom = 24.dp)
                 .semantics { isTraversalGroup = true },
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            CompositionControls(state, actions)
-            DecisionSurface(state, actions)
+            if (BuildConfig.DEBUG) {
+                var debugCmd by remember { mutableStateOf("") }
+                OutlinedTextField(
+                    value = debugCmd,
+                    onValueChange = { debugCmd = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("test brighter / test zoom / …", style = MaterialTheme.typography.bodySmall) },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardActions = KeyboardActions(onGo = {
+                        actions.onUpdateComment(debugCmd)
+                        actions.onSubmitComment()
+                        debugCmd = ""
+                    }),
+                )
+            }
+            val guiding = state.coachingPhase == CoachingPhase.GUIDING
+            if (!guiding) {
+                CompositionControls(state, actions)
+                DecisionSurface(state, actions)
+            }
             if (!isLandscape) {
                 MirrorBar(instruction)
             }
+            if (guiding) {
+                CompositionControls(state, actions)
+            }
+            Spacer(Modifier.size(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Left: Gallery
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    OverlayIconAction(
-                        icon = Icons.Rounded.PhotoLibrary,
-                        image = galleryThumbnail,
-                        contentDescription = "Open gallery",
-                        onClick = actions::onOpenGallery,
-                        modifier = Modifier
-                            .graphicsLayer { rotationZ = iconRotation }
-                            .testTag(CaptureTestTags.GALLERY),
-                    )
+                if (!guiding) {
+                    // Left: Gallery
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        OverlayIconAction(
+                            icon = Icons.Rounded.PhotoLibrary,
+                            image = galleryThumbnail,
+                            contentDescription = "Open gallery",
+                            onClick = actions::onOpenGallery,
+                            modifier = Modifier
+                                .graphicsLayer { rotationZ = iconRotation }
+                                .testTag(CaptureTestTags.GALLERY),
+                        )
+                    }
                 }
                 // Center: Orb
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -382,17 +413,19 @@ private fun CaptureContent(
                         autoCaptureFlashKey = state.autoCaptureFlashKey,
                     )
                 }
-                // Right: AI button (starts voice)
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    OverlayIconAction(
-                        icon = if (state.coachingPhase == CoachingPhase.LISTENING) Icons.Rounded.Stop else Icons.Rounded.AutoAwesome,
-                        contentDescription = if (state.coachingPhase == CoachingPhase.LISTENING) "Finish voice comment" else "Describe what to improve",
-                        onClick = actions::onMicrophone,
-                        modifier = Modifier.graphicsLayer { rotationZ = iconRotation },
-                        tier = OverlayTier.PRIMARY,
-                        enabled = state.coachingPhase !in setOf(CoachingPhase.APPLYING, CoachingPhase.INTERPRETING),
-                        traversalIndex = 4.2f,
-                    )
+                if (!guiding) {
+                    // Right: AI button (starts voice)
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        OverlayIconAction(
+                            icon = if (state.coachingPhase == CoachingPhase.LISTENING) Icons.Rounded.Stop else Icons.Rounded.AutoAwesome,
+                            contentDescription = if (state.coachingPhase == CoachingPhase.LISTENING) "Finish voice comment" else "Describe what to improve",
+                            onClick = actions::onMicrophone,
+                            modifier = Modifier.graphicsLayer { rotationZ = iconRotation },
+                            tier = OverlayTier.PRIMARY,
+                            enabled = state.coachingPhase !in setOf(CoachingPhase.APPLYING, CoachingPhase.INTERPRETING),
+                            traversalIndex = 4.2f,
+                        )
+                    }
                 }
             }
         }
@@ -401,6 +434,13 @@ private fun CaptureContent(
 }
 
 private enum class Screen { LANDING, PERMISSION, BLOCKED, CAMERA }
+
+private val CHROME_HIDDEN_PHASES = setOf(
+    CoachingPhase.GUIDING,
+    CoachingPhase.APPLYING,
+    CoachingPhase.INTERPRETING,
+    CoachingPhase.REQUESTING_VISUAL_INTERPRETATION,
+)
 
 /**
  * What a tap on a decided Orb means. The Orb is the confirm button for whatever the

@@ -115,9 +115,9 @@ fun mirrorBarText(state: CaptureUiState): String? {
         CoachingPhase.VERIFYING -> "Checking the change…"
         CoachingPhase.RECOMMENDATION,
         CoachingPhase.GUIDING,
-        CoachingPhase.TRANSIENT_ERROR,
+        CoachingPhase.TRANSIENT_ERROR -> null
         CoachingPhase.IDLE ->
-            if (state.showFirstUseHint) FIRST_USE_HINT else null
+            if (state.showFirstUseHint && state.decision == null) FIRST_USE_HINT else null
     }
 }
 

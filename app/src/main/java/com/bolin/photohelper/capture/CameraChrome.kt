@@ -1,6 +1,7 @@
 package com.bolin.photohelper.capture
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -134,10 +135,15 @@ fun PreviewPane(
             CompositionFaceSelection(faces, state.compositionSelectedIndices, observation, isFrontCamera, onToggleCompositionFace)
         }
 
-        if (showTopChrome) {
+        val reducedMotion = LocalReducedMotion.current
+        AnimatedVisibility(
+            visible = showTopChrome,
+            modifier = Modifier.align(Alignment.TopCenter),
+            enter = fadeIn(tween(if (reducedMotion) 0 else 200)),
+            exit = fadeOut(tween(if (reducedMotion) 0 else 150)),
+        ) {
             Row(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .safeDrawingPadding()
                     .padding(12.dp)

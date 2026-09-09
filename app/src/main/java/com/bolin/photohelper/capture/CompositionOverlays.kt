@@ -1,5 +1,11 @@
 package com.bolin.photohelper.capture
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +24,7 @@ import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import com.bolin.photohelper.coach.VerificationTarget
+import com.bolin.photohelper.ui.LocalReducedMotion
 import com.bolin.photohelper.ui.Mango
 import com.bolin.photohelper.ui.LocalOverlayColors
 import com.bolin.photohelper.ui.SoftCream
@@ -64,8 +71,25 @@ fun GuidanceTarget(guidance: ActiveGuidance, modifier: Modifier = Modifier,
 fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions) {
     val active = state.activeGuidance
     val overlays = LocalOverlayColors.current
+    val reducedMotion = LocalReducedMotion.current
+    val enterMs = if (reducedMotion) 0 else 250
+    val exitMs = if (reducedMotion) 0 else 150
     val selection = state.compositionSelection
-    if (selection != null) {
+
+    val showSelection = selection != null
+    val showStop = !showSelection && (state.compositionEnabled || active != null) && state.decision == null
+    val showFrame = !showSelection && !showStop &&
+        state.coachingPhase == CoachingPhase.IDLE && state.review == null &&
+        state.decision == null
+
+    AnimatedVisibility(
+        visible = showSelection,
+        enter = fadeIn(tween(enterMs)) + slideInVertically(
+            animationSpec = tween(enterMs, easing = LinearOutSlowInEasing),
+            initialOffsetY = { it / 3 },
+        ),
+        exit = fadeOut(tween(exitMs)),
+    ) {
         Surface(shape = MaterialTheme.shapes.medium, color = overlays.scrimOpaque) {
             Column(
                 Modifier.fillMaxWidth().padding(12.dp),
@@ -99,7 +123,16 @@ fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions) {
                 }
             }
         }
-    } else if (state.compositionEnabled || active != null) {
+    }
+
+    AnimatedVisibility(
+        visible = showStop,
+        enter = fadeIn(tween(enterMs)) + slideInVertically(
+            animationSpec = tween(enterMs, easing = LinearOutSlowInEasing),
+            initialOffsetY = { it / 3 },
+        ),
+        exit = fadeOut(tween(exitMs)),
+    ) {
         Row(
             modifier = Modifier
                 .testTag(CaptureTestTags.RESPONSE_CARD)
@@ -128,7 +161,13 @@ fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions) {
                 contentPadding = PaddingValues(horizontal = 14.dp),
             ) { Text("Stop") }
         }
-    } else if (state.coachingPhase == CoachingPhase.IDLE && state.review == null) {
+    }
+
+    AnimatedVisibility(
+        visible = showFrame,
+        enter = fadeIn(tween(enterMs)),
+        exit = fadeOut(tween(exitMs)),
+    ) {
         Button(
             onClick = actions::onComposition,
             enabled = state.shutterEnabled,

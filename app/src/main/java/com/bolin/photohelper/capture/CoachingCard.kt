@@ -1,6 +1,12 @@
 package com.bolin.photohelper.capture
 
 import android.view.accessibility.AccessibilityManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +36,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +58,7 @@ import com.bolin.photohelper.coach.Recommendation
 import com.bolin.photohelper.coach.RecommendationAction
 import com.bolin.photohelper.ui.Charcoal
 import com.bolin.photohelper.ui.LocalOverlayColors
+import com.bolin.photohelper.ui.LocalReducedMotion
 import com.bolin.photohelper.ui.Mango
 
 /**
@@ -57,6 +68,10 @@ import com.bolin.photohelper.ui.Mango
  */
 @Composable
 fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifier: Modifier = Modifier) {
+    val reducedMotion = LocalReducedMotion.current
+    val enterMs = if (reducedMotion) 0 else 250
+    val exitMs = if (reducedMotion) 0 else 150
+
     // A running self-timer must always be stoppable.
     if (state.countdownSecondsRemaining != null) {
         FrostedCard(modifier) {
@@ -70,51 +85,73 @@ fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifi
         return
     }
 
-    when (val decision = state.decision) {
-        null -> Unit
-        is LocalDecision.Recommend -> {
-            val recommendation = decision.recommendation
-            val primary = primaryActionLabel(recommendation, applying = state.coachingPhase == CoachingPhase.APPLYING)
-            if (primary == null) return
-            FrostedCard(modifier) {
-                CardHeadline(recommendation.actionText)
-                CardActions(
-                    primaryLabel = primary,
-                    onPrimary = { confirmRecommendation(recommendation, actions) },
-                    primaryEnabled = state.coachingPhase != CoachingPhase.APPLYING,
-                    secondaryLabel = if (state.resetAvailable) "Reset" else "Dismiss",
-                    onSecondary = if (state.resetAvailable) actions::onReset else actions::onDismissDecision,
-                )
-            }
-        }
-        is LocalDecision.Clarify -> FrostedCard(modifier) {
-            CardHeadline(decision.question)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                decision.chips.forEach { chip ->
-                    OverlayChip(
-                        label = chip.label,
-                        onClick = { actions.onClarificationSelected(chip) },
+    if (state.activeGuidance != null) return
+
+    val decision = state.decision
+    // Snapshot the last decision so the card stays visible during exit animation.
+    var lastDecision by remember { mutableStateOf<LocalDecision?>(null) }
+    if (decision != null) lastDecision = decision
+
+    val visible = when (val d = decision) {
+        null -> false
+        is LocalDecision.Recommend ->
+            primaryActionLabel(d.recommendation, applying = state.coachingPhase == CoachingPhase.APPLYING) != null
+        else -> true
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(enterMs)) + slideInVertically(
+            animationSpec = tween(enterMs, easing = LinearOutSlowInEasing),
+            initialOffsetY = { it / 3 },
+        ),
+        exit = fadeOut(tween(exitMs)),
+    ) {
+        val d = lastDecision ?: return@AnimatedVisibility
+        when (d) {
+            is LocalDecision.Recommend -> {
+                val primary = primaryActionLabel(d.recommendation, applying = state.coachingPhase == CoachingPhase.APPLYING)
+                    ?: return@AnimatedVisibility
+                FrostedCard(modifier) {
+                    CardHeadline(d.recommendation.actionText)
+                    CardActions(
+                        primaryLabel = primary,
+                        onPrimary = { confirmRecommendation(d.recommendation, actions) },
+                        primaryEnabled = state.coachingPhase != CoachingPhase.APPLYING,
+                        secondaryLabel = if (state.resetAvailable) "Reset" else "Dismiss",
+                        onSecondary = if (state.resetAvailable) actions::onReset else actions::onDismissDecision,
                     )
                 }
             }
-            CardActions(
-                primaryLabel = null,
-                onPrimary = {},
-                secondaryLabel = "Dismiss",
-                onSecondary = actions::onDismissDecision,
-            )
-        }
-        is LocalDecision.Advisory -> FrostedCard(modifier) {
-            CardHeadline(decision.headline)
-            CardActions(
-                primaryLabel = if (state.resetAvailable) "Reset" else null,
-                onPrimary = actions::onReset,
-                secondaryLabel = "Dismiss",
-                onSecondary = actions::onDismissDecision,
-            )
+            is LocalDecision.Clarify -> FrostedCard(modifier) {
+                CardHeadline(d.question)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    d.chips.forEach { chip ->
+                        OverlayChip(
+                            label = chip.label,
+                            onClick = { actions.onClarificationSelected(chip) },
+                        )
+                    }
+                }
+                CardActions(
+                    primaryLabel = null,
+                    onPrimary = {},
+                    secondaryLabel = "Dismiss",
+                    onSecondary = actions::onDismissDecision,
+                )
+            }
+            is LocalDecision.Advisory -> FrostedCard(modifier) {
+                CardHeadline(d.headline)
+                CardActions(
+                    primaryLabel = if (state.resetAvailable) "Reset" else null,
+                    onPrimary = actions::onReset,
+                    secondaryLabel = "Dismiss",
+                    onSecondary = actions::onDismissDecision,
+                )
+            }
         }
     }
 }
