@@ -15,14 +15,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.assertAll
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
-import androidx.compose.ui.test.isNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
@@ -35,6 +33,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
+import androidx.test.platform.app.InstrumentationRegistry
 import com.bolin.photohelper.coach.ClarificationChip
 import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.Recommendation
@@ -42,6 +41,7 @@ import com.bolin.photohelper.coach.RecommendationAction
 import com.bolin.photohelper.coach.RecommendationBasis
 import com.bolin.photohelper.coach.SettingChange
 import com.bolin.photohelper.coach.VerificationTarget
+import com.bolin.photohelper.guide.GuideProgress
 import com.bolin.photohelper.ui.PhotoHelperTheme
 import com.bolin.photohelper.ui.ThemeMode
 import org.junit.Assert.assertEquals
@@ -79,14 +79,20 @@ class CaptureScreenTest {
 
     @Test
     fun landingOffersTheGuideWithoutBlockingTheCamera() {
+        val progress = GuideProgress(InstrumentationRegistry.getInstrumentation().targetContext)
         compose.setContent {
-            PhotoHelperTheme { TestCaptureScreen(state = CaptureUiState(onboardingStep = 0)) }
+            PhotoHelperTheme {
+                TestCaptureScreen(
+                    state = CaptureUiState(onboardingStep = 0),
+                    guideProgress = progress,
+                )
+            }
         }
 
         compose.onNodeWithText("How it works").performClick()
-        compose.onNodeWithText("Two controls: the ring and a mic.").assertIsDisplayed()
-        compose.onNodeWithText("Close").performScrollTo().performClick()
-        compose.onNodeWithText("Two controls: the ring and a mic.").assertDoesNotExist()
+        compose.onNodeWithText("Photography guide").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Photography guide").assertDoesNotExist()
     }
 
     @Test
@@ -329,14 +335,16 @@ class CaptureScreenTest {
     // ── Camera chrome ──────────────────────────────────────────────
 
     @Test
-    fun chromeShowsOnlyFourPersistentControls() {
+    fun cameraChromeShowsOnlyPrimaryControls() {
         compose.setContent {
             PhotoHelperTheme { TestCaptureScreen(state = readyState()) }
         }
 
-        compose.onNodeWithTag(CaptureTestTags.MICROPHONE).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Open gallery").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Describe what to improve").assertIsDisplayed()
         compose.onNodeWithContentDescription("Switch to selfie camera").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Settings").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Open the guide").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Open settings menu").assertIsDisplayed()
         compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).assertIsDisplayed()
 
         // Flash removed from persistent controls. Accessible only via voice.
@@ -378,7 +386,7 @@ class CaptureScreenTest {
         }
 
         compose.onNodeWithContentDescription("Switch to selfie camera").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Settings").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Open settings menu").assertIsDisplayed()
     }
 
     // ── Decisions ──────────────────────────────────────────────────
@@ -722,7 +730,7 @@ class CaptureScreenTest {
     // ── Review ─────────────────────────────────────────────────────
 
     @Test
-    fun captureReviewUsesRetakeWordingAndSavedOriginalMessage() {
+    fun captureReviewShowsCapturedStateAndReturnsToCamera() {
         var applied = false
         var retaken = false
         compose.setContent {
@@ -742,9 +750,9 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Original remains saved").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Photo captured").assertIsDisplayed()
         compose.onNodeWithText("Apply for retake").performScrollTo().assertIsDisplayed().performClick()
-        compose.onNodeWithText("Retake").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Return to camera").assertIsDisplayed().performClick()
         compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).assertDoesNotExist()
         compose.runOnIdle {
             assertTrue(applied)
@@ -766,26 +774,26 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Retake").assertIsNotEnabled()
-        compose.onAllNodesWithText("Done").assertAll(isNotEnabled())
+        compose.onNodeWithContentDescription("Return to camera").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Open gallery").assertIsNotEnabled()
     }
 
     @Test
-    fun captureReviewKeepsActionsAdjacentWhenNoDecisionIsShown() {
+    fun captureReviewShowsTranscriptWithNavigation() {
         compose.setContent {
             PhotoHelperTheme {
                 TestCaptureScreen(
-                    state = readyState(cameraPhase = CameraPhase.REVIEWING, review = savedCapture())
-                        .copy(comment = "make the retake cooler"),
+                    state = readyState(
+                        cameraPhase = CameraPhase.REVIEWING,
+                        coachingPhase = CoachingPhase.INTERPRETING,
+                        review = savedCapture(),
+                    ).copy(comment = "make the retake cooler"),
                 )
             }
         }
 
-        val transcript = compose.onNodeWithTag(CaptureTestTags.COMMENT).fetchSemanticsNode().boundsInRoot
-        val retake = compose.onNodeWithText("Retake").fetchSemanticsNode().boundsInRoot
-        val gap = retake.top - transcript.bottom
-
-        assertTrue("Review actions left excessive dead space below the transcript: $gap px", gap in 0f..transcript.height)
+        compose.onNodeWithTag(CaptureTestTags.COMMENT).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Return to camera").assertIsDisplayed()
     }
 
     @Test
@@ -849,7 +857,7 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("AI-interpreted by Qwen via Alibaba Cloud; camera controls checked on device")
+        compose.onNodeWithText("Analyzed by cloud AI · Changes applied on this phone")
             .performScrollTo()
             .assertIsDisplayed()
     }
@@ -858,16 +866,18 @@ class CaptureScreenTest {
 
     @Test
     fun guideExplainsTheControlsAndCloses() {
+        val progress = GuideProgress(InstrumentationRegistry.getInstrumentation().targetContext)
         compose.setContent {
-            PhotoHelperTheme { TestCaptureScreen(state = readyState(settingsOpen = true)) }
+            PhotoHelperTheme {
+                TestCaptureScreen(state = readyState(), guideProgress = progress)
+            }
         }
 
-        compose.onNodeWithText("How it works").performScrollTo().performClick()
-        compose.onNodeWithText("Tap the ring").assertIsDisplayed()
-        compose.onNodeWithText("Tap the mic").assertIsDisplayed()
-        compose.onNodeWithText("Hold the ring").assertIsDisplayed()
-        compose.onNodeWithText("Watch the colour").assertIsDisplayed()
-        compose.onNodeWithText("Double tap the ring").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Open the guide").performClick()
+        compose.onNodeWithText("Photography guide").assertIsDisplayed()
+        compose.onNodeWithText("Take your first photo").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Photography guide").assertDoesNotExist()
     }
 
     @Test
@@ -877,13 +887,13 @@ class CaptureScreenTest {
         }
 
         compose.onNodeWithTag(CaptureTestTags.SETTINGS).assertExists()
-        compose.onNodeWithText("Interaction").assertIsDisplayed()
-        compose.onNodeWithText("Appearance").assertIsDisplayed()
-        compose.onNodeWithText("Style").performScrollTo().assertExists()
+        compose.onNodeWithText("Sound & Vibration").assertIsDisplayed()
+        compose.onNodeWithText("Smart Features").assertIsDisplayed()
+        compose.onNodeWithText("Appearance").performScrollTo().assertExists()
 
         // Provider plumbing stays collapsed until asked for.
         compose.onNodeWithText("Alibaba Cloud Model Studio (Bailian) API key").assertDoesNotExist()
-        compose.onNodeWithText("Advanced").performScrollTo().performClick()
+        compose.onNodeWithText("Advanced options").performScrollTo().performClick()
         compose.onNodeWithText("Alibaba Cloud Model Studio (Bailian) API key").performScrollTo().assertExists()
     }
 
@@ -906,8 +916,8 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Vibration").performScrollTo().assertIsDisplayed().performClick()
-        compose.onNodeWithText("Advanced").performScrollTo().performClick()
+        compose.onNodeWithText("Vibration feedback").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("Advanced options").performScrollTo().performClick()
         compose.onNodeWithText("AI interpretation").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("Test, save & enable").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("Alibaba Cloud Model Studio (Bailian) API key")
@@ -933,7 +943,7 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Advanced").performScrollTo().performClick()
+        compose.onNodeWithText("Advanced options").performScrollTo().performClick()
         compose.onNodeWithText("Alibaba Cloud Model Studio (Bailian) API key")
             .performScrollTo()
             .performTextInput("x".repeat(513))
@@ -953,7 +963,7 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Advanced").performScrollTo().performClick()
+        compose.onNodeWithText("Advanced options").performScrollTo().performClick()
         compose.onNodeWithText("Test, save & enable").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("Clear key").performScrollTo().assertIsEnabled()
     }
@@ -970,6 +980,7 @@ class CaptureScreenTest {
             }
         }
 
+        compose.onNodeWithText("Advanced options").performScrollTo().performClick()
         compose.onNodeWithText("Describe your photo style (optional)")
             .performScrollTo()
             .performTextInput("moody and cinematic")
@@ -977,7 +988,7 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun appearanceOffersAnExplicitLightAndDarkChoice() {
+    fun appearanceOffersDarkModeToggle() {
         var chosen: ThemeMode? = null
         compose.setContent {
             PhotoHelperTheme {
@@ -988,15 +999,14 @@ class CaptureScreenTest {
             }
         }
 
-        compose.onNodeWithText("Match my phone").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Dark").performScrollTo().performClick()
+        compose.onNodeWithText("Dark mode").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(ThemeMode.DARK, chosen) }
     }
 
     // ── Layout and traversal ───────────────────────────────────────
 
     @Test
-    fun landscapeKeepsControlsInAVerticalRightRail() {
+    fun landscapeConfigurationKeepsPortraitChrome() {
         val landscape = Configuration().apply { orientation = Configuration.ORIENTATION_LANDSCAPE }
         compose.setContent {
             CompositionLocalProvider(LocalConfiguration provides landscape) {
@@ -1004,16 +1014,10 @@ class CaptureScreenTest {
             }
         }
 
-        val root = compose.onNodeWithTag(CaptureTestTags.ROOT).fetchSemanticsNode().boundsInRoot
-        val strip = compose.onNodeWithTag(CaptureTestTags.CONTROL_STRIP).fetchSemanticsNode().boundsInRoot
-        val mic = compose.onNodeWithTag(CaptureTestTags.MICROPHONE).fetchSemanticsNode().boundsInRoot
-        val orb = compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).fetchSemanticsNode().boundsInRoot
-        val settings = compose.onNodeWithContentDescription("Settings").fetchSemanticsNode().boundsInRoot
-
-        assertTrue("Control strip is not on the right edge", strip.right == root.right)
-        assertTrue("Control strip is not vertical", strip.height > strip.width)
-        assertTrue("Controls are not ordered vertically", mic.center.y < orb.center.y)
-        assertTrue("Controls are not ordered vertically", orb.center.y < settings.center.y)
+        compose.onNodeWithTag(CaptureTestTags.CONTROL_STRIP).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Describe what to improve").assertIsDisplayed()
+        compose.onNodeWithTag(CaptureTestTags.HELPER_ORB).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Open settings menu").assertIsDisplayed()
     }
 
     @Test

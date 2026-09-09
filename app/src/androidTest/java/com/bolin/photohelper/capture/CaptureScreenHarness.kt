@@ -3,6 +3,7 @@ package com.bolin.photohelper.capture
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import com.bolin.photohelper.coach.ClarificationChip
+import com.bolin.photohelper.guide.GuideProgress
 import com.bolin.photohelper.ui.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -100,6 +101,7 @@ fun TestCaptureScreen(
     apiKeyInput: String = "",
     isFrontCamera: Boolean = false,
     canFlipCamera: Boolean = true,
+    guideProgress: GuideProgress? = null,
     preview: @Composable BoxScope.() -> Unit = { DefaultPreview() },
 ) {
     CaptureScreen(
@@ -111,6 +113,7 @@ fun TestCaptureScreen(
         isFrontCamera = isFrontCamera,
         canFlipCamera = canFlipCamera,
         actions = actions,
+        guideProgress = guideProgress,
     )
 }
 
