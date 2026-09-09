@@ -302,6 +302,7 @@ private fun MainActivity.PhotoHelperApp(
             override fun onApplyRecommendation() = viewModel.applyRecommendation()
             override fun onStartGuidance() = viewModel.startGuidance()
             override fun onComposition() = viewModel.requestComposition()
+            override fun onBestShot() = viewModel.bestShot()
             override fun onCannotMoveFurther() = viewModel.cannotMoveFurther()
             override fun onChangeCompositionSelection() = viewModel.changeCompositionSelection()
             override fun onToggleCompositionFace(index: Int) = viewModel.toggleCompositionFace(index)
@@ -351,13 +352,8 @@ private fun MainActivity.PhotoHelperApp(
     val confidence by viewModel.confidence.collectAsStateWithLifecycle()
     val guideProgress = remember { GuideProgress(activity.applicationContext) }
 
-    val lockOrientation by viewModel.shouldLockOrientation.collectAsStateWithLifecycle()
-    DisposableEffect(lockOrientation) {
-        activity.requestedOrientation = if (lockOrientation) {
-            ActivityInfo.SCREEN_ORIENTATION_LOCKED
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
+    DisposableEffect(Unit) {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         onDispose { activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     }
 

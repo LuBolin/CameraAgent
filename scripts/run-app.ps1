@@ -125,6 +125,24 @@ if (-not $attached) {
     Write-Ok "device already attached"
 }
 
+# Pick a single target device for launch commands. When multiple devices are
+# connected, prefer a physical device unless -Avd was given explicitly.
+$allDevices = @(& $adb devices | Select-String -Pattern "^(\S+)\s+device$" | ForEach-Object { $_.Matches[0].Groups[1].Value })
+if ($allDevices.Count -gt 1 -and -not $Avd) {
+    $physical = $allDevices | Where-Object { $_ -notlike "emulator-*" } | Select-Object -First 1
+    $targetSerial = if ($physical) { $physical } else { $allDevices[0] }
+} elseif ($allDevices.Count -gt 0) {
+    if ($Avd) {
+        $emu = $allDevices | Where-Object { $_ -like "emulator-*" } | Select-Object -First 1
+        $targetSerial = if ($emu) { $emu } else { $allDevices[0] }
+    } else {
+        $targetSerial = $allDevices[0]
+    }
+} else {
+    $targetSerial = $null
+}
+if ($targetSerial) { Write-Ok "target: $targetSerial" }
+
 # --- Build and install --------------------------------------------------------
 $gradlew = Join-Path $repoRoot "gradlew.bat"
 $gradleTasks = @()
@@ -148,16 +166,16 @@ if (-not $NoLaunch -and (Test-Path -LiteralPath $appGradle -PathType Leaf)) {
     if ((Get-Content -LiteralPath $appGradle -Raw) -match 'applicationId\s*=\s*"([^"]+)"') {
         $applicationId = $Matches[1]
     }
-    if ($applicationId) {
-        Write-Step "Launching $applicationId"
-        Invoke-Quiet $adb shell monkey -p $applicationId -c android.intent.category.LAUNCHER 1
+    if ($applicationId -and $targetSerial) {
+        Write-Step "Launching $applicationId on $targetSerial"
+        Invoke-Quiet $adb -s $targetSerial shell monkey -p $applicationId -c android.intent.category.LAUNCHER 1
         Start-Sleep -Seconds 3
-        $processId = & $adb shell pidof $applicationId 2>$null
+        $processId = & $adb -s $targetSerial shell pidof $applicationId 2>$null
         if ("$processId".Trim()) {
             Write-Ok "running (pid $($processId.Trim()))"
         } else {
             Write-Warn "process is not running - recent crash log:"
-            & $adb logcat -d -b crash -t 40
+            & $adb -s $targetSerial logcat -d -b crash -t 40
         }
     }
 }

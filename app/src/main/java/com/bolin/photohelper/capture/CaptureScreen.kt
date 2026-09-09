@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -320,29 +321,50 @@ private fun CaptureContent(
             } else {
                 Alignment.CenterEnd
             }
+            val bestShotAlign = if (deviceOrientation.devicePosture == 90) {
+                Alignment.CenterEnd
+            } else {
+                Alignment.CenterStart
+            }
+            val landscapeSwap = Modifier.layout { measurable, constraints ->
+                val placeable = measurable.measure(
+                    constraints.copy(
+                        minWidth = 0,
+                        maxWidth = constraints.maxHeight,
+                        minHeight = 0,
+                        maxHeight = constraints.maxWidth,
+                    ),
+                )
+                layout(placeable.height, placeable.width) {
+                    placeable.place(
+                        x = -(placeable.width - placeable.height) / 2,
+                        y = -(placeable.height - placeable.width) / 2,
+                    )
+                }
+            }
             MirrorBar(
                 instruction,
                 modifier = Modifier
                     .align(mirrorAlign)
                     .padding(24.dp)
-                    .layout { measurable, constraints ->
-                        val placeable = measurable.measure(
-                            constraints.copy(
-                                minWidth = 0,
-                                maxWidth = constraints.maxHeight,
-                                minHeight = 0,
-                                maxHeight = constraints.maxWidth,
-                            ),
-                        )
-                        layout(placeable.height, placeable.width) {
-                            placeable.place(
-                                x = -(placeable.width - placeable.height) / 2,
-                                y = -(placeable.height - placeable.width) / 2,
-                            )
-                        }
-                    }
+                    .then(landscapeSwap)
                     .graphicsLayer { rotationZ = iconRotation },
             )
+            val showBestShot = state.compositionSelection == null &&
+                !(state.compositionEnabled || state.activeGuidance != null) &&
+                state.coachingPhase == CoachingPhase.IDLE &&
+                state.review == null && state.decision == null
+            if (showBestShot) {
+                MirrorBar(
+                    "Best shot",
+                    modifier = Modifier
+                        .align(bestShotAlign)
+                        .padding(24.dp)
+                        .clickable(enabled = state.shutterEnabled) { actions.onBestShot() }
+                        .then(landscapeSwap)
+                        .graphicsLayer { rotationZ = iconRotation },
+                )
+            }
         }
         Column(
             modifier = Modifier
@@ -355,7 +377,7 @@ private fun CaptureContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (BuildConfig.DEBUG) {
+            if (BuildConfig.DEBUG && android.os.Build.FINGERPRINT.contains("generic")) {
                 var debugCmd by remember { mutableStateOf("") }
                 OutlinedTextField(
                     value = debugCmd,
@@ -374,23 +396,21 @@ private fun CaptureContent(
             }
             val guiding = state.coachingPhase == CoachingPhase.GUIDING
             if (!guiding) {
-                CompositionControls(state, actions)
                 DecisionSurface(state, actions)
             }
             if (!isLandscape) {
                 MirrorBar(instruction)
             }
-            if (guiding) {
-                CompositionControls(state, actions)
-            }
+            CompositionControls(state, actions, iconRotation, isLandscape)
             Spacer(Modifier.size(8.dp))
+            val showFlanking = !guiding && state.decision == null
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (!guiding) {
-                    // Left: Gallery
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                // Left: Gallery
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    if (showFlanking) {
                         OverlayIconAction(
                             icon = Icons.Rounded.PhotoLibrary,
                             image = galleryThumbnail,
@@ -413,9 +433,9 @@ private fun CaptureContent(
                         autoCaptureFlashKey = state.autoCaptureFlashKey,
                     )
                 }
-                if (!guiding) {
-                    // Right: AI button (starts voice)
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                // Right: AI button (starts voice)
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    if (showFlanking) {
                         OverlayIconAction(
                             icon = if (state.coachingPhase == CoachingPhase.LISTENING) Icons.Rounded.Stop else Icons.Rounded.AutoAwesome,
                             contentDescription = if (state.coachingPhase == CoachingPhase.LISTENING) "Finish voice comment" else "Describe what to improve",

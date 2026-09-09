@@ -145,10 +145,16 @@ fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifi
             }
             is LocalDecision.Advisory -> FrostedCard(modifier) {
                 CardHeadline(d.headline)
+                Text(
+                    d.detail,
+                    color = LocalOverlayColors.current.onOverlay,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 CardActions(
-                    primaryLabel = if (state.resetAvailable) "Reset" else null,
-                    onPrimary = actions::onReset,
-                    secondaryLabel = "Dismiss",
+                    primaryLabel = null,
+                    onPrimary = {},
+                    secondaryLabel = "Got it",
                     onSecondary = actions::onDismissDecision,
                 )
             }
@@ -299,9 +305,8 @@ fun CoachingControls(
         )
     }
 
-    if (state.resetAvailable && decision == null && !applying && state.transientMessage == null) {
-        ResetCard(onReset = onReset)
-    }
+    // Reset is available through the decision card's secondary action when a
+    // decision is showing; the standalone ResetCard was confusing with no context.
 }
 
 @Composable

@@ -210,7 +210,7 @@ class DefaultCoachEngine(
         hint: VisualHint,
     ): LocalDecision = when (hint) {
         is VisualHint.CompositionPlan -> if (family == VisualFamily.COMPOSITION) {
-            val plan = compileComposition(hint.intent, input.compositionMembers.orEmpty())
+            val plan = compileComposition(hint.intent, input.compositionMembers.orEmpty(), input.observation?.deviceRollDegrees)
             if (plan.guidanceMode == GuidanceMode.ADVICE_ONLY) {
                 LocalDecision.Advisory("Composition idea", plan.advice, fromVisualHint = true)
             } else LocalDecision.Recommend(Recommendation(
@@ -553,7 +553,7 @@ class DefaultCoachEngine(
     private fun level(input: CoachingInput): LocalDecision {
         val roll = input.observation?.deviceRollDegrees
             ?: return LocalDecision.Advisory("Level guidance is unavailable", "This phone is not reporting its angle.")
-        if (abs(roll) <= 1.5f) return LocalDecision.Advisory("The phone is already level", "It is within the 1.5° target band.")
+        if (abs(roll) <= 3f) return LocalDecision.Advisory("The phone is already level", "It is within the 3° target band.")
         val instruction = if (roll > 0) "Rotate the phone a little counterclockwise." else "Rotate the phone a little clockwise."
         return LocalDecision.Recommend(
             Recommendation(
@@ -563,7 +563,7 @@ class DefaultCoachEngine(
                 actionText = instruction,
                 consequence = "I’ll check when the phone is level.",
                 primaryLabel = "Start guidance",
-                action = RecommendationAction.GuidePosition(instruction, VerificationTarget.Level()),
+                action = RecommendationAction.GuidePosition(instruction, VerificationTarget.Level(maxAbsoluteRollDegrees = 3f)),
                 basis = RecommendationBasis.MEASURED_DIAGNOSIS,
             ),
         )

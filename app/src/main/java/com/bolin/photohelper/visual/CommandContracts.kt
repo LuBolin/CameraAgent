@@ -145,11 +145,22 @@ internal fun buildCommandRequestBody(request: CommandRequest): ByteArray {
             "{\"schemaVersion\":3,\"outcome\":\"PLAN\",\"actions\":[<ACTION>]} or " +
             "{\"schemaVersion\":3,\"outcome\":\"CLARIFY\",\"reason\":\"<REASON>\"}. " +
             "Translate the user's intent into actions that execute immediately without confirmation. Do not return suggestions, " +
-            "Recent changes are separate prior actions, not chat messages. Use strength SMALL when the user asks for a slight " +
+            "Recent changes are prior actions already applied. Use them to resolve relative commands like 'more', 'again', 'keep going', or 'a little less': repeat or reverse the most recent change's intent. Use strength SMALL when the user asks for a slight" +
             "correction or wants to move partway back toward a prior value; otherwise use NORMAL. " +
             "Each WHITE_BALANCE_WARMER or WHITE_BALANCE_COOLER action means one additional bounded color step. Return the same " +
             "intent again when the user repeats it, even if the current whiteBalancePreset already has that direction. " +
-            "questions, or actions the user did not request. Use ADJUST for requested camera-parameter changes: for example, " +
+            "questions, or actions the user did not request. " +
+            "Specificity rule: when the user's request targets a specific axis (brightness, zoom, white balance, focus), " +
+            "adjust ONLY that axis. When the request is general ('make this look better', 'improve this', 'fix this'), " +
+            "you may adjust multiple axes. " +
+            "Synonym mapping — treat all of these as the listed intent without clarifying: " +
+            "ZOOM_IN: zoom, magnify, bigger, closer, enlarge, tighter, more detail, fill the frame, too small, too far, bring it closer, crop in, push in, blow up, make it larger. " +
+            "ZOOM_OUT: zoom out, wider, pull back, smaller, show more, too close, too tight, see more, back up, fit more, pan out, farther, step back, cramped, more background. " +
+            "EXPOSURE_BRIGHTER: brighter, lighter, more light, too dark, brighten, can't see, dim, dark, shadowy, gloomy, murky, lighten up, not enough light, underexposed, open up. " +
+            "EXPOSURE_DARKER: darker, dimmer, too bright, less light, tone it down, overexposed, blown out, glaring, washed out, harsh, blinding, too white, reduce brightness, turn down, too much light. " +
+            "WHITE_BALANCE_WARMER: warmer, too blue, too cold, golden, sunset, cozy, amber, sunny, candlelight, less blue, yellowish, warm tones, honey, add warmth, reddish. " +
+            "WHITE_BALANCE_COOLER: cooler, too yellow, too warm, bluish, crisp, moonlight, icy, less yellow, too orange, too amber, winter tones, neutral, daylight, blue tones, less warm. " +
+            "Use ADJUST for requested camera-parameter changes: for example, " +
             "'too bright' means EXPOSURE_DARKER and 'too dark' means EXPOSURE_BRIGHTER. Use FOCUS_POINT when the user asks to " +
             "focus on a visible subject. Use SET_FLASH only when the user explicitly mentions flash, torch, or the camera light; " +
             "never volunteer flash for a brightness complaint. ON means flash during capture, TORCH means continuous light, and " +
@@ -211,13 +222,19 @@ internal fun parseCommandResponse(response: String, autoEnhance: Boolean = false
 
 internal fun parseCommandContent(content: String, autoEnhance: Boolean = false): CommandResult? {
     return try {
-        val value = strictObject(content) ?: return null
-        if (autoEnhance) return parseAutoEnhance(value)
+        val value = strictObject(content) ?: run {
+            android.util.Log.w("CommandParser", "strictObject returned null for: ${content.take(500)}")
+            return null
+        }
+        if (autoEnhance) return parseAutoEnhance(value) ?: run {
+            android.util.Log.w("CommandParser", "parseAutoEnhance returned null for: ${content.take(500)}")
+            null
+        }
         if (value.opt("schemaVersion") != 3) return null
         when (value.opt("outcome")) {
             "PLAN" -> parsePlan(value)?.let(CommandResult::Planned)
             "CLARIFY" -> {
-                if (value.keysSet() != setOf("schemaVersion", "outcome", "reason")) return null
+                if (!value.keysSet().containsAll(setOf("schemaVersion", "outcome", "reason"))) return null
                 (value.opt("reason") as? String)
                     ?.let { runCatching { ClarificationReason.valueOf(it) }.getOrNull() }
                     ?.takeIf(MODEL_CLARIFICATION_REASONS::contains)
@@ -252,7 +269,7 @@ private fun parseAutoEnhance(value: JSONObject): CommandResult? {
         }
     }
     if (value.opt("outcome") != "ASSESSMENT" || value.opt("confidence") !in setOf("MEDIUM", "HIGH") ||
-        value.keysSet() != setOf("schemaVersion", "outcome", "confidence", "exposure", "whiteBalance", "framing", "focus")
+        !value.keysSet().containsAll(setOf("schemaVersion", "outcome", "confidence", "exposure", "whiteBalance", "framing", "focus"))
     ) return null
 
     val adjustments = listOf(
@@ -274,9 +291,9 @@ private fun parseAutoEnhance(value: JSONObject): CommandResult? {
     }.toMutableList<CommandPlanStep>()
     val focus = value.opt("focus") as? JSONObject ?: return null
     when (focus.opt("decision")) {
-        "NONE" -> if (focus.keysSet() != setOf("decision")) return null
+        "NONE" -> if ("decision" !in focus.keysSet()) return null
         "FOCUS_POINT" -> {
-            if (focus.keysSet() != setOf("decision", "point_2d")) return null
+            if (!focus.keysSet().containsAll(setOf("decision", "point_2d"))) return null
             val (x, y) = parseNormalizedPoint(focus.opt("point_2d")) ?: return null
             steps += CommandPlanStep.FocusPoint(x, y)
         }
@@ -290,9 +307,9 @@ private fun parseAutoAdjustment(
     value: JSONObject,
     allowed: Map<String, ControlIntent>,
 ): Pair<ControlIntent?, Boolean>? {
-    if (value.keysSet() != setOf("decision", "strength")) return null
     val decision = value.opt("decision") as? String ?: return null
-    val intent = if (decision == "NONE") null else allowed[decision] ?: return null
+    if (decision == "NONE") return null to false
+    val intent = allowed[decision] ?: return null
     val strength = value.opt("strength") as? String ?: return null
     if (strength !in setOf("SMALL", "NORMAL")) return null
     return intent to (strength == "SMALL")

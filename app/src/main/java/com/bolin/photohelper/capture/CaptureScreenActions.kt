@@ -27,6 +27,7 @@ interface CaptureScreenActions {
     fun onApplyRecommendation()
     fun onStartGuidance()
     fun onComposition() {}
+    fun onBestShot() {}
     fun onCannotMoveFurther() {}
     fun onChangeCompositionSelection() {}
     fun onToggleCompositionFace(index: Int) {}

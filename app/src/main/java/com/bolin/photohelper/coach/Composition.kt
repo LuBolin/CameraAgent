@@ -74,8 +74,11 @@ data class CompositionPlan(
 }
 
 /** No coordinates, capability claims or tolerances come from the model. */
-fun compileComposition(intent: CompositionIntent, members: List<FaceObservation>): CompositionPlan {
-    intent.adjustment?.let { return compileAdjustment(intent, it, members) }
+fun compileComposition(intent: CompositionIntent, members: List<FaceObservation>, rollDegrees: Float? = null): CompositionPlan {
+    val levelTarget = if (rollDegrees != null && kotlin.math.abs(rollDegrees) > 5f)
+        listOf(VerificationTarget.Level(maxAbsoluteRollDegrees = 3f)) else emptyList()
+
+    intent.adjustment?.let { return compileAdjustment(intent, it, members, levelTarget) }
     val advice = when (intent.strategy) {
         CompositionStrategy.SYMMETRY -> "Try centring the scene to emphasise its symmetry."
         CompositionStrategy.LEADING_LINES -> "Try framing the lines so they lead toward your subject."
@@ -83,7 +86,7 @@ fun compileComposition(intent: CompositionIntent, members: List<FaceObservation>
         CompositionStrategy.PORTRAIT -> "Try placing your main subject on a third of the frame."
     }
     if (intent.strategy != CompositionStrategy.PORTRAIT || members.isEmpty() || members.any { !it.validGeometry() }) {
-        return CompositionPlan(intent, emptyList(), members, advice)
+        return CompositionPlan(intent, levelTarget, members, advice)
     }
     val x = when (intent.placement) {
         CompositionPlacement.CENTRE -> .5f
@@ -99,19 +102,20 @@ fun compileComposition(intent: CompositionIntent, members: List<FaceObservation>
     // Keep the selected union inside the frame, including non-central placement.
     val maxWidth = minOf(desiredWidth + .04f, 2f * minOf(x - .05f, .95f - x))
     val minWidth = desiredWidth - .04f
-    if (minWidth > maxWidth) return CompositionPlan(intent, emptyList(), members, advice)
-    val targets = if (group) listOf(
+    if (minWidth > maxWidth) return CompositionPlan(intent, levelTarget, members, advice)
+    val targets = (if (group) listOf(
         VerificationTarget.GroupPosition((x - .04f)..(x + .04f), .34f.. .46f),
         VerificationTarget.GroupOccupancy(minWidth, maxWidth),
     ) else listOf(
         VerificationTarget.FacePosition((x - .04f)..(x + .04f), .34f.. .46f),
         VerificationTarget.FaceOccupancy(minWidth, maxWidth),
-    )
+    )) + levelTarget
     return CompositionPlan(intent, targets, members, advice)
 }
 
-private fun compileAdjustment(intent: CompositionIntent, choice: CompositionAdjustment, members: List<FaceObservation>): CompositionPlan {
-    fun advice(text: String) = CompositionPlan(intent, emptyList(), members, text)
+private fun compileAdjustment(intent: CompositionIntent, choice: CompositionAdjustment, members: List<FaceObservation>,
+    levelTarget: List<VerificationTarget> = emptyList()): CompositionPlan {
+    fun advice(text: String) = CompositionPlan(intent, levelTarget, members, text)
     if (choice.problem == CompositionProblem.NONE) return advice("Keep this framing.")
     if (choice.problem == CompositionProblem.BACKGROUND) return advice("Move sideways to separate the subject from the background.")
     val face = faceUnion(members) ?: return advice("Keep the selected faces visible, then try again.")
@@ -139,13 +143,13 @@ private fun compileAdjustment(intent: CompositionIntent, choice: CompositionAdju
     if (x - width / 2 < 0f || x + width / 2 > 1f || y - height / 2 < 0f || y + height / 2 > 1f)
         return advice("This placement would cut off selected faces. Try a different framing.")
     val tolerance = width * .1f
-    val targets = if (members.size == 1) listOf(
+    val targets = (if (members.size == 1) listOf(
         VerificationTarget.FacePosition((x - .03f)..(x + .03f), (y - .03f)..(y + .03f)),
         VerificationTarget.FaceOccupancy(width - tolerance, width + tolerance),
     ) else listOf(
         VerificationTarget.GroupPosition((x - .03f)..(x + .03f), (y - .03f)..(y + .03f)),
         VerificationTarget.GroupOccupancy(width - tolerance, width + tolerance),
-    )
+    )) + levelTarget
     return CompositionPlan(intent, targets, members, "Follow the framing instructions.")
 }
 

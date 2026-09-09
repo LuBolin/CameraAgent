@@ -352,6 +352,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
 
     @Volatile
     private var latestRollDegrees: Float? = null
+    private var smoothedRoll: Float? = null
 
     fun bind(
         lifecycleOwner: LifecycleOwner,
@@ -797,10 +798,16 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         if (closed.get() || analysisPaused.get()) return
-        latestRollDegrees = when (event.sensor.type) {
+        val raw = when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> rollFromRotationVector(event.values)
             Sensor.TYPE_GRAVITY -> rollFromGravity(event.values)
             else -> null
+        }
+        latestRollDegrees = raw?.let { r ->
+            val s = smoothedRoll
+            val smoothed = if (s != null) s + 0.15f * (r - s) else r
+            smoothedRoll = smoothed
+            smoothed
         }
     }
 

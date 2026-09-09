@@ -84,7 +84,7 @@ private const val TOAST_TIMEOUT_MS = 5_000L
 private const val FOCUS_INDICATOR_MS = 5_000L
 /** Two visible attempts: the first plan, then one alternative, then an honest concession. */
 private const val MAX_SETTING_ATTEMPTS = 2
-private const val MAX_REANALYSIS_ROUNDS = 0
+private const val MAX_REANALYSIS_ROUNDS = 2
 private const val SETTING_SETTLE_MS = 400L
 private const val SETTING_VERIFY_TIMEOUT_MS = 3_000L
 private val OBJECT_FOCUS_REQUEST = Regex("\\b(focus|sharp|sharpen|clear)\\b", RegexOption.IGNORE_CASE)
@@ -220,6 +220,7 @@ class CaptureViewModel(
     private var pendingFocusAfterZoom: PendingFocusAfterZoom? = null
     private val recentCameraChanges = ArrayDeque<CameraChangeSnapshot>(3)
     private var activeCommandText = ""
+    private var compositionAfterEnhance = false
     private var stableFace: FaceObservation? = null
     private var flashChangeInFlight = false
     private var focusInFlight = false
@@ -545,6 +546,16 @@ class CaptureViewModel(
         requestCommandPlan("Make this shot look nicer.", autoEnhance = true)
     }
 
+    fun bestShot() {
+        compositionAfterEnhance = true
+        if (!canUseVisualAi()) {
+            compositionAfterEnhance = false
+            requestComposition()
+            return
+        }
+        makeItNicer()
+    }
+
     private fun submitLocalCommand(comment: String, fallbackMessage: String? = null) {
         immediateSettingIntents(comment)?.let { intents ->
             startCommandPlan(
@@ -689,6 +700,7 @@ class CaptureViewModel(
                         }
                         activeComplaintId = null
                         if (maybeStartReanalysis()) return@launch
+                        if (maybeStartCompositionAfterEnhance()) return@launch
                         _uiState.update {
                             it.copy(
                                 review = null,
@@ -719,7 +731,7 @@ class CaptureViewModel(
         (action.target as? VerificationTarget.Composition)?.let { composition ->
             val observation = latestLiveObservation ?: return
             val members = matchMembers(composition.plan.members, observation.faces) ?: return
-            beginComposition(compileComposition(composition.plan.intent, members))
+            beginComposition(compileComposition(composition.plan.intent, members, observation.deviceRollDegrees))
             return
         }
         cancelJobsOnly()
@@ -813,7 +825,7 @@ class CaptureViewModel(
         compositionScene = latestLiveObservation?.copy(faces = members)
         if (!canUseVisualAi()) {
             logComposition("generic_strategy")
-            beginComposition(compileComposition(CompositionIntent(), members))
+            beginComposition(compileComposition(CompositionIntent(), members, latestLiveObservation?.deviceRollDegrees))
             return
         }
         val original = latestLiveObservation ?: return
@@ -851,7 +863,7 @@ class CaptureViewModel(
                 if (current == null || matched == null || nowMs() - current.timestampMs !in 0..LIVE_OBSERVATION_FRESH_MS ||
                     !lensMatches(original.lensId, original.focalLengthMm, current.lensId, current.focalLengthMm) ||
                     exposureInvariantSceneDifference(original.sceneLumaSignature, current.sceneLumaSignature) > .08f) {
-                    showToast("The scene changed. Tap Help me frame to check it again.")
+                    showToast("The scene changed. Tap Best shot to try again.")
                     return@launch
                 }
                 if (result == VisualResult.CredentialsRejected) markSavedKeyRejected()
@@ -879,8 +891,8 @@ class CaptureViewModel(
                     if (matched != null && nowMs() - current.timestampMs in 0..LIVE_OBSERVATION_FRESH_MS &&
                         lensMatches(original.lensId, original.focalLengthMm, current.lensId, current.focalLengthMm) &&
                         exposureInvariantSceneDifference(original.sceneLumaSignature, current.sceneLumaSignature) <= .08f)
-                        beginComposition(compileComposition(CompositionIntent(), matched))
-                    else showToast("The scene changed. Tap Help me frame to check it again.")
+                        beginComposition(compileComposition(CompositionIntent(), matched, current.deviceRollDegrees))
+                    else showToast("The scene changed. Tap Best shot to try again.")
                 }
             } finally {
                 key?.fill('\u0000')
@@ -983,6 +995,7 @@ class CaptureViewModel(
     fun cancelCoaching(clearDecision: Boolean = true, preserveCommandPlan: Boolean = false) {
         compositionWatching = false
         reanalysisRound = 0
+        compositionAfterEnhance = false
         if (settingApplyInFlight || resetInFlight) return
         if (!preserveCommandPlan) {
             pendingCommandSteps.clear()
@@ -1803,10 +1816,11 @@ class CaptureViewModel(
                     CommandResult.NoChange -> {
                         if (reanalysisRound > 0) {
                             reanalysisRound = 0
-                            showToast("Looking good!")
-                        } else {
-                            showToast("Looks good already.")
+                            showIdleMessage("Looking good!")
+                        } else if (!compositionAfterEnhance) {
+                            showIdleMessage("Looks good already.")
                         }
+                        maybeStartCompositionAfterEnhance()
                     }
                     CommandResult.Unsure -> showToast("The model isn’t sure what to do. Please try again.")
                     is CommandResult.Failed -> showToast(result.message)
@@ -1900,6 +1914,12 @@ class CaptureViewModel(
     private fun showToast(message: String) {
         _uiState.update {
             it.copy(coachingPhase = CoachingPhase.TRANSIENT_ERROR, decision = null, transientMessage = message)
+        }
+    }
+
+    private fun showIdleMessage(message: String) {
+        _uiState.update {
+            it.copy(coachingPhase = CoachingPhase.IDLE, decision = null, transientMessage = message)
         }
     }
 
@@ -2135,6 +2155,7 @@ class CaptureViewModel(
         if (pendingVisualFocusText == null && pendingFocusAfterZoom == null && maybeStartReanalysis()) {
             return
         }
+        if (maybeStartCompositionAfterEnhance()) return
         _uiState.update {
             it.copy(
                 coachingPhase = CoachingPhase.IDLE,
@@ -2162,6 +2183,13 @@ class CaptureViewModel(
         }
         log.info("reanalysis round=$reanalysisRound axes=$axes")
         requestCommandPlan(comment, autoEnhance = true)
+        return true
+    }
+
+    private fun maybeStartCompositionAfterEnhance(): Boolean {
+        if (!compositionAfterEnhance) return false
+        compositionAfterEnhance = false
+        requestComposition()
         return true
     }
 

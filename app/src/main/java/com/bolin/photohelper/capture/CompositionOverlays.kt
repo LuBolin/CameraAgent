@@ -68,7 +68,7 @@ fun GuidanceTarget(guidance: ActiveGuidance, modifier: Modifier = Modifier,
 }
 
 @Composable
-fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions) {
+fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions, iconRotation: Float = 0f, isLandscape: Boolean = false) {
     val active = state.activeGuidance
     val overlays = LocalOverlayColors.current
     val reducedMotion = LocalReducedMotion.current
@@ -164,12 +164,12 @@ fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions) {
     }
 
     AnimatedVisibility(
-        visible = showFrame,
+        visible = showFrame && !isLandscape,
         enter = fadeIn(tween(enterMs)),
         exit = fadeOut(tween(exitMs)),
     ) {
         Button(
-            onClick = actions::onComposition,
+            onClick = actions::onBestShot,
             enabled = state.shutterEnabled,
             modifier = Modifier.heightIn(min = 48.dp),
             colors = ButtonDefaults.buttonColors(
@@ -177,7 +177,7 @@ fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions) {
                 contentColor = overlays.onOverlay,
             ),
             contentPadding = PaddingValues(horizontal = 14.dp),
-        ) { Text("Help me frame") }
+        ) { Text("Best shot", color = overlays.onOverlay) }
     }
 }
 
