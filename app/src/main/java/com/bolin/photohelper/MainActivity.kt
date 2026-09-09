@@ -311,6 +311,8 @@ private fun MainActivity.PhotoHelperApp(
             override fun onDismissDecision() = viewModel.dismissDecision()
             override fun onDismissTransientMessage() = viewModel.dismissTransientMessage()
             override fun onClarificationSelected(chip: ClarificationChip) = viewModel.selectClarification(chip.replacementComplaint)
+            override fun onUpdateComment(text: String) = viewModel.updateComment(text)
+            override fun onSubmitComment() = viewModel.submitComment()
             override fun onCancelCoaching() = viewModel.cancelCoaching()
             override fun onReset() = viewModel.reset()
             override fun onRetake() = viewModel.leaveReview()

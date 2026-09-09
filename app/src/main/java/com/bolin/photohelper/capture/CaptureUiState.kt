@@ -4,6 +4,7 @@ import com.bolin.photohelper.coach.LocalDecision
 import com.bolin.photohelper.coach.Recommendation
 import com.bolin.photohelper.coach.VerificationTarget
 import com.bolin.photohelper.ui.ThemeMode
+import com.bolin.photohelper.visual.VisualProvider
 
 enum class CoachingPhase {
     IDLE,
@@ -76,6 +77,7 @@ data class SettingsUiState(
     /** Optional free text describing the look the user wants; passed to the model as context. */
     val styleProfile: String = "",
     val autoCaptureEnabled: Boolean = true,
+    val visualProvider: VisualProvider = VisualProvider.QWEN,
 )
 
 const val MAX_STYLE_PROFILE_CHARACTERS = 400

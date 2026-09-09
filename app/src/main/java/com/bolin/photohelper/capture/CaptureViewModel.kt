@@ -48,6 +48,7 @@ import com.bolin.photohelper.voice.CommandPlan
 import com.bolin.photohelper.voice.CommandPlanStep
 import com.bolin.photohelper.voice.parseCommandPlan
 import com.bolin.photohelper.voice.parseVoiceCommand
+import com.bolin.photohelper.BuildConfig
 import java.util.UUID
 import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
@@ -398,6 +399,13 @@ class CaptureViewModel(
             requestComposition()
             return
         }
+        if (BuildConfig.DEBUG) {
+            debugTestCommand(comment)?.let { plan ->
+                logAgent(AgentLogKind.AI, "Debug plan: ${plan.steps.joinToString()}")
+                startCommandPlan(plan, comment)
+                return
+            }
+        }
         if (comment.isBlank()) {
             _uiState.update { it.copy(transientMessage = "Describe the current shot first.") }
             return
@@ -451,6 +459,30 @@ class CaptureViewModel(
             return
         }
         submitLocalCommand(comment)
+    }
+
+    private fun debugTestCommand(comment: String): CommandPlan? {
+        val cmd = comment.lowercase().trim()
+        if (!cmd.startsWith("test ")) return null
+        val steps: List<CommandPlanStep> = when (cmd.removePrefix("test ").trim()) {
+            "brighter" -> listOf(CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_BRIGHTER)))
+            "darker" -> listOf(CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_DARKER)))
+            "zoom" -> listOf(CommandPlanStep.Adjust(listOf(ControlIntent.ZOOM_IN)))
+            "zoom out" -> listOf(CommandPlanStep.Adjust(listOf(ControlIntent.ZOOM_OUT)))
+            "warmer" -> listOf(CommandPlanStep.Adjust(listOf(ControlIntent.WHITE_BALANCE_WARMER)))
+            "cooler" -> listOf(CommandPlanStep.Adjust(listOf(ControlIntent.WHITE_BALANCE_COOLER)))
+            "focus" -> listOf(CommandPlanStep.FocusPoint(0.5f, 0.5f))
+            "capture" -> listOf(CommandPlanStep.Capture(3))
+            "flash" -> listOf(CommandPlanStep.SetFlash(FlashMode.ON))
+            "reset" -> listOf(CommandPlanStep.Reset)
+            "combo" -> listOf(
+                CommandPlanStep.Adjust(listOf(ControlIntent.EXPOSURE_BRIGHTER)),
+                CommandPlanStep.Adjust(listOf(ControlIntent.ZOOM_IN)),
+                CommandPlanStep.Capture(3),
+            )
+            else -> return null
+        }
+        return CommandPlan(steps)
     }
 
     private fun immediateSettingIntents(text: String): List<ControlIntent>? =

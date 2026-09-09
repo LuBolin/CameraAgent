@@ -13,6 +13,8 @@ interface CaptureScreenActions {
 
     // Voice
     fun onMicrophone()
+    fun onUpdateComment(text: String) {}
+    fun onSubmitComment() {}
 
     // Landing & permissions
     fun onOnboardingContinue()

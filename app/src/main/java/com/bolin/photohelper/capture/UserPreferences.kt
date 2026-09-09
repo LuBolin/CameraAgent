@@ -2,6 +2,7 @@ package com.bolin.photohelper.capture
 
 import android.content.Context
 import com.bolin.photohelper.ui.ThemeMode
+import com.bolin.photohelper.visual.VisualProvider
 
 interface PreferenceStore {
     fun onboardingComplete(): Boolean
@@ -15,6 +16,7 @@ interface PreferenceStore {
     fun setVisualAiEnabled(enabled: Boolean)
     fun setThemeMode(mode: ThemeMode)
     fun setStyleProfile(profile: String)
+    fun setVisualProvider(provider: VisualProvider)
     fun autoCaptureEnabled(): Boolean
     fun setAutoCaptureEnabled(enabled: Boolean)
     fun hasUsedVoice(): Boolean
@@ -40,6 +42,7 @@ class UserPreferences(context: Context) : PreferenceStore {
         themeMode = readThemeMode(),
         styleProfile = values.getString(STYLE_PROFILE, "").orEmpty(),
         autoCaptureEnabled = values.getBoolean(AUTO_CAPTURE_ENABLED, true),
+        visualProvider = readVisualProvider(),
     )
 
     override fun setSpokenGuidance(enabled: Boolean) = put(SPOKEN_GUIDANCE, enabled)
@@ -52,11 +55,19 @@ class UserPreferences(context: Context) : PreferenceStore {
     override fun setStyleProfile(profile: String) =
         values.edit().putString(STYLE_PROFILE, profile.take(MAX_STYLE_PROFILE_CHARACTERS)).apply()
 
+    override fun setVisualProvider(provider: VisualProvider) =
+        values.edit().putString(VISUAL_PROVIDER, provider.name).apply()
+
     override fun autoCaptureEnabled(): Boolean = values.getBoolean(AUTO_CAPTURE_ENABLED, true)
     override fun setAutoCaptureEnabled(enabled: Boolean) = put(AUTO_CAPTURE_ENABLED, enabled)
 
     override fun hasUsedVoice(): Boolean = values.getBoolean(HAS_USED_VOICE, false)
     override fun setHasUsedVoice() = put(HAS_USED_VOICE, true)
+
+    private fun readVisualProvider(): VisualProvider {
+        val stored = values.getString(VISUAL_PROVIDER, null) ?: return VisualProvider.QWEN
+        return VisualProvider.entries.firstOrNull { it.name == stored } ?: VisualProvider.QWEN
+    }
 
     private fun readThemeMode(): ThemeMode {
         val stored = values.getString(THEME_MODE, null) ?: return ThemeMode.SYSTEM
@@ -76,6 +87,7 @@ class UserPreferences(context: Context) : PreferenceStore {
         const val THEME_MODE = "theme_mode"
         const val STYLE_PROFILE = "style_profile"
         const val AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
+        const val VISUAL_PROVIDER = "visual_provider"
         const val HAS_USED_VOICE = "has_used_voice"
     }
 }
