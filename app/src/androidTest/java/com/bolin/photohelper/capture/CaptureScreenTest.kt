@@ -789,7 +789,7 @@ class CaptureScreenTest {
     }
 
     @Test
-    fun captureReviewFloatsResetAfterAnAppliedCommand() {
+    fun captureReviewKeepsResetAfterAnAppliedCommand() {
         var reset = false
         compose.setContent {
             PhotoHelperTheme {
@@ -804,12 +804,8 @@ class CaptureScreenTest {
             }
         }
 
-        val resetButton = compose.onNodeWithTag(CaptureTestTags.RESET).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        val controls = compose.onNodeWithTag(CaptureTestTags.REVIEW_CONTROLS).fetchSemanticsNode().boundsInRoot
-
-        assertTrue("Reset should float across the review controls edge", resetButton.top < controls.top)
-        assertTrue("Reset should overlap the review controls edge", resetButton.bottom > controls.top)
-        compose.onNodeWithTag(CaptureTestTags.RESET).performClick()
+        compose.onNodeWithTag(CaptureTestTags.REVIEW_CONTROLS).assertIsDisplayed()
+        compose.onNodeWithText("Reset").assertIsDisplayed().performClick()
         compose.runOnIdle { assertTrue(reset) }
     }
 

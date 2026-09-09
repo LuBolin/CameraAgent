@@ -181,6 +181,7 @@ fun CaptureReview(
             val hasCoaching = state.decision != null ||
                 state.transientMessage != null ||
                 state.activeGuidance != null ||
+                state.resetAvailable ||
                 state.coachingPhase != CoachingPhase.IDLE
 
             if (hasCoaching) {
