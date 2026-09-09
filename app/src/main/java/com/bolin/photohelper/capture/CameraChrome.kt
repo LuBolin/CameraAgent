@@ -92,6 +92,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import kotlinx.coroutines.flow.StateFlow
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 
 @Composable
 fun PreviewPane(
@@ -119,19 +125,26 @@ fun PreviewPane(
     ) {
         Box(modifier = Modifier.fillMaxSize(), content = preview)
 
+        if (state.settings.gridOverlayEnabled) {
+            RuleOfThirdsGrid(Modifier.fillMaxSize())
+        }
+
+        val observation by liveObservation.collectAsState()
+        if (state.settings.tiltIndicatorEnabled) {
+            TiltIndicator(observation?.deviceRollDegrees, Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp))
+        }
+
         if (state.cameraPhase == CameraPhase.STARTING) {
             CameraPhaseStatus()
         }
 
         val guidance = state.activeGuidance
         if (guidance != null) {
-            val observation by liveObservation.collectAsState()
             GuidanceTarget(guidance, Modifier.fillMaxSize(), observation, isFrontCamera)
         }
 
         ObservationLayers(state, isFrontCamera, onFocusTarget)
         state.compositionSelection?.let { faces ->
-            val observation by liveObservation.collectAsState()
             CompositionFaceSelection(faces, state.compositionSelectedIndices, observation, isFrontCamera, onToggleCompositionFace)
         }
 
@@ -178,8 +191,7 @@ fun PreviewPane(
         }
 
         if (state.settings.technicalDetail) {
-            val obs by liveObservation.collectAsState()
-            obs?.let { TechnicalObservation(it) }
+            observation?.let { TechnicalObservation(it) }
         }
 
         val countdown = state.countdownSecondsRemaining
@@ -537,7 +549,6 @@ fun OverlayChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val overlays = LocalOverlayColors.current
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
@@ -545,18 +556,18 @@ fun OverlayChip(
             .heightIn(min = 56.dp)
             .onFocusChanged { focused = it.isFocused }
             .semantics { this.role = Role.Button },
-        color = overlays.frostedGlassStrong,
-        shape = CircleShape,
-        border = if (focused) BorderStroke(2.dp, Mango) else null,
+        color = SoftCream.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, if (focused) Mango else Mango.copy(alpha = 0.35f)),
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
         ) {
             Text(
                 label,
-                style = MaterialTheme.typography.labelLarge,
-                color = overlays.onOverlay,
+                style = MaterialTheme.typography.titleSmall,
+                color = SoftCream,
             )
         }
     }
@@ -698,4 +709,55 @@ fun BoxScope.DefaultPreview() {
             .fillMaxSize()
             .background(Charcoal),
     )
+}
+
+@Composable
+private fun RuleOfThirdsGrid(modifier: Modifier = Modifier) {
+    val gridColor = SoftCream.copy(alpha = 0.25f)
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeWidth = 1f
+        drawLine(gridColor, Offset(w / 3f, 0f), Offset(w / 3f, h), strokeWidth = strokeWidth)
+        drawLine(gridColor, Offset(2f * w / 3f, 0f), Offset(2f * w / 3f, h), strokeWidth = strokeWidth)
+        drawLine(gridColor, Offset(0f, h / 3f), Offset(w, h / 3f), strokeWidth = strokeWidth)
+        drawLine(gridColor, Offset(0f, 2f * h / 3f), Offset(w, 2f * h / 3f), strokeWidth = strokeWidth)
+    }
+}
+
+@Composable
+private fun TiltIndicator(rollDegrees: Float?, modifier: Modifier = Modifier) {
+    if (rollDegrees == null) return
+    val absRoll = abs(rollDegrees)
+    if (absRoll < 0.5f) return
+    val leveled = absRoll < 1.5f
+    val indicatorColor = if (leveled) Mango else SoftCream.copy(alpha = 0.6f)
+    val barWidth = 120.dp
+    val barHeight = 3.dp
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Surface(
+            color = Charcoal.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.padding(4.dp),
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(barWidth)
+                        .height(barHeight)
+                        .graphicsLayer { rotationZ = rollDegrees.coerceIn(-15f, 15f) }
+                        .background(indicatorColor, RoundedCornerShape(2.dp)),
+                )
+                Text(
+                    text = if (leveled) "Level" else "${abs(rollDegrees).roundToInt()}°",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = indicatorColor,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+    }
 }

@@ -28,8 +28,17 @@ class PhotoWorkflowViewModel(
     private val loadEditKey: () -> CharArray?,
     private val loadCaptionKey: () -> CharArray?,
     private val voice: VoiceIo,
+    private val captionConsentGiven: () -> Boolean = { false },
+    private val saveCaptionConsent: (Boolean) -> Unit = {},
+    private val galleryBannerDismissed: () -> Boolean = { false },
+    private val saveGalleryBannerDismissed: (Boolean) -> Unit = {},
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(PhotoWorkflowUiState())
+    private val _uiState = MutableStateFlow(
+        PhotoWorkflowUiState(
+            captionConsentGiven = captionConsentGiven(),
+            galleryBannerDismissed = galleryBannerDismissed(),
+        ),
+    )
     val uiState: StateFlow<PhotoWorkflowUiState> = _uiState.asStateFlow()
 
     private var loadJob: Job? = null
@@ -82,7 +91,11 @@ class PhotoWorkflowViewModel(
 
     fun requestEditConfirmation() {
         if (_uiState.value.editInstruction.isBlank() || _uiState.value.voiceInputTarget != null) return
-        _uiState.update { it.copy(editConfirmationVisible = true) }
+        if (_uiState.value.captionConsentGiven) {
+            confirmEdit()
+        } else {
+            _uiState.update { it.copy(editConfirmationVisible = true) }
+        }
     }
 
     fun dismissEditConfirmation() {
@@ -91,6 +104,10 @@ class PhotoWorkflowViewModel(
 
     fun confirmEdit() {
         val state = _uiState.value
+        if (!state.captionConsentGiven) {
+            saveCaptionConsent(true)
+            _uiState.update { it.copy(captionConsentGiven = true) }
+        }
         val session = state.editSession ?: return
         val instruction = state.editInstruction.trim().takeIf(String::isNotEmpty) ?: return
         val key = loadEditKey()
@@ -167,6 +184,77 @@ class PhotoWorkflowViewModel(
                 working?.bytes?.fill(0)
                 resultFile.delete()
             }
+        }
+    }
+
+    fun saveCurrentEdit() {
+        val session = _uiState.value.editSession ?: return
+        if (session.workingVariantId == null) return
+        viewModelScope.launch {
+            gallery.saveToCameraRoll(session.workingUri).fold(
+                onSuccess = { _uiState.update { it.copy(message = "Saved to camera roll.") } },
+                onFailure = { _uiState.update { it.copy(message = "Could not save to camera roll.") } },
+            )
+        }
+    }
+
+    fun dismissGalleryBanner() {
+        saveGalleryBannerDismissed(true)
+        _uiState.update { it.copy(galleryBannerDismissed = true) }
+    }
+
+    fun revokeCaptionConsent() {
+        saveCaptionConsent(false)
+        _uiState.update { it.copy(captionConsentGiven = false) }
+    }
+
+    fun requestDeleteSelected() {
+        if (_uiState.value.selectedAssets.isEmpty()) return
+        _uiState.update { it.copy(deleteConfirmationVisible = true) }
+    }
+
+    fun dismissDeleteConfirmation() {
+        _uiState.update { it.copy(deleteConfirmationVisible = false) }
+    }
+
+    fun confirmDeleteSelected() {
+        val assets = _uiState.value.selectedAssets
+        if (assets.isEmpty()) return
+        _uiState.update { it.copy(deleteConfirmationVisible = false) }
+        viewModelScope.launch {
+            var deleted = 0
+            for (asset in assets) {
+                gallery.deleteAsset(asset.uri).onSuccess { deleted++ }
+            }
+            _uiState.update {
+                it.copy(
+                    selectedUris = emptyList(),
+                    selectionMode = false,
+                    message = if (deleted > 0) "$deleted photo${if (deleted > 1) "s" else ""} deleted." else "Could not delete photos.",
+                )
+            }
+            refresh()
+        }
+    }
+
+    fun deleteActiveAsset() {
+        val asset = _uiState.value.activeAsset ?: return
+        viewModelScope.launch {
+            gallery.deleteAsset(asset.uri).fold(
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(
+                            activeAsset = null,
+                            destination = PhotoDestination.GALLERY,
+                            message = "Photo deleted.",
+                        )
+                    }
+                    refresh()
+                },
+                onFailure = {
+                    _uiState.update { it.copy(message = "Could not delete photo.") }
+                },
+            )
         }
     }
 
@@ -247,7 +335,11 @@ class PhotoWorkflowViewModel(
 
     fun requestCaptionConfirmation() {
         if (_uiState.value.selectedAssets.isEmpty() || _uiState.value.voiceInputTarget != null) return
-        _uiState.update { it.copy(captionConfirmationVisible = true) }
+        if (_uiState.value.captionConsentGiven) {
+            confirmCaption()
+        } else {
+            _uiState.update { it.copy(captionConfirmationVisible = true) }
+        }
     }
 
     fun dismissCaptionConfirmation() {
@@ -290,6 +382,10 @@ class PhotoWorkflowViewModel(
         val state = _uiState.value
         val assets = state.selectedAssets
         if (assets.isEmpty()) return
+        if (!state.captionConsentGiven) {
+            saveCaptionConsent(true)
+            _uiState.update { it.copy(captionConsentGiven = true) }
+        }
         val key = loadCaptionKey()
         if (key == null) {
             _uiState.update {

@@ -39,19 +39,19 @@ class AppGraph(context: Context) {
     private fun seedApiKeyFromBuildConfig() {
         val keyStore = DemoApiKeyStore(appContext)
         val preferences = UserPreferences(appContext)
-        val anthropicKey = BuildConfig.ANTHROPIC_API_KEY
-        if (anthropicKey.isNotEmpty() && !keyStore.hasKey()) {
-            runCatching {
-                keyStore.save(anthropicKey.toCharArray())
-                preferences.setVisualProvider(VisualProvider.CLAUDE)
-                preferences.setVisualAiEnabled(true)
-            }
-        }
         val dashscopeKey = BuildConfig.DASHSCOPE_API_KEY
         if (dashscopeKey.isNotEmpty() && !keyStore.hasKey()) {
             runCatching {
                 keyStore.save(dashscopeKey.toCharArray())
                 preferences.setVisualProvider(VisualProvider.QWEN)
+                preferences.setVisualAiEnabled(true)
+            }
+        }
+        val anthropicKey = BuildConfig.ANTHROPIC_API_KEY
+        if (anthropicKey.isNotEmpty() && !keyStore.hasKey()) {
+            runCatching {
+                keyStore.save(anthropicKey.toCharArray())
+                preferences.setVisualProvider(VisualProvider.CLAUDE)
                 preferences.setVisualAiEnabled(true)
             }
         }
@@ -83,6 +83,10 @@ class AppGraph(context: Context) {
                     loadEditKey = keyStore::load,
                     loadCaptionKey = keyStore::load,
                     voice = AndroidVoiceIo(appContext),
+                    captionConsentGiven = preferences::captionConsentGiven,
+                    saveCaptionConsent = preferences::setCaptionConsentGiven,
+                    galleryBannerDismissed = preferences::galleryBannerDismissed,
+                    saveGalleryBannerDismissed = preferences::setGalleryBannerDismissed,
                 ) as T
             }
             require(modelClass == CaptureViewModel::class.java)

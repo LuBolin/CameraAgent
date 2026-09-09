@@ -21,7 +21,9 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.RecordVoiceOver
+import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -97,6 +99,9 @@ fun SettingsSheet(
     onOpenVisualAiPolicy: () -> Unit,
     onOpenMlKitPolicy: () -> Unit,
     onAutoCaptureEnabledChanged: (Boolean) -> Unit,
+    onCaptionConsentChanged: (Boolean) -> Unit = {},
+    onGridOverlayEnabledChanged: (Boolean) -> Unit = {},
+    onTiltIndicatorEnabledChanged: (Boolean) -> Unit = {},
 ) {
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     var activityExpanded by rememberSaveable { mutableStateOf(false) }
@@ -148,6 +153,8 @@ fun SettingsSheet(
                     },
                     icon = Icons.Rounded.DarkMode,
                 )
+                ToggleRow("Grid overlay", state.settings.gridOverlayEnabled, onGridOverlayEnabledChanged, icon = Icons.Rounded.GridOn)
+                ToggleRow("Tilt indicator", state.settings.tiltIndicatorEnabled, onTiltIndicatorEnabledChanged, icon = Icons.Rounded.Straighten)
             }
 
             Spacer(Modifier.size(12.dp))
@@ -176,6 +183,11 @@ fun SettingsSheet(
                         checked = state.settings.visualAiEnabled,
                         onCheckedChange = onVisualAiEnabledChanged,
                         enabled = state.settings.keyConfigured && !state.settings.testingKey,
+                    )
+                    ToggleRow(
+                        label = "AI caption consent",
+                        checked = state.settings.captionConsentGiven,
+                        onCheckedChange = onCaptionConsentChanged,
                     )
                 }
                 TextButton(onClick = onOpenMlKitPolicy, modifier = Modifier.heightIn(min = 56.dp)) {

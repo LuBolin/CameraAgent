@@ -159,7 +159,7 @@ private fun MainActivity.PhotoHelperApp(
     val latestState by rememberUpdatedState(state)
     val latestCanFlipCamera by rememberUpdatedState(canFlipCamera)
     val latestIsFrontCamera by rememberUpdatedState(isFrontCamera)
-    val galleryPreviewUri = photoState.assets.firstOrNull()?.uri ?: photoState.pickedAssets.lastOrNull()?.uri
+    val galleryPreviewUri = photoState.visibleAssets.firstOrNull()?.uri
     val galleryThumbnail by produceState<ImageBitmap?>(null, galleryPreviewUri) {
         value = galleryPreviewUri?.let { photoWorkflow.gallery.thumbnail(it, 160).getOrNull()?.asImageBitmap() }
     }
@@ -340,6 +340,12 @@ private fun MainActivity.PhotoHelperApp(
                 viewModel.clearKey()
             }
             override fun onAutoCaptureEnabledChanged(enabled: Boolean) = viewModel.setAutoCaptureEnabled(enabled)
+            override fun onGridOverlayEnabledChanged(enabled: Boolean) = viewModel.setGridOverlayEnabled(enabled)
+            override fun onTiltIndicatorEnabledChanged(enabled: Boolean) = viewModel.setTiltIndicatorEnabled(enabled)
+            override fun onCaptionConsentChanged(given: Boolean) {
+                viewModel.setCaptionConsentGiven(given)
+                photoWorkflow.run { if (!given) revokeCaptionConsent() }
+            }
             override fun onOpenVisualAiPolicy() {
                 activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://help.aliyun.com/zh/model-studio/privacy-notice")))
             }

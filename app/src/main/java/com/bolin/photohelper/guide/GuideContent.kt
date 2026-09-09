@@ -16,10 +16,13 @@ enum class LessonTag { ACTIVE, PASSIVE }
 
 enum class ModuleStatus { COMPLETE, IN_PROGRESS, LOCKED, COMING_SOON }
 
+enum class TipAction { ENABLE_GRID, ENABLE_TILT }
+
 data class Tip(
     val title: String,
     val body: String,
     val isAppAssist: Boolean = false,
+    val action: TipAction? = null,
 )
 
 data class GuideLesson(
@@ -225,9 +228,9 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 tag = LessonTag.ACTIVE,
                 description = "Place subjects along grid lines or at intersection points instead of dead center. This creates balance and visual interest.",
                 tips = listOf(
-                    Tip("Enable gridlines", "Open your camera settings and turn on the 3x3 grid overlay."),
+                    Tip("Enable gridlines", "Turn on the 3x3 grid overlay on your camera preview. You can turn it off any time in Settings.", action = TipAction.ENABLE_GRID),
                     Tip("Four magic spots", "The four points where grid lines cross are the strongest positions for your subject."),
-                    Tip("Your app can help", "The composition overlay shows rule-of-thirds guides right on the camera preview.", isAppAssist = true),
+                    Tip("Your app can help", "Say \"help me compose this\" and the AI coach guides you to place subjects at the strongest positions.", isAppAssist = true),
                 ),
                 exercise = GuidedExercise(
                     instruction = "Place your subject on a grid intersection, then shoot.",
@@ -279,8 +282,8 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 tag = LessonTag.ACTIVE,
                 description = "A crooked horizon stands out right away. Use gridlines or your phone's level to keep it straight.",
                 tips = listOf(
-                    Tip("Use the gridlines", "The horizontal grid line is your built-in level. Align the horizon to it."),
-                    Tip("Your app can help", "The spatial tracker detects phone tilt and nudges you: \"Tilt slightly left to level the horizon.\"", isAppAssist = true),
+                    Tip("Use the gridlines", "Turn on the grid overlay. The horizontal grid line is your built-in level. Align the horizon to it.", action = TipAction.ENABLE_GRID),
+                    Tip("Enable tilt indicator", "A small level bar appears on the camera screen and turns gold when the phone is level. You can turn it off any time in Settings.", isAppAssist = true, action = TipAction.ENABLE_TILT),
                 ),
                 exercise = GuidedExercise(
                     instruction = "Level the horizon and take a photo.",
@@ -418,7 +421,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 tips = listOf(
                     Tip("Open a photo", "Tap the gallery icon on the camera screen, then tap any photo to view it full-size."),
                     Tip("Describe the edit", "Tap the edit button and type or speak what you want: \"make the sky bluer\", \"remove the trash can\", \"brighten faces\"."),
-                    Tip("Iterate freely", "Each edit creates a new version. You can keep refining — say \"warmer\" or \"undo that\" — without losing previous versions.", isAppAssist = true),
+                    Tip("Iterate freely", "Each edit creates a new version. You can keep refining, say \"warmer\" or \"undo that\", without losing previous versions.", isAppAssist = true),
                 ),
             ),
             GuideLesson(
@@ -439,7 +442,7 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 description = "Every edit you make is saved as a separate version. You never lose your original photo.",
                 tips = listOf(
                     Tip("Non-destructive", "The original photo is always preserved. Each AI edit creates a new variant alongside it."),
-                    Tip("Go back anytime", "Scroll through your edit versions to compare. Pick the one you like best."),
+                    Tip("Go back anytime", "Tap any version chip to switch between edits and compare. Pick the one you like best."),
                 ),
             ),
         ),
@@ -454,9 +457,9 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 id = "8.1",
                 title = "Sharing photos",
                 tag = LessonTag.ACTIVE,
-                description = "Select up to 9 photos and share them to any app on your phone — WhatsApp, email, messages, or more.",
+                description = "Select up to 9 photos and share them to any app on your phone: WhatsApp, email, messages, or more.",
                 tips = listOf(
-                    Tip("Multi-select", "Long-press a photo in the gallery to start selecting. Tap more photos to add them — up to 9 at once."),
+                    Tip("Multi-select", "Long-press a photo in the gallery to start selecting. Tap more photos to add them, up to 9 at once."),
                     Tip("Reorder before sharing", "Drag selected photos to rearrange them in the order you want them shared."),
                     Tip("Your app can help", "Tap the share button and pick your destination. The photos are sent in the order you arranged them.", isAppAssist = true),
                 ),
@@ -468,28 +471,8 @@ val GUIDE_MODULES: List<GuideModule> = listOf(
                 description = "Let the AI write a caption for your photo. Choose short or long, then refine it with your own words.",
                 tips = listOf(
                     Tip("Generate a caption", "In the viewer, tap the caption button. Choose short (a quick line) or long (a full description)."),
-                    Tip("Refine with feedback", "Not quite right? Type or speak feedback — \"make it funnier\" or \"mention the sunset\" — and the AI rewrites it."),
+                    Tip("Refine with feedback", "Not quite right? Type or speak feedback like \"make it funnier\" or \"mention the sunset\" and the AI rewrites it."),
                     Tip("Copy and share", "Once you like the caption, copy it and paste it into your message or social post."),
-                ),
-            ),
-            GuideLesson(
-                id = "8.3",
-                title = "Cloud backups",
-                tag = LessonTag.PASSIVE,
-                description = "Set up auto-backup on Google Photos or Apple Photos to protect your memories.",
-                tips = listOf(
-                    Tip("Safety first", "Auto-backup protects memories if the phone is lost or damaged."),
-                    Tip("Share smart", "Use private sharing links for family. No need to send large files that clog up everyone's phone."),
-                ),
-            ),
-            GuideLesson(
-                id = "8.4",
-                title = "The shooting journal",
-                tag = LessonTag.PASSIVE,
-                description = "For meaningful photos, write a two-sentence backstory: where it was taken and how you felt.",
-                tips = listOf(
-                    Tip("Preserve the why", "The story behind a photo matters more than the settings used to take it."),
-                    Tip("For future generations", "A caption transforms a photo from \"nice picture\" to \"this is the day we...\""),
                 ),
             ),
         ),

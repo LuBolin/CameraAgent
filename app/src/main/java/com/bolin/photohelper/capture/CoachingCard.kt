@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -60,6 +59,7 @@ import com.bolin.photohelper.ui.Charcoal
 import com.bolin.photohelper.ui.LocalOverlayColors
 import com.bolin.photohelper.ui.LocalReducedMotion
 import com.bolin.photohelper.ui.Mango
+import com.bolin.photohelper.ui.SoftCream
 
 /**
  * The card layer on the camera screen. Nothing is drawn unless the agent genuinely
@@ -124,30 +124,37 @@ fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifi
                 }
             }
             is LocalDecision.Clarify -> FrostedCard(modifier) {
-                CardHeadline(d.question)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Text(
+                    d.question,
+                    color = SoftCream.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     d.chips.forEach { chip ->
                         OverlayChip(
                             label = chip.label,
                             onClick = { actions.onClarificationSelected(chip) },
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
-                CardActions(
-                    primaryLabel = null,
-                    onPrimary = {},
-                    secondaryLabel = "Dismiss",
-                    onSecondary = actions::onDismissDecision,
-                )
+                TextButton(
+                    onClick = actions::onDismissDecision,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) {
+                    Text("Dismiss", color = SoftCream.copy(alpha = 0.4f), style = MaterialTheme.typography.labelMedium)
+                }
             }
             is LocalDecision.Advisory -> FrostedCard(modifier) {
                 CardHeadline(d.headline)
                 Text(
                     d.detail,
-                    color = LocalOverlayColors.current.onOverlay,
+                    color = SoftCream.copy(alpha = 0.75f),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -168,11 +175,9 @@ fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifi
  */
 @Composable
 private fun FrostedCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    val overlays = LocalOverlayColors.current
     Surface(
-        color = overlays.scrimOpaque,
+        color = Charcoal.copy(alpha = 0.82f),
         shape = CARD_SHAPE,
-        border = BorderStroke(1.dp, overlays.mirrorBarBorder),
         modifier = modifier
             .widthIn(max = 420.dp)
             .testTag(CaptureTestTags.RESPONSE_CARD)
@@ -182,8 +187,8 @@ private fun FrostedCard(modifier: Modifier = Modifier, content: @Composable Colu
             },
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             content = content,
         )
@@ -192,11 +197,10 @@ private fun FrostedCard(modifier: Modifier = Modifier, content: @Composable Colu
 
 @Composable
 private fun CardHeadline(text: String) {
-    val overlays = LocalOverlayColors.current
     Text(
         text,
-        color = overlays.onOverlay,
-        style = MaterialTheme.typography.bodyLarge,
+        color = SoftCream,
+        style = MaterialTheme.typography.titleSmall,
         textAlign = TextAlign.Center,
         modifier = Modifier
             .fillMaxWidth()
@@ -212,7 +216,6 @@ private fun CardActions(
     onSecondary: () -> Unit,
     primaryEnabled: Boolean = true,
 ) {
-    val overlays = LocalOverlayColors.current
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
@@ -230,7 +233,7 @@ private fun CardActions(
             ) { Text(primaryLabel) }
         }
         TextButton(onClick = onSecondary, modifier = Modifier.heightIn(min = 56.dp)) {
-            Text(secondaryLabel, color = overlays.onOverlay)
+            Text(secondaryLabel, color = SoftCream.copy(alpha = 0.7f))
         }
     }
 }

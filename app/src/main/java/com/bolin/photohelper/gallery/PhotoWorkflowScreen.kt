@@ -4,6 +4,12 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -42,10 +48,12 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -65,6 +73,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -89,6 +98,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 object PhotoWorkflowTestTags {
@@ -149,24 +159,30 @@ private fun GalleryScreen(
                 }
             }
         }
-        if (state.galleryAccess != GalleryAccess.FULL) {
+        if (state.galleryAccess != GalleryAccess.FULL && !state.galleryBannerDismissed) {
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             ) {
                 Column(
-                    Modifier.fillMaxWidth().padding(16.dp),
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        if (state.galleryAccess == GalleryAccess.PARTIAL) {
-                            "Showing the photos you allowed."
-                        } else {
-                            "Allow gallery access to browse photos without leaving Photo Helper."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (state.galleryAccess == GalleryAccess.PARTIAL) {
+                                "Showing the photos you allowed."
+                            } else {
+                                "Allow gallery access to browse photos without leaving Photo Helper."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = viewModel::dismissGalleryBanner) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Dismiss", modifier = Modifier.size(18.dp))
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = onRequestGalleryAccess,
@@ -197,6 +213,16 @@ private fun GalleryScreen(
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.weight(1f),
                     )
+                    IconButton(
+                        onClick = viewModel::requestDeleteSelected,
+                        enabled = state.selectedUris.isNotEmpty(),
+                    ) {
+                        Icon(
+                            Icons.Rounded.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     TextButton(onClick = viewModel::clearSelection) {
                         Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -210,6 +236,22 @@ private fun GalleryScreen(
                     ) { Text("Next") }
                 }
             }
+        }
+        if (state.deleteConfirmationVisible) {
+            val count = state.selectedUris.size
+            AlertDialog(
+                onDismissRequest = viewModel::dismissDeleteConfirmation,
+                title = { Text("Delete $count photo${if (count > 1) "s" else ""}?") },
+                text = { Text("This will permanently remove ${if (count > 1) "these photos" else "this photo"} from your device.") },
+                confirmButton = {
+                    TextButton(onClick = viewModel::confirmDeleteSelected) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = viewModel::dismissDeleteConfirmation) { Text("Cancel") }
+                },
+            )
         }
         state.message?.let { message ->
             Text(
@@ -312,8 +354,17 @@ private fun EmptyGallery(onPickPhotos: () -> Unit) {
 @Composable
 private fun ViewerScreen(state: PhotoWorkflowUiState, viewModel: PhotoWorkflowViewModel) {
     val asset = state.activeAsset ?: return
+    var deleteConfirmation by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().safeDrawingPadding().testTag(PhotoWorkflowTestTags.VIEWER)) {
-        Header(asset.friendlyTitle(), viewModel::back)
+        Header(asset.friendlyTitle(), viewModel::back) {
+            IconButton(onClick = { deleteConfirmation = true }) {
+                Icon(
+                    Icons.Rounded.Delete,
+                    contentDescription = "Delete photo",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
         ZoomableImage(asset.uri, Modifier.fillMaxWidth().weight(1f))
         Row(
             Modifier.fillMaxWidth().padding(16.dp),
@@ -329,8 +380,27 @@ private fun ViewerScreen(state: PhotoWorkflowUiState, viewModel: PhotoWorkflowVi
             ) { Text("Edit with AI") }
         }
     }
+    if (deleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { deleteConfirmation = false },
+            title = { Text("Delete this photo?") },
+            text = { Text("This will permanently remove the photo from your device.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteConfirmation = false
+                    viewModel.deleteActiveAsset()
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmation = false }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EditorScreen(
     state: PhotoWorkflowUiState,
@@ -338,81 +408,291 @@ private fun EditorScreen(
     onVoiceInput: (VoiceInputTarget) -> Unit,
 ) {
     val session = state.editSession ?: return
+    val isLoading = state.editStatus == RequestStatus.RUNNING
+
+    // (#5) Auto-dismiss status messages after 3 seconds
+    state.message?.let { message ->
+        LaunchedEffect(message) {
+            delay(3000L)
+            viewModel.consumeMessage()
+        }
+    }
+
+    // (#4) Shimmer alpha for loading state
+    val shimmerAlpha by if (isLoading) {
+        val transition = rememberInfiniteTransition(label = "shimmer")
+        transition.animateFloat(
+            initialValue = 0.08f,
+            targetValue = 0.25f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(800, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "shimmerAlpha",
+        )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
+
+    // (#6) Before/after comparison state
+    var compareVariantUri by remember { mutableStateOf<String?>(null) }
+
     Column(Modifier.fillMaxSize().safeDrawingPadding().testTag(PhotoWorkflowTestTags.EDITOR)) {
         Header("AI edit", viewModel::back)
-        ZoomableImage(session.workingUri, Modifier.fillMaxWidth().weight(1f))
-        if (session.variants.isNotEmpty()) {
-            LazyRow(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                item {
-                    FilterChip(
-                        selected = session.workingVariantId == null,
-                        onClick = { viewModel.selectWorkingVariant(null) },
-                        label = { Text("Original") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        ),
-                    )
-                }
-                items(session.variants, key = EditVariant::id) { variant ->
-                    FilterChip(
-                        selected = session.workingVariantId == variant.id,
-                        onClick = { viewModel.selectWorkingVariant(variant.id) },
-                        label = { Text("Edit ${session.variants.indexOf(variant) + 1}") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        ),
-                    )
-                }
-            }
-        }
-        OutlinedTextField(
-            value = state.editInstruction,
-            onValueChange = viewModel::updateEditInstruction,
-            label = { Text("What should change?") },
-            supportingText = { Text("Only ask for the change you want. The original stays saved.") },
-            trailingIcon = {
-                VoiceInputButton(VoiceInputTarget.EDIT_INSTRUCTION, state, viewModel, onVoiceInput)
-            },
-            minLines = 2,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                cursorColor = MaterialTheme.colorScheme.primary,
-            ),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag(PhotoWorkflowTestTags.EDIT_INSTRUCTION),
-        )
-        state.message?.let { message ->
-            Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
+
+        // (#1) Image area with framing — rounded clip, padding, subtle border
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
         ) {
-            if (state.editStatus == RequestStatus.RUNNING) {
-                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "Applying edit…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.weight(1f))
+            ZoomableImage(session.workingUri, Modifier.fillMaxSize())
+
+            // (#4) Loading shimmer overlay
+            if (isLoading) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = shimmerAlpha)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                "Applying edit…",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
             }
-            Button(
-                onClick = viewModel::requestEditConfirmation,
-                enabled = state.editInstruction.isNotBlank() && state.editStatus != RequestStatus.RUNNING &&
-                    state.voiceInputTarget == null,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
+
+            // (#6) Before/after overlay when long-pressing a variant chip
+            compareVariantUri?.let { compareUri ->
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f))
+                        .pointerInput(Unit) {},
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.85f)
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Column(
+                            Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                "Before",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .background(
+                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                        RoundedCornerShape(8.dp),
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            FullImage(
+                                session.original.uri,
+                                Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(8.dp)),
+                            )
+                        }
+                        Column(
+                            Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                "After",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .background(
+                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                        RoundedCornerShape(8.dp),
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            FullImage(
+                                compareUri,
+                                Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(8.dp)),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // (#2) Variant chips with overlay styling + Mango save icon
+        if (session.variants.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(if (state.editStatus == RequestStatus.RETRYABLE) "Retry edit" else "Generate edit")
+                LazyRow(
+                    Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
+                        FilterChip(
+                            selected = session.workingVariantId == null,
+                            onClick = {
+                                compareVariantUri = null
+                                viewModel.selectWorkingVariant(null)
+                            },
+                            label = { Text("Original") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        )
+                    }
+                    items(session.variants, key = EditVariant::id) { variant ->
+                        val index = session.variants.indexOf(variant) + 1
+                        FilterChip(
+                            selected = session.workingVariantId == variant.id,
+                            onClick = {
+                                compareVariantUri = null
+                                viewModel.selectWorkingVariant(variant.id)
+                            },
+                            label = { Text("Edit $index") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                            modifier = Modifier.combinedClickable(
+                                onClick = {
+                                    compareVariantUri = null
+                                    viewModel.selectWorkingVariant(variant.id)
+                                },
+                                onLongClick = {
+                                    compareVariantUri = if (compareVariantUri == variant.uri) null else variant.uri
+                                },
+                            ),
+                        )
+                    }
+                }
+                if (session.workingVariantId != null) {
+                    IconButton(onClick = viewModel::saveCurrentEdit) {
+                        Icon(
+                            Icons.Rounded.SaveAlt,
+                            contentDescription = "Save to camera roll",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+
+        // (#3) Bottom sheet surface wrapping the input area
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            tonalElevation = 2.dp,
+        ) {
+            Column(Modifier.padding(top = 16.dp, bottom = 8.dp)) {
+                OutlinedTextField(
+                    value = state.editInstruction,
+                    onValueChange = viewModel::updateEditInstruction,
+                    label = { Text("What should change?") },
+                    supportingText = { Text("Only ask for the change you want. The original stays saved.") },
+                    trailingIcon = {
+                        VoiceInputButton(VoiceInputTarget.EDIT_INSTRUCTION, state, viewModel, onVoiceInput)
+                    },
+                    minLines = 2,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        cursorColor = MaterialTheme.colorScheme.primary,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .testTag(PhotoWorkflowTestTags.EDIT_INSTRUCTION),
+                )
+
+                // (#5) Snackbar-style status feedback
+                AnimatedVisibility(
+                    visible = state.message != null,
+                    enter = expandVertically(),
+                    exit = shrinkVertically(),
+                ) {
+                    state.message?.let { message ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = if ("Saved" in message) {
+                                MaterialTheme.colorScheme.tertiaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.errorContainer
+                            },
+                        ) {
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if ("Saved" in message) {
+                                    MaterialTheme.colorScheme.onTertiaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onErrorContainer
+                                },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            )
+                        }
+                    }
+                }
+
+                // Full-width CTA button
+                Button(
+                    onClick = viewModel::requestEditConfirmation,
+                    enabled = state.editInstruction.isNotBlank() && !isLoading &&
+                        state.voiceInputTarget == null,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Text(
+                        if (state.editStatus == RequestStatus.RETRYABLE) "Retry edit" else "Generate edit",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
             }
         }
     }
@@ -422,22 +702,18 @@ private fun EditorScreen(
             title = { Text("Use AI to edit this photo?") },
             text = {
                 Text(
-                    if (session.workingVariantId == null) {
-                        "Photo Helper will send a reduced, metadata-free copy to Alibaba Cloud in China. " +
-                            "AI can make unintended changes. Your original will not be overwritten."
-                    } else {
-                        "Photo Helper will send the original and current edit to Alibaba Cloud in China. " +
-                            "AI can make unintended changes. Neither saved photo will be overwritten."
-                    },
+                    "Photo Helper will send a reduced copy to an AI service for editing. " +
+                        "AI can make unintended changes. Your original will not be overwritten. " +
+                        "You can revoke this in Settings.",
                 )
             },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmEdit) {
-                    Text("Continue", color = MaterialTheme.colorScheme.primary)
+                    Text("Allow", color = MaterialTheme.colorScheme.primary)
                 }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissEditConfirmation) { Text("Cancel") }
+                TextButton(onClick = viewModel::dismissEditConfirmation) { Text("Not now") }
             },
         )
     }
@@ -649,20 +925,20 @@ private fun ShareScreen(
     if (state.captionConfirmationVisible) {
         AlertDialog(
             onDismissRequest = viewModel::dismissCaptionConfirmation,
-            title = { Text("Use AI to write this caption?") },
+            title = { Text("Use AI to write captions?") },
             text = {
                 Text(
-                    "Photo Helper will send a reduced, metadata-free contact sheet of ${assets.size} photo" +
-                        if (assets.size == 1) " to Alibaba Cloud in China." else "s to Alibaba Cloud in China.",
+                    "Photo Helper will send a reduced, metadata-free contact sheet of your selected photos " +
+                        "to an AI service for caption generation. You can revoke this in Settings.",
                 )
             },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmCaption) {
-                    Text("Continue", color = MaterialTheme.colorScheme.primary)
+                    Text("Allow", color = MaterialTheme.colorScheme.primary)
                 }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissCaptionConfirmation) { Text("Cancel") }
+                TextButton(onClick = viewModel::dismissCaptionConfirmation) { Text("Not now") }
             },
         )
     }

@@ -21,6 +21,14 @@ interface PreferenceStore {
     fun setAutoCaptureEnabled(enabled: Boolean)
     fun hasUsedVoice(): Boolean
     fun setHasUsedVoice()
+    fun captionConsentGiven(): Boolean
+    fun setCaptionConsentGiven(given: Boolean)
+    fun galleryBannerDismissed(): Boolean
+    fun setGalleryBannerDismissed(dismissed: Boolean)
+    fun gridOverlayEnabled(): Boolean
+    fun setGridOverlayEnabled(enabled: Boolean)
+    fun tiltIndicatorEnabled(): Boolean
+    fun setTiltIndicatorEnabled(enabled: Boolean)
 }
 
 class UserPreferences(context: Context) : PreferenceStore {
@@ -43,6 +51,9 @@ class UserPreferences(context: Context) : PreferenceStore {
         styleProfile = values.getString(STYLE_PROFILE, "").orEmpty(),
         autoCaptureEnabled = values.getBoolean(AUTO_CAPTURE_ENABLED, true),
         visualProvider = readVisualProvider(),
+        captionConsentGiven = values.getBoolean(CAPTION_CONSENT_GIVEN, false),
+        gridOverlayEnabled = values.getBoolean(GRID_OVERLAY_ENABLED, false),
+        tiltIndicatorEnabled = values.getBoolean(TILT_INDICATOR_ENABLED, false),
     )
 
     override fun setSpokenGuidance(enabled: Boolean) = put(SPOKEN_GUIDANCE, enabled)
@@ -63,6 +74,18 @@ class UserPreferences(context: Context) : PreferenceStore {
 
     override fun hasUsedVoice(): Boolean = values.getBoolean(HAS_USED_VOICE, false)
     override fun setHasUsedVoice() = put(HAS_USED_VOICE, true)
+
+    override fun captionConsentGiven(): Boolean = values.getBoolean(CAPTION_CONSENT_GIVEN, false)
+    override fun setCaptionConsentGiven(given: Boolean) = put(CAPTION_CONSENT_GIVEN, given)
+
+    override fun galleryBannerDismissed(): Boolean = values.getBoolean(GALLERY_BANNER_DISMISSED, false)
+    override fun setGalleryBannerDismissed(dismissed: Boolean) = put(GALLERY_BANNER_DISMISSED, dismissed)
+
+    override fun gridOverlayEnabled(): Boolean = values.getBoolean(GRID_OVERLAY_ENABLED, false)
+    override fun setGridOverlayEnabled(enabled: Boolean) = put(GRID_OVERLAY_ENABLED, enabled)
+
+    override fun tiltIndicatorEnabled(): Boolean = values.getBoolean(TILT_INDICATOR_ENABLED, false)
+    override fun setTiltIndicatorEnabled(enabled: Boolean) = put(TILT_INDICATOR_ENABLED, enabled)
 
     private fun readVisualProvider(): VisualProvider {
         val stored = values.getString(VISUAL_PROVIDER, null) ?: return VisualProvider.QWEN
@@ -89,5 +112,9 @@ class UserPreferences(context: Context) : PreferenceStore {
         const val AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
         const val VISUAL_PROVIDER = "visual_provider"
         const val HAS_USED_VOICE = "has_used_voice"
+        const val CAPTION_CONSENT_GIVEN = "caption_consent_given"
+        const val GALLERY_BANNER_DISMISSED = "gallery_banner_dismissed"
+        const val GRID_OVERLAY_ENABLED = "grid_overlay_enabled"
+        const val TILT_INDICATOR_ENABLED = "tilt_indicator_enabled"
     }
 }

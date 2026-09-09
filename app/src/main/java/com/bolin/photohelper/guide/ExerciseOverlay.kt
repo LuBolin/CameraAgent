@@ -35,6 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.bolin.photohelper.ui.Charcoal
+import com.bolin.photohelper.ui.Mango
+import com.bolin.photohelper.ui.SoftCream
 import kotlinx.coroutines.delay
 
 data class ActiveExercise(
@@ -69,9 +72,7 @@ fun ExerciseOverlay(
         ) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                tonalElevation = 4.dp,
-                shadowElevation = 8.dp,
+                color = Charcoal.copy(alpha = 0.82f),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -81,8 +82,7 @@ fun ExerciseOverlay(
                         Icon(
                             if (completed) Icons.Rounded.CheckCircle else Icons.Rounded.AutoAwesome,
                             contentDescription = null,
-                            tint = if (completed) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.tertiary,
+                            tint = Mango,
                             modifier = Modifier.size(24.dp),
                         )
                         Spacer(Modifier.width(10.dp))
@@ -91,6 +91,7 @@ fun ExerciseOverlay(
                                    else active.exercise.instruction,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
+                            color = SoftCream,
                             modifier = Modifier.weight(1f),
                         )
                         if (!completed) {
@@ -98,6 +99,7 @@ fun ExerciseOverlay(
                                 Icon(
                                     Icons.Rounded.Close,
                                     contentDescription = "Cancel exercise",
+                                    tint = SoftCream.copy(alpha = 0.5f),
                                     modifier = Modifier.size(24.dp),
                                 )
                             }
@@ -109,7 +111,7 @@ fun ExerciseOverlay(
                         Text(
                             text = active.exercise.hint,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = SoftCream.copy(alpha = 0.7f),
                         )
                     }
 
@@ -119,7 +121,8 @@ fun ExerciseOverlay(
                             onClick = onComplete,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                containerColor = Mango,
+                                contentColor = Charcoal,
                             ),
                         ) {
                             Text("Got it")

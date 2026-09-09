@@ -78,6 +78,9 @@ data class SettingsUiState(
     val styleProfile: String = "",
     val autoCaptureEnabled: Boolean = true,
     val visualProvider: VisualProvider = VisualProvider.QWEN,
+    val captionConsentGiven: Boolean = false,
+    val gridOverlayEnabled: Boolean = false,
+    val tiltIndicatorEnabled: Boolean = false,
 )
 
 const val MAX_STYLE_PROFILE_CHARACTERS = 400

@@ -62,12 +62,16 @@ internal fun buildCaptionRequestBody(request: CaptionRequest): ByteArray {
 
 internal fun captionPrompt(request: CaptionRequest): String = buildString {
     append("Return JSON only: {\"schemaVersion\":1,\"caption\":\"...\"}. ")
-    append("Write one caption in locale ${request.locale} for ${request.photoCount} selected photo")
+    append("Write a social-media caption in locale ${request.locale} for ${request.photoCount} selected photo")
     if (request.photoCount != 1) append("s")
     append(" shown in numbered selection order. ")
+    append("Write as though a warm, loving grandparent is sharing the photo with family or friends. ")
+    append("Capture the feeling and the moment, not a literal description of what is visible. ")
+    append("Be heartfelt and simple, the way a grandma or grandpa would talk about a cherished memory. ")
+    append("Avoid formal language, hashtags, slang, or anything that sounds like a news report. ")
     when (request.length) {
-        CaptionLength.SHORT -> append("Use one sentence and at most 80 Unicode code points. ")
-        CaptionLength.LONG -> append("Use two to four sentences and at most 300 Unicode code points. ")
+        CaptionLength.SHORT -> append("Write only a single short sentence or phrase, around 5 to 12 words. Do not write more than one sentence. ")
+        CaptionLength.LONG -> append("Use two to four sentences and at most 300 characters. Tell a brief story or set the mood. ")
     }
     append("Do not invent names, places, events, relationships, weather, or facts that are not visible or provided. ")
     append("Do not add hashtags unless the user feedback asks for them. ")
@@ -90,8 +94,20 @@ internal fun parseCaptionResponse(response: String, length: CaptionLength): Stri
 
 internal fun parseCaptionContent(content: String, length: CaptionLength): String? {
     val value = strictObject(content) ?: return null
-    if (value.keysSet() != setOf("schemaVersion", "caption") || value.opt("schemaVersion") != 1) return null
-    val caption = (value.opt("caption") as? String)?.trim()?.takeIf(String::isNotEmpty) ?: return null
-    if (caption.codePointCount(0, caption.length) > length.maxCodePoints) return null
-    return caption.takeIf { it.none { ch -> ch == '\u0000' } }
+    if (!value.keysSet().containsAll(setOf("schemaVersion", "caption")) || value.opt("schemaVersion") != 1) return null
+    var caption = (value.opt("caption") as? String)?.trim()?.takeIf(String::isNotEmpty) ?: return null
+    if (caption.any { it == '\u0000' }) return null
+    if (caption.codePointCount(0, caption.length) > length.maxCodePoints) {
+        caption = caption.truncateAtWordBoundary(length.maxCodePoints)
+    }
+    return caption.takeIf(String::isNotEmpty)
+}
+
+private fun String.truncateAtWordBoundary(maxCodePoints: Int): String {
+    if (codePointCount(0, length) <= maxCodePoints) return this
+    val cutoff = offsetByCodePoints(0, maxCodePoints)
+    val trimmed = substring(0, cutoff)
+    val lastSpace = trimmed.lastIndexOf(' ')
+    val result = if (lastSpace > trimmed.length / 2) trimmed.substring(0, lastSpace) else trimmed
+    return result.trimEnd('.', ',', ' ')
 }

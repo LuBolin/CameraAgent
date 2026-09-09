@@ -57,6 +57,9 @@ interface CaptureScreenActions {
     fun onTestKey()
     fun onClearKey()
     fun onAutoCaptureEnabledChanged(enabled: Boolean)
+    fun onCaptionConsentChanged(given: Boolean)
+    fun onGridOverlayEnabledChanged(enabled: Boolean)
+    fun onTiltIndicatorEnabledChanged(enabled: Boolean)
     fun onOpenVisualAiPolicy()
     fun onOpenMlKitPolicy()
 }

@@ -80,10 +80,14 @@ data class PhotoWorkflowUiState(
     val captionFeedback: String = "",
     val captionConfirmationVisible: Boolean = false,
     val captionStatus: RequestStatus = RequestStatus.IDLE,
+    val captionConsentGiven: Boolean = false,
+    val galleryBannerDismissed: Boolean = false,
+    val deleteConfirmationVisible: Boolean = false,
     val voiceInputTarget: VoiceInputTarget? = null,
 ) {
     val visibleAssets: List<LibraryAsset>
         get() = (pickedAssets + assets).distinctBy(LibraryAsset::uri)
+            .sortedByDescending(LibraryAsset::dateAddedSeconds)
 
     val selectedAssets: List<LibraryAsset>
         get() = selectedUris.mapNotNull { uri -> visibleAssets.firstOrNull { it.uri == uri } }

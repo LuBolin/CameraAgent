@@ -98,6 +98,7 @@ fun GuideScreen(
     progress: GuideProgress,
     onDismiss: () -> Unit,
     onStartExercise: (GuidedExercise, String) -> Unit,
+    onTipAction: (TipAction) -> Unit = {},
 ) {
     var nav by remember { mutableStateOf<GuideNav>(GuideNav.ModuleList) }
     var completedIds by remember { mutableStateOf(progress.completedLessonIds()) }
@@ -178,6 +179,7 @@ fun GuideScreen(
                         onMarkDone = { markDone(lesson, module) },
                         onTryIt = { lesson.exercise?.let { onStartExercise(it, lesson.id); onDismiss() } },
                         onBack = { nav = GuideNav.LessonList(module.id) },
+                        onTipAction = onTipAction,
                     )
                 }
                 is GuideNav.ModuleComplete -> {
@@ -378,6 +380,7 @@ private fun QuickStartCard(onAction: (QuickStartAction) -> Unit) {
                         Text(
                             action.label,
                             style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f),
                         )
                         Icon(
@@ -564,6 +567,7 @@ private fun LessonRow(
             Text(
                 lesson.title,
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -601,6 +605,7 @@ private fun LessonDetailPane(
     onMarkDone: () -> Unit,
     onTryIt: () -> Unit,
     onBack: () -> Unit,
+    onTipAction: (TipAction) -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
         GuideTopBar(title = "Lesson ${lesson.id}", onBack = onBack)
@@ -619,18 +624,19 @@ private fun LessonDetailPane(
                 Text(
                     lesson.title,
                     style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.semantics { heading() },
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
                     lesson.description,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(8.dp))
             }
             items(lesson.tips) { tip ->
-                TipCard(tip)
+                TipCard(tip, onTipAction)
             }
             item {
                 Spacer(Modifier.height(8.dp))
@@ -703,7 +709,7 @@ private fun LessonDetailPane(
 }
 
 @Composable
-private fun TipCard(tip: Tip) {
+private fun TipCard(tip: Tip, onTipAction: (TipAction) -> Unit = {}) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(12.dp),
@@ -734,8 +740,22 @@ private fun TipCard(tip: Tip) {
             Text(
                 tip.body,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurface,
             )
+            if (tip.action != null) {
+                Spacer(Modifier.height(8.dp))
+                val label = when (tip.action) {
+                    TipAction.ENABLE_GRID -> "Turn on grid"
+                    TipAction.ENABLE_TILT -> "Turn on tilt indicator"
+                }
+                Button(
+                    onClick = { onTipAction(tip.action) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Text(label)
+                }
+            }
         }
     }
 }
@@ -775,6 +795,7 @@ private fun ModuleCompletePane(
         Text(
             "Module complete",
             style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.semantics { heading() },
         )
         Spacer(Modifier.height(6.dp))
@@ -818,7 +839,7 @@ private fun ModuleCompletePane(
                             }
                         }
                         Column {
-                            Text(nextModule.title, style = MaterialTheme.typography.titleSmall)
+                            Text(nextModule.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                             Text(
                                 "${nextModule.lessons.size} lessons",
                                 style = MaterialTheme.typography.bodySmall,

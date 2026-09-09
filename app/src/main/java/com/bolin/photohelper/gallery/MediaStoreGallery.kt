@@ -250,6 +250,39 @@ class MediaStoreGallery(context: Context) {
         }
     }
 
+    suspend fun deleteAsset(uri: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val count = resolver.delete(Uri.parse(uri), null, null)
+            if (count == 0) throw IOException("Photo could not be deleted")
+        }
+    }
+
+    suspend fun saveToCameraRoll(sourceUri: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val uri = Uri.parse(sourceUri)
+            val now = System.currentTimeMillis()
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "PhotoHelper_$now.png")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Camera")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val destUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IOException("Could not create file in camera roll")
+            resolver.openInputStream(uri)?.use { input ->
+                resolver.openOutputStream(destUri, "w")?.use { output ->
+                    input.copyTo(output)
+                } ?: throw IOException("Could not write to camera roll")
+            } ?: throw IOException("Could not read the edited photo")
+            resolver.update(
+                destUri,
+                ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) },
+                null, null,
+            )
+            Unit
+        }
+    }
+
     private fun encodeBoundedJpeg(bitmap: Bitmap): ByteArray {
         for (quality in listOf(90, 82, 74, 66)) {
             val bytes = ByteArrayOutputStream().use { output ->

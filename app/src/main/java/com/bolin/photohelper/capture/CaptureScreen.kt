@@ -64,6 +64,7 @@ import com.bolin.photohelper.guide.ExerciseOverlay
 import com.bolin.photohelper.guide.ExerciseType
 import com.bolin.photohelper.guide.GuideProgress
 import com.bolin.photohelper.guide.GuideScreen
+import com.bolin.photohelper.guide.TipAction
 import kotlinx.coroutines.flow.StateFlow
 
 object CaptureTestTags {
@@ -208,6 +209,9 @@ fun CaptureScreen(
             onClearKey = actions::onClearKey,
             onEnableMicrophone = actions::onOpenAppSettings,
             onAutoCaptureEnabledChanged = actions::onAutoCaptureEnabledChanged,
+            onCaptionConsentChanged = actions::onCaptionConsentChanged,
+            onGridOverlayEnabledChanged = actions::onGridOverlayEnabledChanged,
+            onTiltIndicatorEnabledChanged = actions::onTiltIndicatorEnabledChanged,
             onOpenVisualAiPolicy = actions::onOpenVisualAiPolicy,
             onOpenMlKitPolicy = actions::onOpenMlKitPolicy,
         )
@@ -220,6 +224,12 @@ fun CaptureScreen(
             onStartExercise = { exercise, lessonId ->
                 showGuide = false
                 activeExercise = ActiveExercise(lessonId, exercise)
+            },
+            onTipAction = { action ->
+                when (action) {
+                    TipAction.ENABLE_GRID -> actions.onGridOverlayEnabledChanged(true)
+                    TipAction.ENABLE_TILT -> actions.onTiltIndicatorEnabledChanged(true)
+                }
             },
         )
     }

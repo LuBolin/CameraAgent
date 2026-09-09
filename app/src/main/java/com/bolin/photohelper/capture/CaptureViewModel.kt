@@ -93,6 +93,15 @@ private val PERSON_FOCUS_REQUEST = Regex(
     "\\bfocus\\s+on\\s+(?:grandma|grandmother|grandpa|grandfather|mom|mother|dad|father|woman|man|person|her|him)\\b",
     RegexOption.IGNORE_CASE,
 )
+private val GENERAL_IMPROVEMENT_REQUEST = Regex(
+    "^\\s*(?:make\\s+(?:it|this|the\\s+(?:shot|photo|picture))\\s+(?:look\\s+)?(?:nicer|better|good|great|prettier|nice)|" +
+        "(?:improve|enhance|fix|help|polish|clean\\s*up)\\s+(?:it|this|the\\s+(?:shot|photo|picture))|" +
+        "(?:improve|enhance|fix|help|polish|clean\\s*up)\\s+(?:this|it)|" +
+        "(?:looks?\\s+(?:bad|wrong|off|weird|ugly))|" +
+        "(?:what(?:'s|\\s+is)\\s+wrong)|" +
+        "(?:make\\s+(?:it|this)\\s+(?:look\\s+)?nice))\\s*[.!?]*\\s*$",
+    RegexOption.IGNORE_CASE,
+)
 private val SMALL_ADJUSTMENT_REQUEST = Regex(
     "\\b(?:slightly|a little|little bit|a bit|a touch|gently)\\b",
     RegexOption.IGNORE_CASE,
@@ -454,6 +463,10 @@ class CaptureViewModel(
             }
             if (TARGET_FOCUS_REQUEST.containsMatchIn(comment)) {
                 resolveVisualFocus(comment)
+                return
+            }
+            if (GENERAL_IMPROVEMENT_REQUEST.containsMatchIn(comment)) {
+                requestCommandPlan(comment, autoEnhance = true)
                 return
             }
             requestCommandPlan(comment)
@@ -1386,6 +1399,27 @@ class CaptureViewModel(
         updateSettings { it.copy(autoCaptureEnabled = enabled) }
     }
 
+    fun setCaptionConsentGiven(given: Boolean) {
+        preferences.setCaptionConsentGiven(given)
+        updateSettings { it.copy(captionConsentGiven = given) }
+    }
+
+    fun setGridOverlayEnabled(enabled: Boolean) {
+        preferences.setGridOverlayEnabled(enabled)
+        updateSettings { it.copy(gridOverlayEnabled = enabled) }
+        if (enabled && _uiState.value.settings.spokenGuidance) {
+            voice.speak("Grid overlay is on. You can turn it off in Settings.", "setting")
+        }
+    }
+
+    fun setTiltIndicatorEnabled(enabled: Boolean) {
+        preferences.setTiltIndicatorEnabled(enabled)
+        updateSettings { it.copy(tiltIndicatorEnabled = enabled) }
+        if (enabled && _uiState.value.settings.spokenGuidance) {
+            voice.speak("Tilt indicator is on. You can turn it off in Settings.", "setting")
+        }
+    }
+
     fun setVisualAiEnabled(enabled: Boolean) {
         if (enabled && visualCredentialsRejected) {
             camera.setObservationImageEnabled(false)
@@ -2177,7 +2211,7 @@ class CaptureViewModel(
             )
         }.distinct()
         val comment = if (axes.isNotEmpty()) {
-            "Make this shot look nicer. Already adjusted: ${axes.joinToString()}. Do not change those axes again."
+            "Verify only the ${axes.joinToString()} adjustment just made. If it looks good, return no changes. Do not suggest changes to any other axis."
         } else {
             "Make this shot look nicer."
         }

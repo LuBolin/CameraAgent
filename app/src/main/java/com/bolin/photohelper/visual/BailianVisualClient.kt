@@ -139,7 +139,8 @@ class BailianVisualClient internal constructor(
 
             val status = connection.responseCode
             if (status != HttpURLConnection.HTTP_OK) {
-                connection.errorStream?.close()
+                val errorBody = connection.errorStream?.use { it.readBytes().toString(StandardCharsets.UTF_8) }.orEmpty()
+                android.util.Log.w("VisualClient", "HTTP $status: $errorBody")
                 return if (status == HttpURLConnection.HTTP_UNAUTHORIZED || status == HttpURLConnection.HTTP_FORBIDDEN) {
                     ProviderCall.CredentialsRejected
                 } else {

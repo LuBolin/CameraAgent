@@ -135,7 +135,9 @@ class BailianImageEditClient internal constructor(
                     ImageEditCall.CredentialsRejected
                 }
                 else -> {
-                    connection.errorStream?.close()
+                    val errorBody = connection.errorStream?.use { readLimited(it, 4096) }
+                        ?.toString(StandardCharsets.UTF_8).orEmpty()
+                    android.util.Log.w("ImageEdit", "HTTP $status: $errorBody")
                     ImageEditCall.Failed(
                         if (status == 429) "Image edit rate limit reached. Try again later."
                         else "Image edit request failed (HTTP $status).",
