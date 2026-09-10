@@ -388,7 +388,7 @@ private fun CaptureContent(
             if (!isLandscape) {
                 MirrorBar(instruction)
             }
-            CompositionControls(state, actions, iconRotation, isLandscape)
+            CompositionControls(state, actions)
             Spacer(Modifier.size(8.dp))
             val showFlanking = !guiding && state.decision == null
             Row(

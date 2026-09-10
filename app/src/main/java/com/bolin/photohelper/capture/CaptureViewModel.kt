@@ -81,7 +81,7 @@ private const val CAPTURE_TIMEOUT_MS = 15_000L
 private const val CAPTURE_TIMEOUT_MESSAGE = "Camera did not finish saving the photo. Try again."
 private const val VOICE_INPUT_TIMEOUT_MS = 20_000L
 private const val VOICE_INPUT_TIMEOUT_MESSAGE = "Voice input timed out. Tap the mic to try again."
-private const val TOAST_TIMEOUT_MS = 5_000L
+private const val TOAST_TIMEOUT_MS = 3_000L
 private const val HINT_VISIBLE_MS = 3_000L
 private const val FOCUS_INDICATOR_MS = 3_000L
 /** Two visible attempts: the first plan, then one alternative, then an honest concession. */

@@ -68,7 +68,7 @@ fun GuidanceTarget(guidance: ActiveGuidance, modifier: Modifier = Modifier,
 }
 
 @Composable
-fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions, iconRotation: Float = 0f, isLandscape: Boolean = false) {
+fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions) {
     val active = state.activeGuidance
     val overlays = LocalOverlayColors.current
     val reducedMotion = LocalReducedMotion.current
@@ -78,10 +78,6 @@ fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions, ic
 
     val showSelection = selection != null
     val showStop = !showSelection && (state.compositionEnabled || active != null) && state.decision == null
-    val showFrame = !showSelection && !showStop &&
-        state.coachingPhase == CoachingPhase.IDLE && state.review == null &&
-        state.decision == null
-
     AnimatedVisibility(
         visible = showSelection,
         enter = fadeIn(tween(enterMs)) + slideInVertically(
@@ -163,22 +159,6 @@ fun CompositionControls(state: CaptureUiState, actions: CaptureScreenActions, ic
         }
     }
 
-    AnimatedVisibility(
-        visible = showFrame && !isLandscape,
-        enter = fadeIn(tween(enterMs)),
-        exit = fadeOut(tween(exitMs)),
-    ) {
-        Button(
-            onClick = actions::onBestShot,
-            enabled = state.shutterEnabled,
-            modifier = Modifier.heightIn(min = 48.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = overlays.scrimOpaque,
-                contentColor = overlays.onOverlay,
-            ),
-            contentPadding = PaddingValues(horizontal = 14.dp),
-        ) { Text("Best shot", color = overlays.onOverlay) }
-    }
 }
 
 @Composable
