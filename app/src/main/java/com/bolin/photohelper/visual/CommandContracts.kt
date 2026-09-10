@@ -241,7 +241,8 @@ private fun buildWbComparisonBody(beforeJpeg: ByteArray, afterJpeg: ByteArray): 
         "KEEP: the after image looks more natural — stop adjusting. " +
         "MORE: the after image improved but neutral areas still have a visible color cast in the same direction — one more step would help. " +
         "REVERT: the before image had more natural colors — undo the change. " +
-        "Err toward KEEP. Only choose MORE if a cast is clearly still visible. Only choose REVERT if the change made colors obviously worse."
+        "Judge objectively — pick whichever image has the most natural colors. " +
+        "REVERT whenever the after image introduced an unnatural tint (too orange, too blue, etc.) even if subtle."
     val beforeUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(beforeJpeg)}"
     val afterUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(afterJpeg)}"
     val userContent = JSONArray()
@@ -336,38 +337,40 @@ private fun parseAutoEnhance(value: JSONObject): CommandResult? {
             value.keysSet() == setOf("schemaVersion", "outcome", "confidence") && value.opt("confidence") == "LOW"
         }
     }
-    if (value.opt("outcome") != "ASSESSMENT" || value.opt("confidence") !in setOf("MEDIUM", "HIGH") ||
-        !value.keysSet().containsAll(setOf("schemaVersion", "outcome", "confidence", "exposure", "whiteBalance", "framing", "focus"))
-    ) return null
+    if (value.opt("outcome") != "ASSESSMENT" || value.opt("confidence") !in setOf("MEDIUM", "HIGH")) return null
 
     val compositionSuggested = value.opt("composition") == "SUGGEST"
 
-    val adjustments = listOf(
-        parseAutoAdjustment(value.opt("exposure") as? JSONObject ?: return null, mapOf(
+    val steps = mutableListOf<CommandPlanStep>()
+    (value.opt("exposure") as? JSONObject)?.let { obj ->
+        parseAutoAdjustment(obj, mapOf(
             "BRIGHTER" to ControlIntent.EXPOSURE_BRIGHTER,
             "DARKER" to ControlIntent.EXPOSURE_DARKER,
-        )) ?: return null,
-        parseAutoAdjustment(value.opt("whiteBalance") as? JSONObject ?: return null, mapOf(
+        ))?.let { (intent, small) -> intent?.let { steps += CommandPlanStep.Adjust(listOf(it), small) } }
+    }
+    (value.opt("whiteBalance") as? JSONObject)?.let { obj ->
+        parseAutoAdjustment(obj, mapOf(
             "WARMER" to ControlIntent.WHITE_BALANCE_WARMER,
             "COOLER" to ControlIntent.WHITE_BALANCE_COOLER,
-        )) ?: return null,
-        parseAutoAdjustment(value.opt("framing") as? JSONObject ?: return null, mapOf(
+        ))?.let { (intent, small) -> intent?.let { steps += CommandPlanStep.Adjust(listOf(it), small) } }
+    }
+    (value.opt("framing") as? JSONObject)?.let { obj ->
+        parseAutoAdjustment(obj, mapOf(
             "ZOOM_IN" to ControlIntent.ZOOM_IN,
             "ZOOM_OUT" to ControlIntent.ZOOM_OUT,
-        )) ?: return null,
-    )
-    val steps = adjustments.mapNotNull { (intent, small) ->
-        intent?.let { CommandPlanStep.Adjust(listOf(it), small) }
-    }.toMutableList<CommandPlanStep>()
-    val focus = value.opt("focus") as? JSONObject ?: return null
-    when (focus.opt("decision")) {
-        "NONE" -> if ("decision" !in focus.keysSet()) return null
-        "FOCUS_POINT" -> {
-            if (!focus.keysSet().containsAll(setOf("decision", "point_2d"))) return null
-            val (x, y) = parseNormalizedPoint(focus.opt("point_2d")) ?: return null
-            steps += CommandPlanStep.FocusPoint(x, y)
+        ))?.let { (intent, small) -> intent?.let { steps += CommandPlanStep.Adjust(listOf(it), small) } }
+    }
+    (value.opt("focus") as? JSONObject)?.let { focus ->
+        when (focus.opt("decision")) {
+            "FOCUS_POINT" -> {
+                if (focus.keysSet().containsAll(setOf("decision", "point_2d"))) {
+                    parseNormalizedPoint(focus.opt("point_2d"))?.let { (x, y) ->
+                        steps += CommandPlanStep.FocusPoint(x, y)
+                    }
+                }
+            }
+            else -> { }
         }
-        else -> return null
     }
     return if (steps.isEmpty()) {
         if (compositionSuggested) CommandResult.CompositionOnly else CommandResult.NoChange

@@ -32,7 +32,7 @@ internal const val MAX_COMMENT_CHARACTERS = 300
 internal const val MAX_OBSERVATION_JPEG_BYTES = 300 * 1024
 internal const val MAX_REQUEST_BODY_BYTES = 700 * 1024
 internal const val MAX_RESPONSE_CONTENT_BYTES = 512
-internal const val VISUAL_CALLS_PER_MINUTE = 6
+internal const val VISUAL_CALLS_PER_MINUTE = 15
 
 internal fun isValidApiKey(apiKey: CharArray): Boolean =
     apiKey.size in 1..MAX_API_KEY_CHARACTERS && apiKey.all { it.code in 0x21..0x7e }

@@ -313,7 +313,8 @@ private fun buildTencentWbComparisonBody(beforeJpeg: ByteArray, afterJpeg: ByteA
         "KEEP: the after image looks more natural — stop adjusting. " +
         "MORE: the after image improved but neutral areas still have a visible color cast in the same direction — one more step would help. " +
         "REVERT: the before image had more natural colors — undo the change. " +
-        "Err toward KEEP. Only choose MORE if a cast is clearly still visible. Only choose REVERT if the change made colors obviously worse."
+        "Judge objectively — pick whichever image has the most natural colors. " +
+        "REVERT whenever the after image introduced an unnatural tint (too orange, too blue, etc.) even if subtle."
     val beforeUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(beforeJpeg)}"
     val afterUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(afterJpeg)}"
     return JSONObject()

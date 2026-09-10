@@ -273,18 +273,22 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
             val exposureTimeNanos = result.get(Camera2CaptureResult.SENSOR_EXPOSURE_TIME)
             val captureIntent = request.get(CaptureRequest.CONTROL_CAPTURE_INTENT)
             if (physicalCameraChanged(activePhysicalCameraId, physicalCameraId)) {
-                val invalidatedControls = controlBaseline != null
-                controlBaseline = null
-                val newSessionId = cameraSessionId.incrementAndGet()
-                _state.update {
-                    if (invalidatedControls) {
-                        CameraState(
-                            CameraPhase.BLOCKED,
-                            "The active camera lens changed. Retry the camera before shooting.",
-                            newSessionId,
-                        )
-                    } else {
-                        it.copy(sessionId = newSessionId)
+                val focalLengthChanged = focalLengthMm != null && activeFocalLengthMm != null &&
+                    kotlin.math.abs(focalLengthMm - activeFocalLengthMm!!) > 0.1f
+                if (focalLengthChanged) {
+                    val invalidatedControls = controlBaseline != null
+                    controlBaseline = null
+                    val newSessionId = cameraSessionId.incrementAndGet()
+                    _state.update {
+                        if (invalidatedControls) {
+                            CameraState(
+                                CameraPhase.BLOCKED,
+                                "The active camera lens changed. Retry the camera before shooting.",
+                                newSessionId,
+                            )
+                        } else {
+                            it.copy(sessionId = newSessionId)
+                        }
                     }
                 }
             }
