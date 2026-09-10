@@ -87,7 +87,10 @@ data class PhotoWorkflowUiState(
 ) {
     val visibleAssets: List<LibraryAsset>
         get() = (pickedAssets + assets).distinctBy(LibraryAsset::uri)
-            .sortedByDescending(LibraryAsset::dateAddedSeconds)
+            .sortedWith(
+                compareByDescending<LibraryAsset> { it.dateAddedSeconds }
+                    .thenByDescending { it.id },
+            )
 
     val selectedAssets: List<LibraryAsset>
         get() = selectedUris.mapNotNull { uri -> visibleAssets.firstOrNull { it.uri == uri } }

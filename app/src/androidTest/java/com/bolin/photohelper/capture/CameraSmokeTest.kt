@@ -584,7 +584,7 @@ class CameraSmokeTest {
         }
         assertTrue("The exact test-created MediaStore image was not deleted", deleted > 0)
         assertTrue("The test-created MediaStore row was missing", rowFound)
-        assertEquals("Pictures/PhotoHelper/", relativePath)
+        assertEquals("DCIM/Camera/", relativePath)
     }
 
     private fun deviceShell(command: String): String = ParcelFileDescriptor.AutoCloseInputStream(

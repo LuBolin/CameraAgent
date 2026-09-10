@@ -33,6 +33,17 @@ class PhotoWorkflowModelsTest {
     }
 
     @Test
+    fun `visible assets put newest first even when timestamps match`() {
+        val olderId = asset("content://photo/older").copy(id = 10, dateAddedSeconds = 42)
+        val newerId = olderId.copy(uri = "content://photo/newer", id = 11)
+
+        assertEquals(
+            listOf("content://photo/newer", "content://photo/older"),
+            PhotoWorkflowUiState(assets = listOf(olderId, newerId)).visibleAssets.map(LibraryAsset::uri),
+        )
+    }
+
+    @Test
     fun `editing an older variant creates a branch from that working asset`() {
         val original = asset("content://photo/original")
         val first = EditVariant("first", "content://photo/first", null, 1)

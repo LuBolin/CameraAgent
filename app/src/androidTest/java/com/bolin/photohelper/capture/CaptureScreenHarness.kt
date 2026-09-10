@@ -87,6 +87,9 @@ class TestActions(
     override fun onClearKey() = clearKey()
     override fun onOpenVisualAiPolicy() = openVisualAiPolicy()
     override fun onOpenMlKitPolicy() = openMlKitPolicy()
+    override fun onCaptionConsentChanged(given: Boolean) = Unit
+    override fun onGridOverlayEnabledChanged(enabled: Boolean) = Unit
+    override fun onTiltIndicatorEnabledChanged(enabled: Boolean) = Unit
 }
 
 /** `CaptureScreen` with test defaults for everything the case under test does not care about. */

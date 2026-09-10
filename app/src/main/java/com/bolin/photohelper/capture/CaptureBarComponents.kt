@@ -7,6 +7,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 
 /**
  * Voice control. On the camera screen the Helper Orb owns the shutter, so this is the
@@ -32,6 +33,7 @@ fun MicrophoneButton(
         onClick = onMicrophone,
         modifier = modifier.testTag(CaptureTestTags.MICROPHONE),
         tier = OverlayTier.PRIMARY,
+        buttonSize = 44.dp,
         enabled = phase !in setOf(CoachingPhase.APPLYING, CoachingPhase.INTERPRETING),
         stateDescription = when (phase) {
             CoachingPhase.LISTENING -> "Listening"
@@ -52,6 +54,7 @@ fun MicrophoneButton(
 fun AutoEnhanceButton(
     onClick: () -> Unit,
     enabled: Boolean,
+    onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     OverlayIconAction(
@@ -61,6 +64,8 @@ fun AutoEnhanceButton(
         modifier = modifier,
         tier = OverlayTier.PRIMARY,
         enabled = enabled,
+        buttonSize = 44.dp,
+        onLongPress = onLongPress,
         traversalIndex = 4.2f,
     )
 }

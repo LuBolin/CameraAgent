@@ -18,9 +18,12 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -71,11 +74,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.bolin.photohelper.ui.LocalOverlayColors
 import com.bolin.photohelper.ui.Mango
 import com.bolin.photohelper.ui.SoftCream
@@ -108,6 +113,7 @@ fun PreviewPane(
     canFlipCamera: Boolean,
     onFlipCamera: () -> Unit,
     onFocusTarget: (Float, Float) -> Unit,
+    onZoom: (Float) -> Unit,
     onSettingsOpen: () -> Unit,
     onHelpOpen: () -> Unit,
     modifier: Modifier = Modifier,
@@ -123,7 +129,16 @@ fun PreviewPane(
                 traversalIndex = 5f
             },
     ) {
-        Box(modifier = Modifier.fillMaxSize(), content = preview)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(onZoom) {
+                    detectTransformGestures { _, _, zoom, _ ->
+                        if (zoom.isFinite() && zoom != 1f) onZoom(zoom)
+                    }
+                },
+            content = preview,
+        )
 
         if (state.settings.gridOverlayEnabled) {
             RuleOfThirdsGrid(Modifier.fillMaxSize())
@@ -477,6 +492,7 @@ enum class OverlayTier {
  * "glass" is a translucent fill plus the hairline rather than a true backdrop blur.
  */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun OverlayIconAction(
     icon: ImageVector,
     contentDescription: String,
@@ -486,6 +502,8 @@ fun OverlayIconAction(
     image: ImageBitmap? = null,
     tier: OverlayTier = OverlayTier.SECONDARY,
     enabled: Boolean = true,
+    buttonSize: Dp = 56.dp,
+    onLongPress: (() -> Unit)? = null,
     stateDescription: String? = null,
     traversalIndex: Float? = null,
 ) {
@@ -493,16 +511,16 @@ fun OverlayIconAction(
     var focused by remember { mutableStateOf(false) }
     val primary = tier == OverlayTier.PRIMARY
     Surface(
-        onClick = onClick,
-        enabled = enabled,
         modifier = modifier
-            .sizeIn(minWidth = 56.dp, minHeight = 56.dp)
+            .sizeIn(minWidth = buttonSize, minHeight = buttonSize)
+            .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongPress)
             .onFocusChanged { focused = it.isFocused }
             .semantics {
                 this.contentDescription = contentDescription
                 this.role = Role.Button
                 stateDescription?.let { this.stateDescription = it }
                 traversalIndex?.let { this.traversalIndex = it }
+                onLongPress?.let { longPress -> this.onLongClick(label = "Best shot") { longPress(); true } }
             },
         color = if (primary) overlays.frostedGlassStrong else overlays.frostedGlass,
         shape = CircleShape,
@@ -512,7 +530,7 @@ fun OverlayIconAction(
         // where WCAG 2.4.7 requires a visible indicator.
         border = if (focused) BorderStroke(2.dp, Mango) else null,
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(56.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(buttonSize)) {
             if (image == null) {
                 Icon(
                     imageVector = icon,
@@ -522,7 +540,7 @@ fun OverlayIconAction(
                         primary -> overlays.accentOnOverlay
                         else -> overlays.onOverlay
                     },
-                    modifier = Modifier.size(26.dp),
+                    modifier = Modifier.size(if (buttonSize < 50.dp) 22.dp else 26.dp),
                 )
             } else {
                 Image(

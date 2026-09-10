@@ -3,7 +3,6 @@ package com.bolin.photohelper.capture
 import android.graphics.ImageDecoder
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -14,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -65,6 +65,7 @@ import com.bolin.photohelper.ui.LocalReducedMotion
 import com.bolin.photohelper.ui.SoftCream
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -87,25 +88,24 @@ fun CaptureReview(
     val overlays = LocalOverlayColors.current
     val reducedMotion = LocalReducedMotion.current
 
-    val photoScale = remember { Animatable(1.02f) }
+    val photoProgress = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(Unit) {
+        delay(1_000)
         if (reducedMotion) {
-            photoScale.snapTo(1f)
+            photoProgress.snapTo(1f)
         } else {
-            photoScale.animateTo(
+            photoProgress.animateTo(
                 targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessLow,
-                ),
+                animationSpec = androidx.compose.animation.core.tween(500),
             )
         }
+        onDone()
     }
 
     var controlsVisible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { controlsVisible = true }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
@@ -117,8 +117,14 @@ fun CaptureReview(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    scaleX = photoScale.value
-                    scaleY = photoScale.value
+                    val progress = photoProgress.value
+                    val targetScale = 0.14f
+                    val targetX = 56.dp.toPx()
+                    val targetY = maxHeight.toPx() - 72.dp.toPx()
+                    scaleX = 1f + (targetScale - 1f) * progress
+                    scaleY = 1f + (targetScale - 1f) * progress
+                    translationX = (targetX - maxWidth.toPx() / 2f) * progress
+                    translationY = (targetY - maxHeight.toPx() / 2f) * progress
                 },
         )
 
@@ -151,7 +157,7 @@ fun CaptureReview(
 
         // Top: "Captured" pill
         AnimatedVisibility(
-            visible = controlsVisible,
+            visible = controlsVisible && photoProgress.value == 0f,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()

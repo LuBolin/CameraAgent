@@ -25,6 +25,7 @@ import android.view.Surface
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -405,6 +406,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
                 }
                 val captureBuilder = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .setTargetAspectRatio(AspectRatio.RATIO_16_9)
                     .setTargetRotation(targetRotation)
                 Camera2Interop.Extender(captureBuilder).setSessionCaptureCallback(captureMetadataCallback)
                 val capture = captureBuilder.build()
@@ -1257,7 +1259,7 @@ class CameraXSession(context: Context) : CaptureHardware, SensorEventListener {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, "PhotoHelper_${System.currentTimeMillis()}.jpg")
             put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PhotoHelper")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/Camera")
         }
         val options = ImageCapture.OutputFileOptions.Builder(
             appContext.contentResolver,

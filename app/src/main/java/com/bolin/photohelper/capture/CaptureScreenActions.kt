@@ -9,6 +9,7 @@ interface CaptureScreenActions {
     fun onFlashModeCycle()
     fun onShutter()
     fun onAutoEnhance()
+    fun onZoom(factor: Float) {}
     fun onOpenGallery()
 
     // Voice

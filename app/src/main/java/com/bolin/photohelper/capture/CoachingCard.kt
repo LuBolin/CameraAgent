@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +72,14 @@ fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifi
     val reducedMotion = LocalReducedMotion.current
     val enterMs = if (reducedMotion) 0 else 250
     val exitMs = if (reducedMotion) 0 else 150
+    var showReset by remember { mutableStateOf(false) }
+    LaunchedEffect(state.resetAvailable) {
+        showReset = state.resetAvailable
+        if (state.resetAvailable) {
+            kotlinx.coroutines.delay(3_000)
+            showReset = false
+        }
+    }
 
     // A running self-timer must always be stoppable.
     if (state.countdownSecondsRemaining != null) {
@@ -166,6 +175,14 @@ fun DecisionSurface(state: CaptureUiState, actions: CaptureScreenActions, modifi
                 )
             }
         }
+    }
+
+    AnimatedVisibility(
+        visible = state.decision == null && showReset,
+        enter = fadeIn(tween(enterMs)),
+        exit = fadeOut(tween(exitMs)),
+    ) {
+        ResetCard(actions::onReset, modifier)
     }
 }
 
@@ -540,15 +557,7 @@ private fun Provenance() {
 
 @Composable
 fun ResetCard(onReset: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = onReset, modifier = Modifier.heightIn(min = 56.dp)) { Text("Reset") }
-        }
-    }
+    TextButton(onClick = onReset, modifier = modifier.heightIn(min = 56.dp)) { Text("Reset") }
 }
 
 @Composable

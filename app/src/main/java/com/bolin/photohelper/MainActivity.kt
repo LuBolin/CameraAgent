@@ -260,6 +260,7 @@ private fun MainActivity.PhotoHelperApp(
             override fun onFlashModeCycle() = viewModel.cycleFlashMode()
             override fun onShutter() = viewModel.capture()
             override fun onAutoEnhance() = viewModel.makeItNicer()
+            override fun onZoom(factor: Float) = viewModel.zoomBy(factor)
             override fun onOpenGallery() {
                 viewModel.cancelCoaching()
                 photoWorkflow.openGallery(currentGalleryAccess())

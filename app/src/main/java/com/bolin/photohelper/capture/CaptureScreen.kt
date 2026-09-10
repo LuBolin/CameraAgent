@@ -8,7 +8,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -24,10 +23,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.PhotoLibrary
-import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
@@ -317,6 +313,7 @@ private fun CaptureContent(
             canFlipCamera = canFlipCamera,
             onFlipCamera = actions::onFlipCamera,
             onFocusTarget = actions::onFocusTarget,
+            onZoom = actions::onZoom,
             onSettingsOpen = actions::onSettingsOpen,
             onHelpOpen = onHelpOpen,
             modifier = Modifier.fillMaxSize(),
@@ -330,11 +327,6 @@ private fun CaptureContent(
                 Alignment.CenterStart
             } else {
                 Alignment.CenterEnd
-            }
-            val bestShotAlign = if (deviceOrientation.devicePosture == 90) {
-                Alignment.CenterEnd
-            } else {
-                Alignment.CenterStart
             }
             val landscapeSwap = Modifier.layout { measurable, constraints ->
                 val placeable = measurable.measure(
@@ -360,21 +352,6 @@ private fun CaptureContent(
                     .then(landscapeSwap)
                     .graphicsLayer { rotationZ = iconRotation },
             )
-            val showBestShot = state.compositionSelection == null &&
-                !(state.compositionEnabled || state.activeGuidance != null) &&
-                state.coachingPhase == CoachingPhase.IDLE &&
-                state.review == null && state.decision == null
-            if (showBestShot) {
-                MirrorBar(
-                    "Best shot",
-                    modifier = Modifier
-                        .align(bestShotAlign)
-                        .padding(24.dp)
-                        .clickable(enabled = state.shutterEnabled) { actions.onBestShot() }
-                        .then(landscapeSwap)
-                        .graphicsLayer { rotationZ = iconRotation },
-                )
-            }
         }
         Column(
             modifier = Modifier
@@ -443,18 +420,17 @@ private fun CaptureContent(
                         autoCaptureFlashKey = state.autoCaptureFlashKey,
                     )
                 }
-                // Right: AI button (starts voice)
+                // Right: voice and auto-enhance controls
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     if (showFlanking) {
-                        OverlayIconAction(
-                            icon = if (state.coachingPhase == CoachingPhase.LISTENING) Icons.Rounded.Stop else Icons.Rounded.AutoAwesome,
-                            contentDescription = if (state.coachingPhase == CoachingPhase.LISTENING) "Finish voice comment" else "Describe what to improve",
-                            onClick = actions::onMicrophone,
-                            modifier = Modifier.graphicsLayer { rotationZ = iconRotation },
-                            tier = OverlayTier.PRIMARY,
-                            enabled = state.coachingPhase !in setOf(CoachingPhase.APPLYING, CoachingPhase.INTERPRETING),
-                            traversalIndex = 4.2f,
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MicrophoneButton(state.coachingPhase, actions::onMicrophone)
+                            AutoEnhanceButton(
+                                onClick = actions::onAutoEnhance,
+                                enabled = state.coachingPhase == CoachingPhase.IDLE,
+                                onLongPress = actions::onBestShot,
+                            )
+                        }
                     }
                 }
             }

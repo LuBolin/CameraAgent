@@ -82,7 +82,8 @@ private const val CAPTURE_TIMEOUT_MESSAGE = "Camera did not finish saving the ph
 private const val VOICE_INPUT_TIMEOUT_MS = 20_000L
 private const val VOICE_INPUT_TIMEOUT_MESSAGE = "Voice input timed out. Tap the mic to try again."
 private const val TOAST_TIMEOUT_MS = 5_000L
-private const val FOCUS_INDICATOR_MS = 5_000L
+private const val HINT_VISIBLE_MS = 3_000L
+private const val FOCUS_INDICATOR_MS = 3_000L
 /** Two visible attempts: the first plan, then one alternative, then an honest concession. */
 private const val MAX_SETTING_ATTEMPTS = 2
 private const val MAX_REANALYSIS_ROUNDS = 2
@@ -163,7 +164,7 @@ class CaptureViewModel(
             onboardingStep = if (preferences.onboardingComplete()) 2 else 0,
             settings = initialSettings,
             capabilities = camera.capabilities.value,
-            showFirstUseHint = true,
+            showFirstUseHint = !preferences.firstUseHintSeen(),
             showVoiceHints = preferences.firstUseHintSeen() && !preferences.hasUsedVoice(),
         ),
     )
@@ -261,6 +262,7 @@ class CaptureViewModel(
     }
 
     init {
+        hideHintsAfterDelay()
         camera.setObservationImageEnabled(initialSettings.visualAiEnabled && initialSettings.keyConfigured)
         viewModelScope.launch {
             camera.state.collect { cameraState ->
@@ -361,6 +363,14 @@ class CaptureViewModel(
                 showFirstUseHint = false,
                 showVoiceHints = !preferences.hasUsedVoice(),
             )
+        }
+        hideHintsAfterDelay()
+    }
+
+    private fun hideHintsAfterDelay() {
+        viewModelScope.launch {
+            delay(HINT_VISIBLE_MS)
+            _uiState.update { it.copy(showFirstUseHint = false, showVoiceHints = false) }
         }
     }
 
@@ -653,6 +663,19 @@ class CaptureViewModel(
     fun applyRecommendation() {
         val recommendation = currentRecommendation() ?: return
         applyResolvedRecommendation(recommendation)
+    }
+
+    fun zoomBy(factor: Float) {
+        if (!factor.isFinite() || factor <= 0f || _uiState.value.cameraPhase != CameraPhase.READY) return
+        val range = _uiState.value.capabilities.zoomRatioRange
+        val target = (camera.telemetry.value.zoomRatio * factor).coerceIn(range.start, range.endInclusive)
+        if (target == camera.telemetry.value.zoomRatio) return
+        viewModelScope.launch {
+            when (val result = camera.apply(CameraAdjustment.ZoomRatio(target))) {
+                ApplyResult.Applied -> markResetAvailable()
+                is ApplyResult.Failed -> showIdleMessage(result.message)
+            }
+        }
     }
 
     private fun applyResolvedRecommendation(recommendation: Recommendation) {
@@ -1524,7 +1547,7 @@ class CaptureViewModel(
                     _uiState.update {
                         it.copy(
                             coachingPhase = CoachingPhase.IDLE,
-                            decision = if (autoApplyRecommendations) it.decision else null,
+                            decision = null,
                             transientMessage = null,
                         )
                     }
