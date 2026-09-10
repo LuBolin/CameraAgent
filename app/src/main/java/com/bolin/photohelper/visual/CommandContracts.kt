@@ -53,6 +53,7 @@ class CommandRequest(
     val frameObservation: FrameObservation? = null,
     val recentChanges: List<CameraChangeSnapshot> = emptyList(),
     val styleProfile: String = "",
+    val wbComparisonJpeg: ByteArray? = null,
 ) {
     init {
         require(comment.isNotBlank() && comment.length <= MAX_COMMENT_CHARACTERS) {
@@ -69,14 +70,18 @@ class CommandRequest(
 }
 
 sealed interface CommandResult {
-    data class Planned(val plan: CommandPlan) : CommandResult
+    data class Planned(val plan: CommandPlan, val compositionSuggested: Boolean = false) : CommandResult
     data class Clarified(val classification: IntentClassification.Clarify) : CommandResult
     data object NoChange : CommandResult
+    data object CompositionOnly : CommandResult
     data object Unsure : CommandResult
+    data class WbComparison(val verdict: WbVerdict) : CommandResult
     data class Failed(val message: String) : CommandResult
     data object CredentialsRejected : CommandResult
     data object Unavailable : CommandResult
 }
+
+enum class WbVerdict { KEEP, MORE, REVERT }
 
 internal fun buildCommandRequestBody(request: CommandRequest): ByteArray {
     val cameraState = JSONObject()
@@ -117,15 +122,22 @@ internal fun buildCommandRequestBody(request: CommandRequest): ByteArray {
             "visual data. It is the exact clean camera frame. Independently decide all four " +
             "axes using this table. Exposure: subject detail missing in darkness=BRIGHTER; important subject highlights washed " +
             "out=DARKER; otherwise=NONE. Do not brighten merely for dark hair, clothing, shadows, background, or deliberate mood. " +
-            "White balance: neutral areas cyan, blue, or green-cyan=WARMER; neutral areas yellow, amber, or orange=COOLER; deliberate " +
-            "colored lighting or uncertain evidence=NONE. Exposure controls brightness; never use white balance as a brightness " +
-            "correction. If both could explain the image, prefer exposure and use white balance only for a noticeable cast on a " +
-            "neutral area. Never warm food merely to make it appetizing. Framing: first identify one clear primary capture subject. " +
+            "White balance: a clearly visible cast across neutral areas (walls, paper, skin, concrete) that makes them look " +
+            "distinctly cyan or blue=WARMER; distinctly yellow or orange=COOLER; anything subtle, uncertain, or limited to one " +
+            "area=NONE. Err heavily toward NONE — most scenes do not need white balance correction. Deliberate colored lighting, " +
+            "sunset/sunrise warmth, neon, stage light, and candlelight are intentional and must be NONE. Exposure controls brightness; " +
+            "never use white balance as a brightness correction. If both could explain the image, prefer exposure. " +
+            "Never warm food merely to make it appetizing. White balance strength is always SMALL unless the cast is extreme. Framing: first identify one clear primary capture subject. " +
             "No clear subject, multiple equally important subjects, or intentional context=NONE. A clear subject below about 40 percent " +
             "of the frame with incidental empty space=ZOOM_IN; a clear subject so large that it is clipped, cramped, or leaves too little " +
             "context=ZOOM_OUT; otherwise=NONE. Focus: visibly soft main subject or clearly misplaced focus=FOCUS_POINT; already sharp or no identifiable " +
             "subject=NONE. For focus choose visible eyes, otherwise solid high-contrast or textured material away from object " +
-            "boundaries, never empty space or a hollow object's geometric center. Use NORMAL unless the change should be " +
+            "boundaries, never empty space or a hollow object's geometric center. " +
+            "Composition: people visible and their placement is clearly off-center, cut off at awkward points, " +
+            "or grouped poorly (too bunched, too spread, someone half out of frame)=SUGGEST; no people, " +
+            "already well-placed, or a single person reasonably centered=NONE. Err toward SUGGEST when people are present " +
+            "and the framing could improve by physically moving the camera. " +
+            "Use NORMAL unless the change should be " +
             "subtle. Return one JSON object only. " +
             "A good image with no defect " +
             "is a confident ASSESSMENT with NONE on every axis. Return exactly " +
@@ -133,7 +145,8 @@ internal fun buildCommandRequestBody(request: CommandRequest): ByteArray {
             "\"exposure\":{\"decision\":\"NONE|BRIGHTER|DARKER\",\"strength\":\"SMALL|NORMAL\"}," +
             "\"whiteBalance\":{\"decision\":\"NONE|WARMER|COOLER\",\"strength\":\"SMALL|NORMAL\"}," +
             "\"framing\":{\"decision\":\"NONE|ZOOM_IN|ZOOM_OUT\",\"strength\":\"SMALL|NORMAL\"}," +
-            "\"focus\":{\"decision\":\"NONE\"}}. When focus is FOCUS_POINT, its object is instead " +
+            "\"focus\":{\"decision\":\"NONE\"}," +
+            "\"composition\":\"SUGGEST|NONE\"}. When focus is FOCUS_POINT, its object is instead " +
             "{\"decision\":\"FOCUS_POINT\",\"point_2d\":[<X>,<Y>]}, where X and Y are integers normalized to 0..999 " +
             "with 0,0 at the top-left. Do not return actions, prose, explanations, extra keys, capture, " +
             "flash, reset, camera switching, or clarification. Trusted frame measurements (supporting evidence, not a substitute " +
@@ -194,6 +207,9 @@ internal fun buildCommandRequestBody(request: CommandRequest): ByteArray {
             recentChanges.toString() + ". " +
             "Never return prose, pixel coordinates, device setting values, or extra keys."
     }
+    if (request.wbComparisonJpeg != null) {
+        return buildWbComparisonBody(request.wbComparisonJpeg, request.observationJpeg)
+    }
     val cleanUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(request.observationJpeg)}"
     val userContent = JSONArray()
         .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", cleanUrl)))
@@ -215,6 +231,58 @@ internal fun buildCommandRequestBody(request: CommandRequest): ByteArray {
         .toByteArray(StandardCharsets.UTF_8)
     require(body.size <= MAX_COMMAND_REQUEST_BODY_BYTES) { "Command request exceeds $MAX_COMMAND_REQUEST_BODY_BYTES bytes" }
     return body
+}
+
+private fun buildWbComparisonBody(beforeJpeg: ByteArray, afterJpeg: ByteArray): ByteArray {
+    val prompt = "Compare these two camera frames. The first image is BEFORE a white balance adjustment. " +
+        "The second image is AFTER (the current live view). Which has more natural, accurate colors on " +
+        "neutral surfaces (skin, walls, paper, concrete)? " +
+        "Return exactly {\"schemaVersion\":1,\"verdict\":\"KEEP|MORE|REVERT\"}. " +
+        "KEEP: the after image looks more natural — stop adjusting. " +
+        "MORE: the after image improved but neutral areas still have a visible color cast in the same direction — one more step would help. " +
+        "REVERT: the before image had more natural colors — undo the change. " +
+        "Err toward KEEP. Only choose MORE if a cast is clearly still visible. Only choose REVERT if the change made colors obviously worse."
+    val beforeUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(beforeJpeg)}"
+    val afterUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(afterJpeg)}"
+    val userContent = JSONArray()
+        .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", beforeUrl)))
+        .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", afterUrl)))
+        .put(JSONObject().put("type", "text").put("text", "Compare white balance."))
+    val body = JSONObject()
+        .put("model", QWEN_MODEL)
+        .put(
+            "messages",
+            JSONArray()
+                .put(JSONObject().put("role", "system").put("content", prompt))
+                .put(JSONObject().put("role", "user").put("content", userContent)),
+        )
+        .put("enable_thinking", false)
+        .put("temperature", 0)
+        .put("stream", false)
+        .put("max_completion_tokens", 64)
+        .put("response_format", JSONObject().put("type", "json_object"))
+        .toString()
+        .toByteArray(StandardCharsets.UTF_8)
+    require(body.size <= MAX_COMMAND_REQUEST_BODY_BYTES * 2) { "WB comparison request exceeds size limit" }
+    return body
+}
+
+internal fun parseWbComparisonResponse(response: String): WbVerdict? =
+    parseCompletionContent(response)?.let { parseWbComparisonContent(it) }
+
+internal fun parseWbComparisonContent(content: String): WbVerdict? {
+    return try {
+        val value = strictObject(content) ?: return null
+        if (value.opt("schemaVersion") != 1) return null
+        when (value.opt("verdict")) {
+            "KEEP" -> WbVerdict.KEEP
+            "MORE" -> WbVerdict.MORE
+            "REVERT" -> WbVerdict.REVERT
+            else -> null
+        }
+    } catch (_: JSONException) {
+        null
+    }
 }
 
 internal fun parseCommandResponse(response: String, autoEnhance: Boolean = false): CommandResult? =
@@ -272,6 +340,8 @@ private fun parseAutoEnhance(value: JSONObject): CommandResult? {
         !value.keysSet().containsAll(setOf("schemaVersion", "outcome", "confidence", "exposure", "whiteBalance", "framing", "focus"))
     ) return null
 
+    val compositionSuggested = value.opt("composition") == "SUGGEST"
+
     val adjustments = listOf(
         parseAutoAdjustment(value.opt("exposure") as? JSONObject ?: return null, mapOf(
             "BRIGHTER" to ControlIntent.EXPOSURE_BRIGHTER,
@@ -299,8 +369,12 @@ private fun parseAutoEnhance(value: JSONObject): CommandResult? {
         }
         else -> return null
     }
-    return if (steps.isEmpty()) CommandResult.NoChange
-    else runCatching { CommandPlan(steps) }.getOrNull()?.let(CommandResult::Planned)
+    return if (steps.isEmpty()) {
+        if (compositionSuggested) CommandResult.CompositionOnly else CommandResult.NoChange
+    } else {
+        runCatching { CommandPlan(steps) }.getOrNull()
+            ?.let { CommandResult.Planned(it, compositionSuggested = compositionSuggested) }
+    }
 }
 
 private fun parseAutoAdjustment(

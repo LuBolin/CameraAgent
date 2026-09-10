@@ -74,9 +74,17 @@ class TencentVisualClient internal constructor(
     suspend fun plan(request: CommandRequest, apiKey: CharArray): CommandResult {
         val result = call(apiKey, COMMAND_TIMEOUT_MS) { buildCommandBody(request) }
         return when (result) {
-            is TencentCall.Ok -> extractContent(result.body)
-                ?.let { parseCommandContent(it, request.autoEnhance) }
-                ?: CommandResult.Failed("API returned an invalid response. Try again later.")
+            is TencentCall.Ok -> {
+                val content = extractContent(result.body)
+                if (request.wbComparisonJpeg != null) {
+                    content?.let { parseWbComparisonContent(it) }
+                        ?.let { CommandResult.WbComparison(it) }
+                        ?: CommandResult.WbComparison(WbVerdict.KEEP)
+                } else {
+                    content?.let { parseCommandContent(it, request.autoEnhance) }
+                        ?: CommandResult.Failed("API returned an invalid response. Try again later.")
+                }
+            }
             is TencentCall.Failed -> CommandResult.Failed(result.message)
             TencentCall.BadKey -> CommandResult.CredentialsRejected
             TencentCall.NoKey -> CommandResult.Unavailable
@@ -272,6 +280,9 @@ private fun visualPrompt(request: VisualRequest): String = when (request.family)
 }
 
 private fun buildCommandBody(request: CommandRequest): ByteArray {
+    if (request.wbComparisonJpeg != null) {
+        return buildTencentWbComparisonBody(request.wbComparisonJpeg, request.observationJpeg)
+    }
     val dataUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(request.observationJpeg)}"
     val system = commandSystemPrompt(request)
     return JSONObject()
@@ -292,6 +303,38 @@ private fun buildCommandBody(request: CommandRequest): ByteArray {
         .toString()
         .toByteArray(StandardCharsets.UTF_8)
         .also { require(it.size <= 700 * 1024) }
+}
+
+private fun buildTencentWbComparisonBody(beforeJpeg: ByteArray, afterJpeg: ByteArray): ByteArray {
+    val prompt = "Compare these two camera frames. The first image is BEFORE a white balance adjustment. " +
+        "The second image is AFTER (the current live view). Which has more natural, accurate colors on " +
+        "neutral surfaces (skin, walls, paper, concrete)? " +
+        "Return exactly {\"schemaVersion\":1,\"verdict\":\"KEEP|MORE|REVERT\"}. " +
+        "KEEP: the after image looks more natural — stop adjusting. " +
+        "MORE: the after image improved but neutral areas still have a visible color cast in the same direction — one more step would help. " +
+        "REVERT: the before image had more natural colors — undo the change. " +
+        "Err toward KEEP. Only choose MORE if a cast is clearly still visible. Only choose REVERT if the change made colors obviously worse."
+    val beforeUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(beforeJpeg)}"
+    val afterUrl = "data:image/jpeg;base64,${Base64.getEncoder().encodeToString(afterJpeg)}"
+    return JSONObject()
+        .put("model", TENCENT_MODEL)
+        .put("messages", JSONArray()
+            .put(JSONObject()
+                .put("role", "system")
+                .put("content", prompt))
+            .put(JSONObject()
+                .put("role", "user")
+                .put("content", JSONArray()
+                    .put(JSONObject().put("type", "image_url")
+                        .put("image_url", JSONObject().put("url", beforeUrl)))
+                    .put(JSONObject().put("type", "image_url")
+                        .put("image_url", JSONObject().put("url", afterUrl)))
+                    .put(JSONObject().put("type", "text").put("text", "Compare white balance.")))))
+        .put("temperature", 0)
+        .put("stream", false)
+        .toString()
+        .toByteArray(StandardCharsets.UTF_8)
+        .also { require(it.size <= 1400 * 1024) }
 }
 
 private fun commandSystemPrompt(request: CommandRequest): String {
@@ -341,7 +384,12 @@ private fun commandSystemPrompt(request: CommandRequest): String {
             "of the frame with incidental empty space=ZOOM_IN; a clear subject so large that it is clipped, cramped, or leaves too little " +
             "context=ZOOM_OUT; otherwise=NONE. Focus: visibly soft main subject or clearly misplaced focus=FOCUS_POINT; already sharp or no identifiable " +
             "subject=NONE. For focus choose visible eyes, otherwise solid high-contrast or textured material away from object " +
-            "boundaries, never empty space or a hollow object's geometric center. Use SMALL unless the " +
+            "boundaries, never empty space or a hollow object's geometric center. " +
+            "Composition: people visible and their placement is clearly off-center, cut off at awkward points, " +
+            "or grouped poorly (too bunched, too spread, someone half out of frame)=SUGGEST; no people, " +
+            "already well-placed, or a single person reasonably centered=NONE. Err toward SUGGEST when people are present " +
+            "and the framing could improve by physically moving the camera. " +
+            "Use SMALL unless the " +
             "defect is strong. Return one JSON object only. If the image is too degraded or evidence genuinely conflicts, return " +
             "{\"schemaVersion\":4,\"outcome\":\"UNSURE\",\"confidence\":\"LOW\"}. LOW should be rare; a good image with no defect " +
             "is a confident ASSESSMENT with NONE on every axis. Otherwise return exactly " +
@@ -349,7 +397,8 @@ private fun commandSystemPrompt(request: CommandRequest): String {
             "\"exposure\":{\"decision\":\"NONE|BRIGHTER|DARKER\",\"strength\":\"SMALL|NORMAL\"}," +
             "\"whiteBalance\":{\"decision\":\"NONE|WARMER|COOLER\",\"strength\":\"SMALL|NORMAL\"}," +
             "\"framing\":{\"decision\":\"NONE|ZOOM_IN|ZOOM_OUT\",\"strength\":\"SMALL|NORMAL\"}," +
-            "\"focus\":{\"decision\":\"NONE\"}}. When focus is FOCUS_POINT, its object is instead " +
+            "\"focus\":{\"decision\":\"NONE\"}," +
+            "\"composition\":\"SUGGEST|NONE\"}. When focus is FOCUS_POINT, its object is instead " +
             "{\"decision\":\"FOCUS_POINT\",\"point_2d\":[<X>,<Y>]}, where X and Y are integers normalized to 0..999 " +
             "with 0,0 at the top-left. Do not return actions, prose, explanations, extra keys, capture, " +
             "flash, reset, camera switching, or clarification. Trusted frame measurements (supporting evidence, not a substitute " +

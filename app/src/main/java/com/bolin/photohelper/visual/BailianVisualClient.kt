@@ -58,8 +58,14 @@ class BailianVisualClient internal constructor(
         val result = call(apiKey, COMMAND_NETWORK_TIMEOUT_MS) { buildCommandRequestBody(request) }
         return when (result) {
             is ProviderCall.Available ->
-                parseCommandResponse(result.response, request.autoEnhance)
-                    ?: CommandResult.Failed("API returned an invalid response. Try again later.")
+                if (request.wbComparisonJpeg != null) {
+                    parseWbComparisonResponse(result.response)
+                        ?.let { CommandResult.WbComparison(it) }
+                        ?: CommandResult.WbComparison(WbVerdict.KEEP)
+                } else {
+                    parseCommandResponse(result.response, request.autoEnhance)
+                        ?: CommandResult.Failed("API returned an invalid response. Try again later.")
+                }
             is ProviderCall.Failed -> CommandResult.Failed(result.message)
             ProviderCall.CredentialsRejected -> CommandResult.CredentialsRejected
             ProviderCall.Unavailable -> CommandResult.Unavailable

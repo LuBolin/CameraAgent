@@ -36,6 +36,7 @@ import com.bolin.photohelper.visual.VisualResult
 import com.bolin.photohelper.visual.markCompositionMembers
 import com.bolin.photohelper.visual.CommandRequest
 import com.bolin.photohelper.visual.CommandResult
+import com.bolin.photohelper.visual.WbVerdict
 import com.bolin.photohelper.visual.CameraChangeSnapshot
 import com.bolin.photohelper.arcore.ArSessionManager
 import com.bolin.photohelper.arcore.SpatialState
@@ -209,6 +210,7 @@ class CaptureViewModel(
     private var settingAttempt = 0
     private var settingAttemptComplaint = ""
     private var reanalysisRound = 0
+    private var preWbJpeg: ByteArray? = null
 
     private var observedSessionId = camera.state.value.sessionId
     private var captureInFlight = false
@@ -403,6 +405,7 @@ class CaptureViewModel(
     fun submitComment(replacement: String? = null) {
         if (_uiState.value.coachingPhase == CoachingPhase.APPLYING) return
         reanalysisRound = 0
+        preWbJpeg = null
         val comment = (replacement ?: _uiState.value.comment).trim()
         if (comment.isNotBlank()) logAgent(AgentLogKind.USER, comment)
         if (comment.lowercase() in setOf("help me frame", "help me frame this", "composition", "help with composition", "frame the group", "frame us")) {
@@ -466,6 +469,7 @@ class CaptureViewModel(
                 return
             }
             if (GENERAL_IMPROVEMENT_REQUEST.containsMatchIn(comment)) {
+                compositionAfterEnhance = true
                 requestCommandPlan(comment, autoEnhance = true)
                 return
             }
@@ -547,7 +551,10 @@ class CaptureViewModel(
     fun makeItNicer() {
         if (!_uiState.value.shutterEnabled || _uiState.value.coachingPhase != CoachingPhase.IDLE) return
         reanalysisRound = 0
+        preWbJpeg = null
+        compositionAfterEnhance = true
         if (!canUseVisualAi()) {
+            compositionAfterEnhance = false
             _uiState.update {
                 it.copy(
                     coachingPhase = CoachingPhase.TRANSIENT_ERROR,
@@ -670,6 +677,9 @@ class CaptureViewModel(
         settingApplyInFlight = true
         operationJob = viewModelScope.launch {
             try {
+                if (action.changes.any { it.adjustment is CameraAdjustment.WhiteBalance }) {
+                    preWbJpeg = camera.observationImage(null)
+                }
                 val result = camera.applyAtomically(action.changes.map { it.adjustment })
                 if (restoreSettingAfterApply) {
                     restoreAfterBackground()
@@ -1008,6 +1018,7 @@ class CaptureViewModel(
     fun cancelCoaching(clearDecision: Boolean = true, preserveCommandPlan: Boolean = false) {
         compositionWatching = false
         reanalysisRound = 0
+        preWbJpeg = null
         compositionAfterEnhance = false
         if (settingApplyInFlight || resetInFlight) return
         if (!preserveCommandPlan) {
@@ -1842,11 +1853,16 @@ class CaptureViewModel(
                 log.info("command result=$result comment=${comment.take(40)} autoEnhance=$autoEnhance reanalysis=$reanalysisRound")
                 when (result) {
                     is CommandResult.Planned -> {
+                        if (result.compositionSuggested) compositionAfterEnhance = true
                         logAgent(AgentLogKind.AI, "Plan: ${result.plan.steps.joinToString()}")
                         startCommandPlan(result.plan, comment)
                     }
                     is CommandResult.Clarified ->
                         useLocalFallback("AI interpretation needs clarification. Using local coaching.")
+                    CommandResult.CompositionOnly -> {
+                        compositionAfterEnhance = true
+                        maybeStartCompositionAfterEnhance()
+                    }
                     CommandResult.NoChange -> {
                         if (reanalysisRound > 0) {
                             reanalysisRound = 0
@@ -1856,6 +1872,7 @@ class CaptureViewModel(
                         }
                         maybeStartCompositionAfterEnhance()
                     }
+                    is CommandResult.WbComparison -> handleWbVerdict(result.verdict)
                     CommandResult.Unsure -> showToast("The model isn’t sure what to do. Please try again.")
                     is CommandResult.Failed -> showToast(result.message)
                     CommandResult.CredentialsRejected ->
@@ -2203,6 +2220,15 @@ class CaptureViewModel(
     private fun maybeStartReanalysis(): Boolean {
         if (reanalysisRound >= MAX_REANALYSIS_ROUNDS || !canUseVisualAi()) return false
         reanalysisRound++
+        val wbChanged = recentCameraChanges.any { change ->
+            change.before.whiteBalancePreset != change.after.whiteBalancePreset ||
+                change.before.whiteBalanceLevel != change.after.whiteBalanceLevel
+        }
+        if (wbChanged && preWbJpeg != null) {
+            log.info("reanalysis round=$reanalysisRound wb-comparison")
+            requestWbComparison()
+            return true
+        }
         val axes = recentCameraChanges.flatMap { change ->
             listOfNotNull(
                 "exposure".takeIf { change.before.exposureCompensationIndex != change.after.exposureCompensationIndex },
@@ -2218,6 +2244,158 @@ class CaptureViewModel(
         log.info("reanalysis round=$reanalysisRound axes=$axes")
         requestCommandPlan(comment, autoEnhance = true)
         return true
+    }
+
+    private fun requestWbComparison() {
+        cancelCoaching()
+        val complaintId = UUID.randomUUID().toString()
+        activeComplaintId = complaintId
+        val originalInput = coachingInput(complaintId, "Compare white balance.")
+        visualJob?.cancel()
+        visualJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    coachingPhase = CoachingPhase.REQUESTING_VISUAL_INTERPRETATION,
+                    decision = null,
+                    transientMessage = null,
+                )
+            }
+            var key: CharArray? = null
+            var afterJpeg: ByteArray? = null
+            try {
+                key = runCatching { loadApiKey() }.getOrNull()
+                val ownedKey = key ?: run {
+                    preWbJpeg = null
+                    reanalysisRound = 0
+                    showIdleMessage("Looking good!")
+                    return@launch
+                }
+                afterJpeg = camera.observationImage(null) ?: run {
+                    preWbJpeg = null
+                    reanalysisRound = 0
+                    showIdleMessage("Looking good!")
+                    return@launch
+                }
+                val beforeJpeg = preWbJpeg ?: run {
+                    reanalysisRound = 0
+                    showIdleMessage("Looking good!")
+                    return@launch
+                }
+                val result = interpretCommand(
+                    CommandRequest(
+                        comment = "Compare white balance.",
+                        observationJpeg = afterJpeg,
+                        telemetry = originalInput.telemetry,
+                        capabilities = originalInput.capabilities,
+                        flashMode = _uiState.value.flashMode,
+                        autoEnhance = true,
+                        frameObservation = originalInput.observation,
+                        recentChanges = recentCameraChanges.toList(),
+                        wbComparisonJpeg = beforeJpeg,
+                    ),
+                    ownedKey,
+                )
+                log.info("wb comparison result=$result reanalysis=$reanalysisRound")
+                when (result) {
+                    is CommandResult.WbComparison -> handleWbVerdict(result.verdict)
+                    CommandResult.NoChange -> {
+                        preWbJpeg = null
+                        reanalysisRound = 0
+                        showIdleMessage("Looking good!")
+                    }
+                    else -> {
+                        preWbJpeg = null
+                        reanalysisRound = 0
+                        showIdleMessage("Looking good!")
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                preWbJpeg = null
+                reanalysisRound = 0
+                showIdleMessage("Looking good!")
+            } finally {
+                afterJpeg?.fill(0)
+                key?.fill(' ')
+            }
+        }
+    }
+
+    private fun handleWbVerdict(verdict: WbVerdict) {
+        when (verdict) {
+            WbVerdict.KEEP -> {
+                log.info("wb verdict=KEEP, stopping")
+                preWbJpeg = null
+                reanalysisRound = 0
+                showIdleMessage("Looking good!")
+            }
+            WbVerdict.MORE -> {
+                log.info("wb verdict=MORE, applying one more step")
+                val lastWbChange = recentCameraChanges.lastOrNull { change ->
+                    change.before.whiteBalanceLevel != change.after.whiteBalanceLevel
+                }
+                if (lastWbChange == null || reanalysisRound >= MAX_REANALYSIS_ROUNDS) {
+                    preWbJpeg = null
+                    reanalysisRound = 0
+                    showIdleMessage("Looking good!")
+                    return
+                }
+                val direction = lastWbChange.after.whiteBalanceLevel - lastWbChange.before.whiteBalanceLevel
+                val currentLevel = camera.telemetry.value.whiteBalanceLevel
+                val targetLevel = currentLevel + direction
+                val supported = camera.capabilities.value.supportedWhiteBalanceLevels
+                if (targetLevel !in supported) {
+                    preWbJpeg = null
+                    reanalysisRound = 0
+                    showIdleMessage("White balance at limit.")
+                    return
+                }
+                val preset = if (direction > 0) WhiteBalancePreset.WARMER else WhiteBalancePreset.COOLER
+                activeComplaintId = null
+                operationJob = viewModelScope.launch {
+                    val beforeTelemetry = camera.telemetry.value
+                    val applyResult = camera.applyAtomically(
+                        listOf(CameraAdjustment.WhiteBalance(preset, targetLevel)),
+                    )
+                    if (applyResult == ApplyResult.Applied) {
+                        rememberCameraChange("WB comparison MORE", beforeTelemetry, camera.telemetry.value)
+                        if (maybeStartReanalysis()) return@launch
+                    }
+                    preWbJpeg = null
+                    reanalysisRound = 0
+                    showIdleMessage("Looking good!")
+                }
+            }
+            WbVerdict.REVERT -> {
+                log.info("wb verdict=REVERT, undoing WB change")
+                val lastWbChange = recentCameraChanges.lastOrNull { change ->
+                    change.before.whiteBalanceLevel != change.after.whiteBalanceLevel
+                }
+                if (lastWbChange == null) {
+                    preWbJpeg = null
+                    reanalysisRound = 0
+                    showIdleMessage("Looking good!")
+                    return
+                }
+                val revertLevel = lastWbChange.before.whiteBalanceLevel
+                val revertPreset = when {
+                    revertLevel > 0 -> WhiteBalancePreset.WARMER
+                    revertLevel < 0 -> WhiteBalancePreset.COOLER
+                    else -> WhiteBalancePreset.AUTO
+                }
+                activeComplaintId = null
+                operationJob = viewModelScope.launch {
+                    camera.applyAtomically(
+                        listOf(CameraAdjustment.WhiteBalance(revertPreset, revertLevel)),
+                    )
+                    preWbJpeg = null
+                    reanalysisRound = 0
+                    recentCameraChanges.pollLast()
+                    showIdleMessage("Reverted white balance.")
+                }
+            }
+        }
     }
 
     private fun maybeStartCompositionAfterEnhance(): Boolean {
