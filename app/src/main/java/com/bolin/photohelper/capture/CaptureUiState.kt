@@ -77,6 +77,7 @@ data class SettingsUiState(
     /** Optional free text describing the look the user wants; passed to the model as context. */
     val styleProfile: String = "",
     val autoCaptureEnabled: Boolean = true,
+    val simplifiedAutoMode: Boolean = false,
     val visualProvider: VisualProvider = VisualProvider.QWEN,
     val captionConsentGiven: Boolean = false,
     val gridOverlayEnabled: Boolean = false,

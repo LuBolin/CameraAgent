@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -99,6 +100,7 @@ fun SettingsSheet(
     onOpenVisualAiPolicy: () -> Unit,
     onOpenMlKitPolicy: () -> Unit,
     onAutoCaptureEnabledChanged: (Boolean) -> Unit,
+    onSimplifiedAutoModeChanged: (Boolean) -> Unit,
     onCaptionConsentChanged: (Boolean) -> Unit = {},
     onGridOverlayEnabledChanged: (Boolean) -> Unit = {},
     onTiltIndicatorEnabledChanged: (Boolean) -> Unit = {},
@@ -141,6 +143,7 @@ fun SettingsSheet(
             SettingsGroup("Smart Features", Icons.Rounded.CenterFocusStrong)
             SettingsCard {
                 ToggleRow("Auto-capture when steady", state.settings.autoCaptureEnabled, onAutoCaptureEnabledChanged, icon = Icons.Rounded.CenterFocusStrong)
+                ToggleRow("Simplified auto mode", state.settings.simplifiedAutoMode, onSimplifiedAutoModeChanged, icon = Icons.Rounded.AutoAwesome)
             }
 
             SettingsGroup("Appearance", Icons.Rounded.Palette)

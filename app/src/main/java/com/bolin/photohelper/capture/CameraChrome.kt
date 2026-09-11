@@ -504,6 +504,7 @@ fun OverlayIconAction(
     enabled: Boolean = true,
     buttonSize: Dp = 56.dp,
     onLongPress: (() -> Unit)? = null,
+    longPressLabel: String = "Best shot",
     stateDescription: String? = null,
     traversalIndex: Float? = null,
 ) {
@@ -520,7 +521,7 @@ fun OverlayIconAction(
                 this.role = Role.Button
                 stateDescription?.let { this.stateDescription = it }
                 traversalIndex?.let { this.traversalIndex = it }
-                onLongPress?.let { longPress -> this.onLongClick(label = "Best shot") { longPress(); true } }
+                onLongPress?.let { longPress -> this.onLongClick(label = longPressLabel) { longPress(); true } }
             },
         color = if (primary) overlays.frostedGlassStrong else overlays.frostedGlass,
         shape = CircleShape,

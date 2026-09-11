@@ -19,6 +19,7 @@ interface PreferenceStore {
     fun setVisualProvider(provider: VisualProvider)
     fun autoCaptureEnabled(): Boolean
     fun setAutoCaptureEnabled(enabled: Boolean)
+    fun setSimplifiedAutoMode(enabled: Boolean)
     fun hasUsedVoice(): Boolean
     fun setHasUsedVoice()
     fun captionConsentGiven(): Boolean
@@ -50,6 +51,7 @@ class UserPreferences(context: Context) : PreferenceStore {
         themeMode = readThemeMode(),
         styleProfile = values.getString(STYLE_PROFILE, "").orEmpty(),
         autoCaptureEnabled = values.getBoolean(AUTO_CAPTURE_ENABLED, true),
+        simplifiedAutoMode = values.getBoolean(SIMPLIFIED_AUTO_MODE, false),
         visualProvider = readVisualProvider(),
         captionConsentGiven = values.getBoolean(CAPTION_CONSENT_GIVEN, false),
         gridOverlayEnabled = values.getBoolean(GRID_OVERLAY_ENABLED, false),
@@ -71,6 +73,7 @@ class UserPreferences(context: Context) : PreferenceStore {
 
     override fun autoCaptureEnabled(): Boolean = values.getBoolean(AUTO_CAPTURE_ENABLED, true)
     override fun setAutoCaptureEnabled(enabled: Boolean) = put(AUTO_CAPTURE_ENABLED, enabled)
+    override fun setSimplifiedAutoMode(enabled: Boolean) = put(SIMPLIFIED_AUTO_MODE, enabled)
 
     override fun hasUsedVoice(): Boolean = values.getBoolean(HAS_USED_VOICE, false)
     override fun setHasUsedVoice() = put(HAS_USED_VOICE, true)
@@ -110,6 +113,7 @@ class UserPreferences(context: Context) : PreferenceStore {
         const val THEME_MODE = "theme_mode"
         const val STYLE_PROFILE = "style_profile"
         const val AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
+        const val SIMPLIFIED_AUTO_MODE = "simplified_auto_mode"
         const val VISUAL_PROVIDER = "visual_provider"
         const val HAS_USED_VOICE = "has_used_voice"
         const val CAPTION_CONSENT_GIVEN = "caption_consent_given"

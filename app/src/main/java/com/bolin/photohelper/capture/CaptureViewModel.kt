@@ -1433,6 +1433,11 @@ class CaptureViewModel(
         updateSettings { it.copy(autoCaptureEnabled = enabled) }
     }
 
+    fun setSimplifiedAutoMode(enabled: Boolean) {
+        preferences.setSimplifiedAutoMode(enabled)
+        updateSettings { it.copy(simplifiedAutoMode = enabled) }
+    }
+
     fun setCaptionConsentGiven(given: Boolean) {
         preferences.setCaptionConsentGiven(given)
         updateSettings { it.copy(captionConsentGiven = given) }

@@ -55,17 +55,20 @@ fun AutoEnhanceButton(
     onClick: () -> Unit,
     enabled: Boolean,
     onLongPress: (() -> Unit)? = null,
+    simplifiedAutoMode: Boolean = true,
+    longPressLabel: String = "Best shot",
     modifier: Modifier = Modifier,
 ) {
     OverlayIconAction(
         icon = Icons.Rounded.AutoAwesome,
-        contentDescription = "Improve this photo automatically",
+        contentDescription = if (simplifiedAutoMode) "Improve this photo automatically" else "Help me frame the composition",
         onClick = onClick,
         modifier = modifier,
         tier = OverlayTier.PRIMARY,
         enabled = enabled,
         buttonSize = 44.dp,
         onLongPress = onLongPress,
+        longPressLabel = longPressLabel,
         traversalIndex = 4.2f,
     )
 }

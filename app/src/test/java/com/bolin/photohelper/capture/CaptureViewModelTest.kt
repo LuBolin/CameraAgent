@@ -3093,6 +3093,7 @@ class CaptureViewModelTest {
         }
         override fun autoCaptureEnabled() = true
         override fun setAutoCaptureEnabled(enabled: Boolean) = Unit
+        override fun setSimplifiedAutoMode(enabled: Boolean) = Unit
         override fun hasUsedVoice() = false
         override fun setHasUsedVoice() = Unit
     }

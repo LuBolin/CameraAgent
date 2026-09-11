@@ -341,6 +341,7 @@ private fun MainActivity.PhotoHelperApp(
                 viewModel.clearKey()
             }
             override fun onAutoCaptureEnabledChanged(enabled: Boolean) = viewModel.setAutoCaptureEnabled(enabled)
+            override fun onSimplifiedAutoModeChanged(enabled: Boolean) = viewModel.setSimplifiedAutoMode(enabled)
             override fun onGridOverlayEnabledChanged(enabled: Boolean) = viewModel.setGridOverlayEnabled(enabled)
             override fun onTiltIndicatorEnabledChanged(enabled: Boolean) = viewModel.setTiltIndicatorEnabled(enabled)
             override fun onCaptionConsentChanged(given: Boolean) {

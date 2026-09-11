@@ -205,6 +205,7 @@ fun CaptureScreen(
             onClearKey = actions::onClearKey,
             onEnableMicrophone = actions::onOpenAppSettings,
             onAutoCaptureEnabledChanged = actions::onAutoCaptureEnabledChanged,
+            onSimplifiedAutoModeChanged = actions::onSimplifiedAutoModeChanged,
             onCaptionConsentChanged = actions::onCaptionConsentChanged,
             onGridOverlayEnabledChanged = actions::onGridOverlayEnabledChanged,
             onTiltIndicatorEnabledChanged = actions::onTiltIndicatorEnabledChanged,
@@ -426,9 +427,11 @@ private fun CaptureContent(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             MicrophoneButton(state.coachingPhase, actions::onMicrophone)
                             AutoEnhanceButton(
-                                onClick = actions::onAutoEnhance,
+                                onClick = if (state.settings.simplifiedAutoMode) actions::onAutoEnhance else actions::onBestShot,
                                 enabled = state.coachingPhase == CoachingPhase.IDLE,
-                                onLongPress = actions::onBestShot,
+                                onLongPress = if (state.settings.simplifiedAutoMode) actions::onBestShot else actions::onAutoEnhance,
+                                simplifiedAutoMode = state.settings.simplifiedAutoMode,
+                                longPressLabel = if (state.settings.simplifiedAutoMode) "Help me frame" else "Improve this photo",
                             )
                         }
                     }
