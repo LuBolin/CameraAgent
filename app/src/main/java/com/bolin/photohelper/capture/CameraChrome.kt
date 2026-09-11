@@ -23,7 +23,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -71,6 +72,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
@@ -98,6 +100,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
@@ -113,6 +116,7 @@ fun PreviewPane(
     canFlipCamera: Boolean,
     onFlipCamera: () -> Unit,
     onFocusTarget: (Float, Float) -> Unit,
+    onFocusTap: (Float, Float) -> Unit = onFocusTarget,
     onZoom: (Float) -> Unit,
     onSettingsOpen: () -> Unit,
     onHelpOpen: () -> Unit,
@@ -131,12 +135,7 @@ fun PreviewPane(
     ) {
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(onZoom) {
-                    detectTransformGestures { _, _, zoom, _ ->
-                        if (zoom.isFinite() && zoom != 1f) onZoom(zoom)
-                    }
-                },
+                .fillMaxSize(),
             content = preview,
         )
 
@@ -158,7 +157,7 @@ fun PreviewPane(
             GuidanceTarget(guidance, Modifier.fillMaxSize(), observation, isFrontCamera)
         }
 
-        ObservationLayers(state, isFrontCamera, onFocusTarget)
+        ObservationLayers(state, isFrontCamera, onFocusTarget, onFocusTap, onZoom)
         state.compositionSelection?.let { faces ->
             CompositionFaceSelection(faces, state.compositionSelectedIndices, observation, isFrontCamera, onToggleCompositionFace)
         }
@@ -261,33 +260,64 @@ fun ObservationLayers(
     state: CaptureUiState,
     isFrontCamera: Boolean,
     onFocusTarget: (Float, Float) -> Unit,
+    onFocusTap: (Float, Float) -> Unit = onFocusTarget,
+    onZoom: (Float) -> Unit = {},
 ) {
     val focusRecommendation = state.recommendation?.takeIf {
         it.action is RecommendationAction.TapToFocus || it.action is RecommendationAction.FocusAt
     }
     val canFocus = state.review == null && state.cameraPhase == CameraPhase.READY &&
         state.capabilities.supportsFocusMetering
-    if (!canFocus) return
 
     // The model reports its cell against the sensor frame; the selfie preview is
     // mirrored, so the marker has to be flipped before it is drawn or tapped.
     val modelTarget = (focusRecommendation?.action as? RecommendationAction.FocusAt)
         ?.forPreview(isFrontCamera)
     val visibleIndicator = state.focusIndicator
-    if ((state.coachingPhase != CoachingPhase.APPLYING || visibleIndicator != null) &&
-        (modelTarget == null || visibleIndicator != null)
+    if (state.review == null && state.cameraPhase == CameraPhase.READY &&
+        (!canFocus ||
+            ((state.coachingPhase != CoachingPhase.APPLYING || visibleIndicator != null) &&
+                (modelTarget == null || visibleIndicator != null)))
     ) {
         Box(
             Modifier
                 .fillMaxSize()
                 .testTag(CaptureTestTags.FOCUS_AREA)
                 .semantics { contentDescription = "Tap anywhere in the preview to focus" }
-                .pointerInput(onFocusTarget) {
-                    detectTapGestures { point ->
-                        onFocusTarget(
-                            (point.x / size.width).coerceIn(0f, 1f),
-                            (point.y / size.height).coerceIn(0f, 1f),
-                        )
+                .pointerInput(onFocusTap, onZoom) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var moved = false
+                        var multiPointer = false
+                        var previousSpan: Float? = null
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val pressed = event.changes.filter { it.pressed }
+                            if (pressed.size > 1) {
+                                multiPointer = true
+                                val first = pressed[0].position
+                                val second = pressed[1].position
+                                val span = hypot(
+                                    (second.x - first.x).toDouble(),
+                                    (second.y - first.y).toDouble(),
+                                ).toFloat()
+                                if (span.isFinite() && span > 0f) {
+                                    previousSpan?.let { previous ->
+                                        val factor = span / previous
+                                        if (factor.isFinite() && factor != 1f) onZoom(factor)
+                                    }
+                                    previousSpan = span
+                                }
+                            }
+                            moved = moved || event.changes.any { it.position != it.previousPosition }
+                            if (event.changes.all { !it.pressed }) break
+                        }
+                        if (canFocus && !moved && !multiPointer) {
+                            onFocusTap(
+                                (down.position.x / size.width).coerceIn(0f, 1f),
+                                (down.position.y / size.height).coerceIn(0f, 1f),
+                            )
+                        }
                     }
                 },
         )

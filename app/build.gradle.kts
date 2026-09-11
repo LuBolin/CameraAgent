@@ -25,6 +25,11 @@ android {
                     envKeys[k.trim()] = v.trim()
                 }
             }
+        } else {
+            val rawQwenKeyFile = rootProject.file("qwen_key.env")
+            if (rawQwenKeyFile.exists()) {
+                envKeys["DASHSCOPE_API_KEY"] = rawQwenKeyFile.readText().trim()
+            }
         }
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"${envKeys["ANTHROPIC_API_KEY"].orEmpty()}\"")
         buildConfigField("String", "DASHSCOPE_API_KEY", "\"${envKeys["DASHSCOPE_API_KEY"].orEmpty()}\"")

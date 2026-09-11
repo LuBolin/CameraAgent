@@ -83,6 +83,26 @@ class CaptureViewModelTest {
     }
 
     @Test
+    fun `manual zoom coalesces pinch updates while camera apply is in flight`() = runTest(dispatcher) {
+        val camera = FakeCamera(observation())
+        camera.capabilities.value = camera.capabilities.value.copy(zoomRatioRange = 1f..8f)
+        camera.applyGate = CompletableDeferred()
+        val viewModel = viewModel(camera)
+
+        viewModel.zoomBy(1.1f)
+        runCurrent()
+        viewModel.zoomBy(1.1f)
+        runCurrent()
+
+        assertEquals(1, camera.applyCalls)
+        camera.applyGate?.complete(ApplyResult.Applied)
+        runCurrent()
+
+        assertEquals(2, camera.applyCalls)
+        assertEquals(CameraAdjustment.ZoomRatio(1.21f), camera.lastAdjustment)
+    }
+
+    @Test
     fun `visual focus point focuses immediately`() = runTest(dispatcher) {
         val camera = FakeCamera(observation(), supportsFocusMetering = true)
         val viewModel = viewModel(

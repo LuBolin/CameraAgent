@@ -1,0 +1,279 @@
+{
+  "preserve": "All 14 slides and existing content except overview placeholder. Keep all media and titles. Use current slides as own exemplars, populate in place; add matching body text to empty slides 7, 9, 10.",
+  "copy": [
+    {
+      "n": 5,
+      "id": "g409cfd5af0c_13_15",
+      "text": "Say what you want, in everyday language\n\"Brighter, focus on the panda, photo in five seconds.\"\n\nWatch the camera adjust and take the photo\nUse Smart Mode when you are unsure what to ask.\n\nOpen the photo and describe an edit\nKeep the original and compare your edited versions.\n\nChoose photos, draft a caption, and share\nReview the caption, then choose where to send it."
+    },
+    {
+      "n": 7,
+      "id": "photohelper_fill_capture",
+      "text": "Speech + scene + camera context\nThe request includes a reduced frame and lens capabilities.\n\nAI turns the request into an ordered plan\nBrightness, zoom, white balance, focus, timer, capture.\n\nAndroid checks and executes each action\nCameraX / Camera2 apply only supported changes.\n\nRecovery stays on the phone\nReject stale plans, roll back failures, or use Reset."
+    },
+    {
+      "n": 9,
+      "id": "photohelper_fill_postcapture",
+      "text": "Edit with a photo and a written or spoken request\nQwen Image creates a new version, preserving the original.\n\nGenerate a caption from the selected photos\nA contact sheet gives the model context for the draft.\n\nRefine the result before sharing\nChange the caption length, type edits, or give feedback.\n\nHand off to Android sharing\nThe user chooses the destination and sends the photos."
+    },
+    {
+      "n": 10,
+      "id": "photohelper_fill_workbuddy",
+      "text": "HY3 + Mobile Application Developer\nTraced the Android journey and found issues in the code.\n\nKimi-K3 + UI Designer\nReviewed clarity, accessibility, and recovery.\n\nHY3 + Software Workshop\nImplemented selected fixes and verified them on OnePlus.\n\nChanges users can see\nClearer Stop guidance and Reset for reversible adjustments."
+    }
+  ],
+  "requests": [
+    {
+      "deleteText": {
+        "objectId": "g409cfd5af0c_13_15",
+        "textRange": {
+          "type": "ALL"
+        }
+      }
+    },
+    {
+      "insertText": {
+        "objectId": "g409cfd5af0c_13_15",
+        "text": "Say what you want, in everyday language\n\"Brighter, focus on the panda, photo in five seconds.\"\n\nWatch the camera adjust and take the photo\nUse Smart Mode when you are unsure what to ask.\n\nOpen the photo and describe an edit\nKeep the original and compare your edited versions.\n\nChoose photos, draft a caption, and share\nReview the caption, then choose where to send it.",
+        "insertionIndex": 0
+      }
+    },
+    {
+      "createShape": {
+        "objectId": "photohelper_fill_capture",
+        "shapeType": "TEXT_BOX",
+        "elementProperties": {
+          "pageObjectId": "g409cfd5af0c_0_42",
+          "size": {
+            "width": {
+              "magnitude": 590.43,
+              "unit": "PT"
+            },
+            "height": {
+              "magnitude": 220,
+              "unit": "PT"
+            }
+          },
+          "transform": {
+            "scaleX": 1,
+            "scaleY": 1,
+            "translateX": 38.185,
+            "translateY": 115.26,
+            "unit": "PT"
+          }
+        }
+      }
+    },
+    {
+      "insertText": {
+        "objectId": "photohelper_fill_capture",
+        "text": "Speech + scene + camera context\nThe request includes a reduced frame and lens capabilities.\n\nAI turns the request into an ordered plan\nBrightness, zoom, white balance, focus, timer, capture.\n\nAndroid checks and executes each action\nCameraX / Camera2 apply only supported changes.\n\nRecovery stays on the phone\nReject stale plans, roll back failures, or use Reset.",
+        "insertionIndex": 0
+      }
+    },
+    {
+      "updateTextStyle": {
+        "objectId": "photohelper_fill_capture",
+        "textRange": {
+          "type": "ALL"
+        },
+        "style": {
+          "fontFamily": "Arial",
+          "fontSize": {
+            "magnitude": 17,
+            "unit": "PT"
+          },
+          "bold": true,
+          "foregroundColor": {
+            "opaqueColor": {
+              "rgbColor": {
+                "red": 1,
+                "green": 1,
+                "blue": 1
+              }
+            }
+          }
+        },
+        "fields": "fontFamily,fontSize,bold,foregroundColor"
+      }
+    },
+    {
+      "updateParagraphStyle": {
+        "objectId": "photohelper_fill_capture",
+        "textRange": {
+          "type": "ALL"
+        },
+        "style": {
+          "lineSpacing": 100,
+          "spaceAbove": {
+            "magnitude": 0,
+            "unit": "PT"
+          },
+          "spaceBelow": {
+            "magnitude": 0,
+            "unit": "PT"
+          }
+        },
+        "fields": "lineSpacing,spaceAbove,spaceBelow"
+      }
+    },
+    {
+      "createShape": {
+        "objectId": "photohelper_fill_postcapture",
+        "shapeType": "TEXT_BOX",
+        "elementProperties": {
+          "pageObjectId": "g409cfd5af0c_0_49",
+          "size": {
+            "width": {
+              "magnitude": 590.43,
+              "unit": "PT"
+            },
+            "height": {
+              "magnitude": 220,
+              "unit": "PT"
+            }
+          },
+          "transform": {
+            "scaleX": 1,
+            "scaleY": 1,
+            "translateX": 38.185,
+            "translateY": 115.26,
+            "unit": "PT"
+          }
+        }
+      }
+    },
+    {
+      "insertText": {
+        "objectId": "photohelper_fill_postcapture",
+        "text": "Edit with a photo and a written or spoken request\nQwen Image creates a new version, preserving the original.\n\nGenerate a caption from the selected photos\nA contact sheet gives the model context for the draft.\n\nRefine the result before sharing\nChange the caption length, type edits, or give feedback.\n\nHand off to Android sharing\nThe user chooses the destination and sends the photos.",
+        "insertionIndex": 0
+      }
+    },
+    {
+      "updateTextStyle": {
+        "objectId": "photohelper_fill_postcapture",
+        "textRange": {
+          "type": "ALL"
+        },
+        "style": {
+          "fontFamily": "Arial",
+          "fontSize": {
+            "magnitude": 17,
+            "unit": "PT"
+          },
+          "bold": true,
+          "foregroundColor": {
+            "opaqueColor": {
+              "rgbColor": {
+                "red": 1,
+                "green": 1,
+                "blue": 1
+              }
+            }
+          }
+        },
+        "fields": "fontFamily,fontSize,bold,foregroundColor"
+      }
+    },
+    {
+      "updateParagraphStyle": {
+        "objectId": "photohelper_fill_postcapture",
+        "textRange": {
+          "type": "ALL"
+        },
+        "style": {
+          "lineSpacing": 100,
+          "spaceAbove": {
+            "magnitude": 0,
+            "unit": "PT"
+          },
+          "spaceBelow": {
+            "magnitude": 0,
+            "unit": "PT"
+          }
+        },
+        "fields": "lineSpacing,spaceAbove,spaceBelow"
+      }
+    },
+    {
+      "createShape": {
+        "objectId": "photohelper_fill_workbuddy",
+        "shapeType": "TEXT_BOX",
+        "elementProperties": {
+          "pageObjectId": "g409cfd5af0c_0_54",
+          "size": {
+            "width": {
+              "magnitude": 590.43,
+              "unit": "PT"
+            },
+            "height": {
+              "magnitude": 220,
+              "unit": "PT"
+            }
+          },
+          "transform": {
+            "scaleX": 1,
+            "scaleY": 1,
+            "translateX": 38.185,
+            "translateY": 115.26,
+            "unit": "PT"
+          }
+        }
+      }
+    },
+    {
+      "insertText": {
+        "objectId": "photohelper_fill_workbuddy",
+        "text": "HY3 + Mobile Application Developer\nTraced the Android journey and found issues in the code.\n\nKimi-K3 + UI Designer\nReviewed clarity, accessibility, and recovery.\n\nHY3 + Software Workshop\nImplemented selected fixes and verified them on OnePlus.\n\nChanges users can see\nClearer Stop guidance and Reset for reversible adjustments.",
+        "insertionIndex": 0
+      }
+    },
+    {
+      "updateTextStyle": {
+        "objectId": "photohelper_fill_workbuddy",
+        "textRange": {
+          "type": "ALL"
+        },
+        "style": {
+          "fontFamily": "Arial",
+          "fontSize": {
+            "magnitude": 17,
+            "unit": "PT"
+          },
+          "bold": true,
+          "foregroundColor": {
+            "opaqueColor": {
+              "rgbColor": {
+                "red": 1,
+                "green": 1,
+                "blue": 1
+              }
+            }
+          }
+        },
+        "fields": "fontFamily,fontSize,bold,foregroundColor"
+      }
+    },
+    {
+      "updateParagraphStyle": {
+        "objectId": "photohelper_fill_workbuddy",
+        "textRange": {
+          "type": "ALL"
+        },
+        "style": {
+          "lineSpacing": 100,
+          "spaceAbove": {
+            "magnitude": 0,
+            "unit": "PT"
+          },
+          "spaceBelow": {
+            "magnitude": 0,
+            "unit": "PT"
+          }
+        },
+        "fields": "lineSpacing,spaceAbove,spaceBelow"
+      }
+    }
+  ]
+}

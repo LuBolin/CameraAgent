@@ -11,6 +11,7 @@ interface CaptureScreenActions {
     fun onAutoEnhance()
     fun onZoom(factor: Float) {}
     fun onOpenGallery()
+    fun onFocusTap(xFraction: Float, yFraction: Float) = onFocusTarget(xFraction, yFraction)
 
     // Voice
     fun onMicrophone()

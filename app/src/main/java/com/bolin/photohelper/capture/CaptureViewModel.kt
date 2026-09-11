@@ -204,6 +204,7 @@ class CaptureViewModel(
     private var guidanceTimeoutJob: Job? = null
     private var verificationTimeoutJob: Job? = null
     private var focusIndicatorJob: Job? = null
+    private var focusTapJob: Job? = null
     private var verificationStartObservationId: Long? = null
     private var verificationStartedAtMs: Long? = null
     /** The settings change awaiting verification, and how many attempts it has had. */
@@ -245,6 +246,8 @@ class CaptureViewModel(
     private var guidanceSceneAnchor: FrameObservation? = null
     private var compositionZoomInFlight = false
     private var compositionZoomAttempts = 0
+    private var manualZoomJob: Job? = null
+    private var pendingManualZoom: Float? = null
 
     private fun logComposition(event: String) {
         java.util.logging.Logger.getLogger("CompositionGuidance").info("composition event=$event timeMs=${nowMs()}")
@@ -666,14 +669,44 @@ class CaptureViewModel(
     }
 
     fun zoomBy(factor: Float) {
+        focusTapJob?.cancel()
+        focusTapJob = null
         if (!factor.isFinite() || factor <= 0f || _uiState.value.cameraPhase != CameraPhase.READY) return
         val range = _uiState.value.capabilities.zoomRatioRange
-        val target = (camera.telemetry.value.zoomRatio * factor).coerceIn(range.start, range.endInclusive)
-        if (target == camera.telemetry.value.zoomRatio) return
-        viewModelScope.launch {
-            when (val result = camera.apply(CameraAdjustment.ZoomRatio(target))) {
-                ApplyResult.Applied -> markResetAvailable()
-                is ApplyResult.Failed -> showIdleMessage(result.message)
+        val current = pendingManualZoom ?: camera.telemetry.value.zoomRatio
+        val target = (current * factor).coerceIn(range.start, range.endInclusive)
+        if (target == current) return
+        pendingManualZoom = target
+        if (manualZoomJob == null) {
+            manualZoomJob = viewModelScope.launch {
+                try {
+                    while (true) {
+                        val next = pendingManualZoom ?: break
+                        pendingManualZoom = null
+                        when (val result = camera.apply(CameraAdjustment.ZoomRatio(next))) {
+                            ApplyResult.Applied -> markResetAvailable()
+                            is ApplyResult.Failed -> {
+                                showIdleMessage(result.message)
+                                pendingManualZoom = null
+                                break
+                            }
+                        }
+                    }
+                } finally {
+                    manualZoomJob = null
+                }
+            }
+        }
+    }
+
+    fun focusAfterTap(xFraction: Float, yFraction: Float) {
+        focusTapJob?.cancel()
+        focusTapJob = viewModelScope.launch {
+            try {
+                delay(150L)
+                focusAt(xFraction, yFraction)
+            } finally {
+                focusTapJob = null
             }
         }
     }
@@ -2802,12 +2835,17 @@ class CaptureViewModel(
         guidanceTimeoutJob?.cancel()
         verificationTimeoutJob?.cancel()
         focusIndicatorJob?.cancel()
+        focusTapJob?.cancel()
+        manualZoomJob?.cancel()
+        pendingManualZoom = null
         operationJob = null
         countdownJob = null
         visualJob = null
         guidanceTimeoutJob = null
         verificationTimeoutJob = null
         focusIndicatorJob = null
+        focusTapJob = null
+        manualZoomJob = null
         focusInFlight = false
         compositionZoomInFlight = false
         compositionZoomAttempts = 0

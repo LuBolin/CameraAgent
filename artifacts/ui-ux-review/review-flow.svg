@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="1200" height="620">
+  <defs>
+    <linearGradient id="photoBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a4a42"/>
+      <stop offset="1" stop-color="#3a2e28"/>
+    </linearGradient>
+  </defs>
+
+  <text x="600" y="36" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="22" font-weight="700">Capture review: where did the photo go?</text>
+
+  <!-- Phone 1: Full screen -->
+  <g transform="translate(80, 70)">
+    <rect x="0" y="0" width="240" height="480" rx="24" fill="#0d0f11" stroke="#4a5b66" stroke-width="3"/>
+    <rect x="12" y="12" width="216" height="456" rx="16" fill="url(#photoBg)"/>
+    <ellipse cx="120" cy="200" rx="60" ry="80" fill="#6b5a50" opacity="0.8"/>
+    <text x="120" y="360" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="16" font-weight="600">Captured</text>
+    <text x="120" y="510" text-anchor="middle" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="15">t = 0 s</text>
+  </g>
+
+  <!-- Arrow -->
+  <path d="M340 310 L390 310" stroke="#ffb347" stroke-width="3" marker-end="url(#arrow)"/>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#ffb347"/>
+    </marker>
+  </defs>
+
+  <!-- Phone 2: Scaling down -->
+  <g transform="translate(420, 70)">
+    <rect x="0" y="0" width="240" height="480" rx="24" fill="#0d0f11" stroke="#4a5b66" stroke-width="3"/>
+    <rect x="12" y="12" width="216" height="456" rx="16" fill="#111"/>
+    <!-- Thumbnail at bottom -->
+    <rect x="56" y="400" width="48" height="64" rx="6" fill="url(#photoBg)"/>
+    <text x="120" y="510" text-anchor="middle" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="15">t = 1 s</text>
+    <text x="120" y="430" text-anchor="middle" fill="#ef4444" font-family="system-ui, sans-serif" font-size="13" font-weight="700">Photo shrinks away</text>
+  </g>
+
+  <!-- Arrow -->
+  <path d="M680 310 L730 310" stroke="#ffb347" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- Phone 3: Proposed -->
+  <g transform="translate(780, 70)">
+    <rect x="0" y="0" width="240" height="480" rx="24" fill="#0d0f11" stroke="#4a5b66" stroke-width="3"/>
+    <rect x="12" y="12" width="216" height="456" rx="16" fill="url(#photoBg)"/>
+    <ellipse cx="120" cy="200" rx="60" ry="80" fill="#6b5a50" opacity="0.8"/>
+
+    <!-- Bottom actions -->
+    <rect x="20" y="380" width="200" height="76" rx="16" fill="#00000080"/>
+    <text x="120" y="410" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="600">Keep this photo?</text>
+    <rect x="32" y="422" width="76" height="30" rx="8" fill="#36454f"/>
+    <text x="70" y="442" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="13">Retake</text>
+    <rect x="132" y="422" width="76" height="30" rx="8" fill="#8fbf9c"/>
+    <text x="170" y="442" text-anchor="middle" fill="#1a2024" font-family="system-ui, sans-serif" font-size="13" font-weight="600">Done</text>
+
+    <text x="120" y="510" text-anchor="middle" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="15">PROPOSED</text>
+  </g>
+
+  <!-- Notes -->
+  <g transform="translate(80, 560)">
+    <text x="0" y="0" fill="#ef4444" font-family="system-ui, sans-serif" font-size="15" font-weight="700">Issue</text>
+    <text x="0" y="22" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="14">CaptureReviewScreen animates the photo to a tiny thumbnail after 1 s and auto-dismisses (onDone). Users may miss the image or wonder what happened.</text>
+
+    <text x="700" y="0" fill="#8fbf9c" font-family="system-ui, sans-serif" font-size="15" font-weight="700">Recommendation</text>
+    <text x="700" y="22" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="14">Keep the captured photo full-screen with explicit Retake / Done actions. Provide a thumbnail shortcut only after the user has chosen.</text>
+  </g>
+</svg>

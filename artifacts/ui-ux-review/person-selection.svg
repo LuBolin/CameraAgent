@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700">
+  <defs>
+    <linearGradient id="phoneBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a4a54"/>
+      <stop offset="1" stop-color="#253038"/>
+    </linearGradient>
+  </defs>
+
+  <text x="600" y="36" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="22" font-weight="700">Person selection for group composition</text>
+
+  <!-- BEFORE -->
+  <g transform="translate(80, 70)">
+    <rect x="0" y="0" width="320" height="580" rx="32" fill="#0d0f11" stroke="#4a5b66" stroke-width="3"/>
+    <rect x="14" y="14" width="292" height="552" rx="20" fill="url(#phoneBg)"/>
+
+    <!-- Two person silhouettes -->
+    <rect x="70" y="130" width="70" height="180" rx="8" fill="#ffffff15" stroke="#ffb347" stroke-width="3"/>
+    <text x="105" y="225" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="22" font-weight="600">✓ 1</text>
+
+    <rect x="180" y="130" width="70" height="180" rx="8" fill="#ffffff10" stroke="#fff" stroke-width="2"/>
+    <text x="215" y="225" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="22" font-weight="600">2</text>
+
+    <!-- Bottom sheet -->
+    <rect x="14" y="420" width="292" height="146" rx="20" fill="#36454f"/>
+    <text x="160" y="455" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="18" font-weight="600">Who are you framing?</text>
+
+    <rect x="34" y="470" width="60" height="38" rx="19" fill="none" stroke="#fff" stroke-width="1.5"/>
+    <text x="64" y="495" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14">All</text>
+
+    <rect x="106" y="470" width="108" height="38" rx="19" fill="#ffb347"/>
+    <text x="160" y="495" text-anchor="middle" fill="#1a2024" font-family="system-ui, sans-serif" font-size="14" font-weight="600">Use selection</text>
+
+    <rect x="226" y="470" width="60" height="38" rx="19" fill="none" stroke="#fff" stroke-width="1.5"/>
+    <text x="256" y="495" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14">Cancel</text>
+
+    <text x="160" y="620" text-anchor="middle" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="16" font-weight="600">BEFORE</text>
+    <text x="160" y="642" text-anchor="middle" fill="#8a9aa3" font-family="system-ui, sans-serif" font-size="13">Boxes obscure faces; numbers are small</text>
+  </g>
+
+  <!-- AFTER -->
+  <g transform="translate(520, 70)">
+    <rect x="0" y="0" width="320" height="580" rx="32" fill="#0d0f11" stroke="#4a5b66" stroke-width="3"/>
+    <rect x="14" y="14" width="292" height="552" rx="20" fill="url(#phoneBg)"/>
+
+    <!-- Two person silhouettes with clear outlines -->
+    <!-- Person 1 selected -->
+    <ellipse cx="105" cy="210" rx="36" ry="44" fill="#5a4a42" opacity="0.8"/>
+    <rect x="69" y="126" width="72" height="184" rx="12" fill="none" stroke="#ffb347" stroke-width="4"/>
+    <circle cx="105" cy="150" r="14" fill="#ffb347"/>
+    <text x="105" y="156" text-anchor="middle" fill="#1a2024" font-family="system-ui, sans-serif" font-size="14" font-weight="700">1</text>
+    <text x="105" y="340" text-anchor="middle" fill="#ffb347" font-family="system-ui, sans-serif" font-size="13" font-weight="600">Selected</text>
+
+    <!-- Person 2 not selected -->
+    <ellipse cx="215" cy="210" rx="36" ry="44" fill="#5a4a42" opacity="0.6"/>
+    <rect x="179" y="126" width="72" height="184" rx="12" fill="none" stroke="#ffffff50" stroke-width="2" stroke-dasharray="6 4"/>
+    <circle cx="215" cy="150" r="14" fill="#ffffff30" stroke="#fff" stroke-width="1.5"/>
+    <text x="215" y="156" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="600">2</text>
+    <text x="215" y="340" text-anchor="middle" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="13">Tap to select</text>
+
+    <!-- Bottom sheet -->
+    <rect x="14" y="420" width="292" height="146" rx="20" fill="#36454f"/>
+    <text x="160" y="455" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="18" font-weight="600">Who should be in the frame?</text>
+
+    <rect x="34" y="470" width="60" height="40" rx="20" fill="none" stroke="#fff" stroke-width="1.5"/>
+    <text x="64" y="496" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15">All</text>
+
+    <rect x="106" y="470" width="108" height="40" rx="20" fill="#ffb347"/>
+    <text x="160" y="496" text-anchor="middle" fill="#1a2024" font-family="system-ui, sans-serif" font-size="15" font-weight="600">Continue</text>
+
+    <rect x="226" y="470" width="60" height="40" rx="20" fill="none" stroke="#fff" stroke-width="1.5"/>
+    <text x="256" y="496" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15">Cancel</text>
+
+    <text x="160" y="620" text-anchor="middle" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="16" font-weight="600">AFTER</text>
+    <text x="160" y="642" text-anchor="middle" fill="#8a9aa3" font-family="system-ui, sans-serif" font-size="13">Open outlines, larger badges, clearer labels</text>
+  </g>
+
+  <!-- Notes -->
+  <g transform="translate(900, 130)">
+    <text x="0" y="0" fill="#fff" font-family="system-ui, sans-serif" font-size="18" font-weight="700">Design rationale</text>
+
+    <g transform="translate(0, 40)">
+      <circle cx="8" cy="8" r="8" fill="#8fbf9c"/>
+      <text x="8" y="13" text-anchor="middle" fill="#1a2024" font-family="system-ui, sans-serif" font-size="11" font-weight="700">1</text>
+      <text x="28" y="13" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="15">Avoid covering faces with buttons</text>
+    </g>
+
+    <g transform="translate(0, 80)">
+      <circle cx="8" cy="8" r="8" fill="#8fbf9c"/>
+      <text x="8" y="13" text-anchor="middle" fill="#1a2024" font-family="system-ui, sans-serif" font-size="11" font-weight="700">2</text>
+      <text x="28" y="13" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="15">Use 48 dp minimum tap targets</text>
+    </g>
+
+    <g transform="translate(0, 120)">
+      <circle cx="8" cy="8" r="8" fill="#8fbf9c"/>
+      <text x="8" y="13" text-anchor="middle" fill="#1a2024" font-family="system-ui, sans-serif" font-size="11" font-weight="700">3</text>
+      <text x="28" y="13" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="15">"Use selection" → "Continue" is clearer</text>
+    </g>
+
+    <g transform="translate(0, 160)">
+      <circle cx="8" cy="8" r="8" fill="#8fbf9c"/>
+      <text x="8" y="13" text-anchor="middle" fill="#1a2024" font-family="system-ui, sans-serif" font-size="11" font-weight="700">4</text>
+      <text x="28" y="13" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="15">Add position hints (left / right)</text>
+    </g>
+
+    <g transform="translate(0, 220)">
+      <rect x="0" y="0" width="230" height="110" rx="10" fill="#ffffff10" stroke="#ffffff20"/>
+      <text x="14" y="28" fill="#ffb347" font-family="system-ui, sans-serif" font-size="13" font-weight="700">Code pointer</text>
+      <text x="14" y="50" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="13">CompositionFaceSelection in</text>
+      <text x="14" y="70" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="13">CompositionOverlays.kt</text>
+      <text x="14" y="90" fill="#c7cdd1" font-family="system-ui, sans-serif" font-size="13">draws full overlays on faces.</text>
+    </g>
+  </g>
+</svg>

@@ -178,8 +178,6 @@ fun CaptureScreen(
                             onDismissTransientMessage = actions::onDismissTransientMessage,
                             onClarificationSelected = actions::onClarificationSelected,
                             onReset = actions::onReset,
-                            onRetake = actions::onRetake,
-                            onOpenGallery = actions::onOpenGallery,
                             onDone = actions::onDoneReview,
                         )
                     }
@@ -314,6 +312,7 @@ private fun CaptureContent(
             canFlipCamera = canFlipCamera,
             onFlipCamera = actions::onFlipCamera,
             onFocusTarget = actions::onFocusTarget,
+            onFocusTap = actions::onFocusTap,
             onZoom = actions::onZoom,
             onSettingsOpen = actions::onSettingsOpen,
             onHelpOpen = onHelpOpen,
