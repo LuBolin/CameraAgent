@@ -319,14 +319,11 @@ class PhotoWorkflowViewModel(
     }
 
     fun setCaptionLength(length: CaptionLength) {
-        _uiState.update {
-            it.copy(captionLength = length, captionDraft = it.captionDraft.takeCodePoints(length.maxCodePoints))
-        }
+        _uiState.update { it.copy(captionLength = length) }
     }
 
     fun updateCaptionDraft(value: String) {
-        val limit = _uiState.value.captionLength.maxCodePoints
-        _uiState.update { it.copy(captionDraft = value.takeCodePoints(limit)) }
+        _uiState.update { it.copy(captionDraft = value) }
     }
 
     fun updateCaptionFeedback(value: String) {

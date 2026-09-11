@@ -425,13 +425,18 @@ private fun CaptureContent(
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     if (showFlanking) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            MicrophoneButton(state.coachingPhase, actions::onMicrophone)
+                            MicrophoneButton(
+                                phase = state.coachingPhase,
+                                onMicrophone = actions::onMicrophone,
+                                modifier = Modifier.graphicsLayer { rotationZ = iconRotation },
+                            )
                             AutoEnhanceButton(
                                 onClick = if (state.settings.simplifiedAutoMode) actions::onAutoEnhance else actions::onBestShot,
                                 enabled = state.coachingPhase == CoachingPhase.IDLE,
                                 onLongPress = if (state.settings.simplifiedAutoMode) actions::onBestShot else actions::onAutoEnhance,
                                 simplifiedAutoMode = state.settings.simplifiedAutoMode,
                                 longPressLabel = if (state.settings.simplifiedAutoMode) "Help me frame" else "Improve this photo",
+                                modifier = Modifier.graphicsLayer { rotationZ = iconRotation },
                             )
                         }
                     }

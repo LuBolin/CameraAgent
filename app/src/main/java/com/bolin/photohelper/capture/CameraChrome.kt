@@ -732,11 +732,11 @@ fun BoxScope.DefaultPreview() {
 
 @Composable
 private fun RuleOfThirdsGrid(modifier: Modifier = Modifier) {
-    val gridColor = SoftCream.copy(alpha = 0.25f)
+    val gridColor = SoftCream.copy(alpha = 0.45f)
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val strokeWidth = 1f
+        val strokeWidth = 2f
         drawLine(gridColor, Offset(w / 3f, 0f), Offset(w / 3f, h), strokeWidth = strokeWidth)
         drawLine(gridColor, Offset(2f * w / 3f, 0f), Offset(2f * w / 3f, h), strokeWidth = strokeWidth)
         drawLine(gridColor, Offset(0f, h / 3f), Offset(w, h / 3f), strokeWidth = strokeWidth)

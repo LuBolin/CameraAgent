@@ -57,6 +57,16 @@ fun GuidanceTarget(guidance: ActiveGuidance, modifier: Modifier = Modifier,
             }
             if (target is VerificationTarget.Level) {
                 drawLine(Mango, Offset(size.width * .25f, size.height * .5f), Offset(size.width * .75f, size.height * .5f), 3.dp.toPx())
+                val roll = observation?.deviceRollDegrees
+                if (roll != null && kotlin.math.abs(roll) > 0.5f) {
+                    val rad = Math.toRadians(roll.toDouble().coerceIn(-15.0, 15.0))
+                    val halfLen = size.width * .25f
+                    val cx = size.width * .5f
+                    val cy = size.height * .5f
+                    val dx = (halfLen * kotlin.math.cos(rad)).toFloat()
+                    val dy = (halfLen * kotlin.math.sin(rad)).toFloat()
+                    drawLine(SoftCream.copy(alpha = .5f), Offset(cx - dx, cy + dy), Offset(cx + dx, cy - dy), 2.dp.toPx())
+                }
             }
         }
         if (!guidance.paused) guidance.members.forEach { face ->

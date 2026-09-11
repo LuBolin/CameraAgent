@@ -855,19 +855,26 @@ private fun ShareScreen(
                         )
                     }
                 }
+                val captionCodePoints = state.captionDraft.codePointCount(0, state.captionDraft.length)
+                val captionOverLimit = captionCodePoints > state.captionLength.maxCodePoints
                 OutlinedTextField(
                     value = state.captionDraft,
                     onValueChange = viewModel::updateCaptionDraft,
                     label = { Text("Caption") },
                     supportingText = {
-                        Text("${state.captionDraft.codePointCount(0, state.captionDraft.length)}/${state.captionLength.maxCodePoints}")
+                        Text(
+                            "$captionCodePoints/${state.captionLength.maxCodePoints}" +
+                                if (captionOverLimit) ", too long for ${if (state.captionLength == CaptionLength.SHORT) "short" else "long"}" else "",
+                            color = if (captionOverLimit) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     },
+                    isError = captionOverLimit,
                     trailingIcon = {
                         VoiceInputButton(VoiceInputTarget.CAPTION_DRAFT, state, viewModel, onVoiceInput)
                     },
                     minLines = 2,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        focusedBorderColor = if (captionOverLimit) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                         cursorColor = MaterialTheme.colorScheme.primary,
                     ),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag(PhotoWorkflowTestTags.CAPTION),
