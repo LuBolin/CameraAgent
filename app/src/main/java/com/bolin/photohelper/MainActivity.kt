@@ -360,8 +360,12 @@ private fun MainActivity.PhotoHelperApp(
     val confidence by viewModel.confidence.collectAsStateWithLifecycle()
     val guideProgress = remember { GuideProgress(activity.applicationContext) }
 
-    DisposableEffect(Unit) {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    DisposableEffect(photoState.destination) {
+        activity.requestedOrientation = if (photoState.destination == PhotoDestination.CAMERA) {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
         onDispose { activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     }
 
